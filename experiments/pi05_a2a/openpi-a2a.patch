@@ -1,0 +1,956 @@
+diff --git a/examples/libero/main.py b/examples/libero/main.py
+index dc015a6..0d07634 100644
+--- a/examples/libero/main.py
++++ b/examples/libero/main.py
+@@ -1,5 +1,6 @@
+ import collections
+ import dataclasses
++import json
+ import logging
+ import math
+ import pathlib
+@@ -27,6 +28,7 @@ class Args:
+     port: int = 8000
+     resize_size: int = 224
+     replan_steps: int = 5
++    use_past_actions: bool = False
+ 
+     #################################################################################################################
+     # LIBERO environment-specific parameters
+@@ -41,6 +43,8 @@ class Args:
+     # Utils
+     #################################################################################################################
+     video_out_path: str = "data/libero/videos"  # Path to save videos
++    save_videos: bool = False
++    result_out_path: str | None = None
+ 
+     seed: int = 7  # Random Seed (for reproducibility)
+ 
+@@ -55,7 +59,8 @@ def eval_libero(args: Args) -> None:
+     num_tasks_in_suite = task_suite.n_tasks
+     logging.info(f"Task suite: {args.task_suite_name}")
+ 
+-    pathlib.Path(args.video_out_path).mkdir(parents=True, exist_ok=True)
++    if args.save_videos:
++        pathlib.Path(args.video_out_path).mkdir(parents=True, exist_ok=True)
+ 
+     if args.task_suite_name == "libero_spatial":
+         max_steps = 220  # longest training demo has 193 steps
+@@ -74,6 +79,7 @@ def eval_libero(args: Args) -> None:
+ 
+     # Start evaluation
+     total_episodes, total_successes = 0, 0
++    task_summaries = []
+     for task_id in tqdm.tqdm(range(num_tasks_in_suite)):
+         # Get task
+         task = task_suite.get_task(task_id)
+@@ -92,6 +98,7 @@ def eval_libero(args: Args) -> None:
+             # Reset environment
+             env.reset()
+             action_plan = collections.deque()
++            action_history = collections.deque(maxlen=10)
+ 
+             # Set initial states
+             obs = env.set_init_state(initial_states[episode_idx])
+@@ -99,6 +106,7 @@ def eval_libero(args: Args) -> None:
+             # Setup
+             t = 0
+             replay_images = []
++            done = False
+ 
+             logging.info(f"Starting episode {task_episodes+1}...")
+             while t < max_steps + args.num_steps_wait:
+@@ -107,6 +115,7 @@ def eval_libero(args: Args) -> None:
+                     # and we need to wait for them to fall
+                     if t < args.num_steps_wait:
+                         obs, reward, done, info = env.step(LIBERO_DUMMY_ACTION)
++                        action_history.append(np.asarray(LIBERO_DUMMY_ACTION, dtype=np.float32))
+                         t += 1
+                         continue
+ 
+@@ -139,6 +148,14 @@ def eval_libero(args: Args) -> None:
+                             ),
+                             "prompt": str(task_description),
+                         }
++                        if args.use_past_actions:
++                            if not action_history:
++                                raise RuntimeError("A2A requires at least one previous action")
++                            history = list(action_history)
++                            if len(history) < 10:
++                                history = [history[0]] * (10 - len(history)) + history
++                            element["past_actions"] = np.stack(history[-10:])
++                            element["past_action_valid_mask"] = np.ones(10, dtype=bool)
+ 
+                         # Query model to get action
+                         action_chunk = client.infer(element)["actions"]
+@@ -151,6 +168,7 @@ def eval_libero(args: Args) -> None:
+ 
+                     # Execute action in environment
+                     obs, reward, done, info = env.step(action.tolist())
++                    action_history.append(np.asarray(action, dtype=np.float32))
+                     if done:
+                         task_successes += 1
+                         total_successes += 1
+@@ -167,11 +185,12 @@ def eval_libero(args: Args) -> None:
+             # Save a replay video of the episode
+             suffix = "success" if done else "failure"
+             task_segment = task_description.replace(" ", "_")
+-            imageio.mimwrite(
+-                pathlib.Path(args.video_out_path) / f"rollout_{task_segment}_{suffix}.mp4",
+-                [np.asarray(x) for x in replay_images],
+-                fps=10,
+-            )
++            if args.save_videos:
++                imageio.mimwrite(
++                    pathlib.Path(args.video_out_path) / f"rollout_{task_segment}_{suffix}.mp4",
++                    [np.asarray(x) for x in replay_images],
++                    fps=10,
++                )
+ 
+             # Log current results
+             logging.info(f"Success: {done}")
+@@ -181,9 +200,28 @@ def eval_libero(args: Args) -> None:
+         # Log final results
+         logging.info(f"Current task success rate: {float(task_successes) / float(task_episodes)}")
+         logging.info(f"Current total success rate: {float(total_successes) / float(total_episodes)}")
++        task_summaries.append(
++            {"task_id": task_id, "task": str(task_description), "successes": task_successes, "episodes": task_episodes}
++        )
+ 
+     logging.info(f"Total success rate: {float(total_successes) / float(total_episodes)}")
+     logging.info(f"Total episodes: {total_episodes}")
++    if args.result_out_path is not None:
++        result_path = pathlib.Path(args.result_out_path)
++        result_path.parent.mkdir(parents=True, exist_ok=True)
++        result_path.write_text(
++            json.dumps(
++                {
++                    "task_suite": args.task_suite_name,
++                    "seed": args.seed,
++                    "num_trials_per_task": args.num_trials_per_task,
++                    "successes": total_successes,
++                    "episodes": total_episodes,
++                    "tasks": task_summaries,
++                },
++                indent=2,
++            )
++        )
+ 
+ 
+ def _get_libero_env(task, resolution, seed):
+diff --git a/scripts/compute_libero_norm_stats_fast.py b/scripts/compute_libero_norm_stats_fast.py
+new file mode 100644
+index 0000000..2b05044
+--- /dev/null
++++ b/scripts/compute_libero_norm_stats_fast.py
+@@ -0,0 +1,50 @@
++"""Compute OpenPI LIBERO normalization stats without decoding image columns."""
++
++from pathlib import Path
++
++import numpy as np
++import pyarrow.parquet as pq
++import tqdm
++import tyro
++
++from openpi.shared import normalize
++from openpi.training import config as _config
++
++
++def main(config_name: str = "pi05_libero_a2a_jax_lora_warmup_cosine", dataset_root: Path | None = None) -> None:
++    config = _config.get_config(config_name)
++    if dataset_root is None:
++        dataset_root = Path.home() / ".cache/huggingface/lerobot/physical-intelligence/libero"
++
++    states: list[np.ndarray] = []
++    action_chunks: list[np.ndarray] = []
++    files = sorted((dataset_root / "data").glob("chunk-*/episode_*.parquet"))
++    for path in tqdm.tqdm(files, desc="Reading state/action columns"):
++        table = pq.read_table(path, columns=["state", "actions"])
++        state = np.asarray(table["state"].to_pylist(), dtype=np.float32)
++        actions = np.asarray(table["actions"].to_pylist(), dtype=np.float32)
++        indices = np.minimum(
++            np.arange(len(actions))[:, None] + np.arange(config.model.action_horizon)[None, :],
++            len(actions) - 1,
++        )
++        states.append(state)
++        action_chunks.append(actions[indices])
++
++    state_values = np.concatenate(states)
++    action_values = np.concatenate(action_chunks)
++    stats = {"state": normalize.RunningStats(), "actions": normalize.RunningStats()}
++    usable = len(state_values) // config.batch_size * config.batch_size
++    for start in tqdm.trange(0, usable, config.batch_size, desc="Computing stats"):
++        end = start + config.batch_size
++        stats["state"].update(state_values[start:end])
++        stats["actions"].update(action_values[start:end])
++
++    output = {key: value.get_statistics() for key, value in stats.items()}
++    data_config = config.data.create(config.assets_dirs, config.model)
++    output_path = Path(config.data.assets.assets_dir or config.assets_dirs) / data_config.asset_id
++    normalize.save(output_path, output)
++    print(f"Wrote normalization statistics to {output_path}")
++
++
++if __name__ == "__main__":
++    tyro.cli(main)
+diff --git a/scripts/serve_policy.py b/scripts/serve_policy.py
+index 30f121a..ca5837b 100644
+--- a/scripts/serve_policy.py
++++ b/scripts/serve_policy.py
+@@ -28,6 +28,8 @@ class Checkpoint:
+     config: str
+     # Checkpoint directory (e.g., "checkpoints/pi0_aloha_sim/exp/10000").
+     dir: str
++    # Number of flow integration steps. The A2A evaluation uses one step.
++    num_steps: int = 1
+ 
+ 
+ @dataclasses.dataclass
+@@ -90,7 +92,10 @@ def create_policy(args: Args) -> _policy.Policy:
+     match args.policy:
+         case Checkpoint():
+             return _policy_config.create_trained_policy(
+-                _config.get_config(args.policy.config), args.policy.dir, default_prompt=args.default_prompt
++                _config.get_config(args.policy.config),
++                args.policy.dir,
++                default_prompt=args.default_prompt,
++                sample_kwargs={"num_steps": args.policy.num_steps},
+             )
+         case Default():
+             return create_default_policy(args.env, default_prompt=args.default_prompt)
+diff --git a/scripts/train.py b/scripts/train.py
+index 5d28941..915c6f8 100644
+--- a/scripts/train.py
++++ b/scripts/train.py
+@@ -1,3 +1,4 @@
++# Pi0.5 A2A epoch-based JAX training support.
+ import dataclasses
+ import functools
+ import logging
+@@ -209,6 +210,27 @@ def main(config: _config.TrainConfig):
+     data_sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec(sharding.DATA_AXIS))
+     replicated_sharding = jax.sharding.NamedSharding(mesh, jax.sharding.PartitionSpec())
+ 
++    data_loader = _data_loader.create_data_loader(
++        config,
++        sharding=data_sharding,
++        shuffle=True,
++    )
++    if config.num_train_epochs is not None:
++        steps_per_epoch = len(data_loader)
++        if steps_per_epoch < 1:
++            raise ValueError("The training data loader has no complete batches")
++        config = dataclasses.replace(
++            config,
++            num_train_steps=steps_per_epoch * config.num_train_epochs,
++            save_interval=steps_per_epoch,
++            keep_period=steps_per_epoch,
++        )
++        logging.info(
++            "Epoch schedule: %d batches/epoch, %d total optimizer steps",
++            steps_per_epoch,
++            config.num_train_steps,
++        )
++
+     checkpoint_manager, resuming = _checkpoints.initialize_checkpoint_dir(
+         config.checkpoint_dir,
+         keep_period=config.keep_period,
+@@ -217,11 +239,6 @@ def main(config: _config.TrainConfig):
+     )
+     init_wandb(config, resuming=resuming, enabled=config.wandb_enabled)
+ 
+-    data_loader = _data_loader.create_data_loader(
+-        config,
+-        sharding=data_sharding,
+-        shuffle=True,
+-    )
+     data_iter = iter(data_loader)
+     batch = next(data_iter)
+     logging.info(f"Initialized data loader:\n{training_utils.array_tree_to_info(batch)}")
+@@ -269,8 +286,11 @@ def main(config: _config.TrainConfig):
+             infos = []
+         batch = next(data_iter)
+ 
+-        if (step % config.save_interval == 0 and step > start_step) or step == config.num_train_steps - 1:
+-            _checkpoints.save_state(checkpoint_manager, train_state, data_loader, step)
++        completed_steps = step + 1
++        if config.save_checkpoints and (
++            completed_steps % config.save_interval == 0 or completed_steps == config.num_train_steps
++        ):
++            _checkpoints.save_state(checkpoint_manager, train_state, data_loader, completed_steps)
+ 
+     logging.info("Waiting for checkpoint manager to finish")
+     checkpoint_manager.wait_until_finished()
+diff --git a/src/openpi/models/model.py b/src/openpi/models/model.py
+index 29618b4..12c9719 100644
+--- a/src/openpi/models/model.py
++++ b/src/openpi/models/model.py
+@@ -1,3 +1,4 @@
++# Pi0.5 A2A observation history support.
+ import abc
+ from collections.abc import Sequence
+ import dataclasses
+@@ -106,6 +107,11 @@ class Observation(Generic[ArrayT]):
+     # Token loss mask (for FAST autoregressive model).
+     token_loss_mask: at.Bool[ArrayT, "*b l"] | None = None
+ 
++    # Optional normalized action history for Difference Flow Matching.
++    past_actions: at.Float[ArrayT, "*b ah ad"] | None = None
++    past_action_valid_mask: at.Bool[ArrayT, "*b ah"] | None = None
++    action_valid_mask: at.Bool[ArrayT, "*b ah"] | None = None
++
+     @classmethod
+     def from_dict(cls, data: at.PyTree[ArrayT]) -> "Observation[ArrayT]":
+         """This method defines the mapping between unstructured data (i.e., nested dict) to the structured Observation format."""
+@@ -126,6 +132,9 @@ class Observation(Generic[ArrayT]):
+             tokenized_prompt_mask=data.get("tokenized_prompt_mask"),
+             token_ar_mask=data.get("token_ar_mask"),
+             token_loss_mask=data.get("token_loss_mask"),
++            past_actions=data.get("past_actions"),
++            past_action_valid_mask=data.get("past_action_valid_mask"),
++            action_valid_mask=data.get("action_valid_mask"),
+         )
+ 
+     def to_dict(self) -> at.PyTree[ArrayT]:
+@@ -205,6 +214,9 @@ def preprocess_observation(
+         tokenized_prompt_mask=observation.tokenized_prompt_mask,
+         token_ar_mask=observation.token_ar_mask,
+         token_loss_mask=observation.token_loss_mask,
++        past_actions=observation.past_actions,
++        past_action_valid_mask=observation.past_action_valid_mask,
++        action_valid_mask=observation.action_valid_mask,
+     )
+ 
+ 
+diff --git a/src/openpi/models/pi0.py b/src/openpi/models/pi0.py
+index ae7c459..b4b9fe8 100644
+--- a/src/openpi/models/pi0.py
++++ b/src/openpi/models/pi0.py
+@@ -1,3 +1,4 @@
++# Pi0.5 A2A source and endpoint-consistency extension.
+ import logging
+ 
+ import einops
+@@ -44,29 +45,36 @@ def make_attn_mask(input_mask, mask_ar):
+     return jnp.logical_and(attn_mask, valid_mask)
+ 
+ 
+-@at.typecheck
+-def posemb_sincos(
+-    pos: at.Real[at.Array, " b"], embedding_dim: int, min_period: float, max_period: float
+-) -> at.Float[at.Array, "b {embedding_dim}"]:
++def posemb_sincos(pos: jax.Array, embedding_dim: int, min_period: float, max_period: float) -> jax.Array:
+     """Computes sine-cosine positional embedding vectors for scalar positions."""
+     if embedding_dim % 2 != 0:
+         raise ValueError(f"embedding_dim ({embedding_dim}) must be divisible by 2")
+ 
+     fraction = jnp.linspace(0.0, 1.0, embedding_dim // 2)
+     period = min_period * (max_period / min_period) ** fraction
+-    sinusoid_input = jnp.einsum(
+-        "i,j->ij",
+-        pos,
+-        1.0 / period * 2 * jnp.pi,
+-        precision=jax.lax.Precision.HIGHEST,
+-    )
++    sinusoid_input = pos[..., None] * (1.0 / period * 2 * jnp.pi)
+     return jnp.concatenate([jnp.sin(sinusoid_input), jnp.cos(sinusoid_input)], axis=-1)
+ 
+ 
++def make_past_action_source(
++    past_actions: jax.Array, source_noise: jax.Array, *, noise_std: float, continuous_dim: int
++) -> jax.Array:
++    """Add source noise only to normalized continuous action coordinates."""
++    if past_actions.shape != source_noise.shape:
++        raise ValueError("Past actions and source noise must have identical shapes")
++    motion_dims = jnp.arange(past_actions.shape[-1]) < continuous_dim
++    return past_actions + jnp.where(motion_dims, noise_std * source_noise, 0.0)
++
++
+ class Pi0(_model.BaseModel):
+     def __init__(self, config: pi0_config.Pi0Config, rngs: nnx.Rngs):
+         super().__init__(config.action_dim, config.action_horizon, config.max_token_len)
+         self.pi05 = config.pi05
++        self.a2a_enabled = config.a2a_enabled
++        self.a2a_noise_std = config.a2a_noise_std
++        self.a2a_consistency_weight = config.a2a_consistency_weight
++        self.a2a_continuous_action_dim = config.a2a_continuous_action_dim
++        self.action_loss_dim = config.action_loss_dim
+         paligemma_config = _gemma.get_config(config.paligemma_variant)
+         action_expert_config = _gemma.get_config(config.action_expert_variant)
+         # TODO: rewrite gemma in NNX. For now, use bridge.
+@@ -136,14 +144,13 @@ class Pi0(_model.BaseModel):
+         ar_mask = jnp.array(ar_mask)
+         return tokens, input_mask, ar_mask
+ 
+-    @at.typecheck
+     def embed_suffix(
+-        self, obs: _model.Observation, noisy_actions: _model.Actions, timestep: at.Float[at.Array, " b"]
++        self, obs: _model.Observation, noisy_actions: _model.Actions, timestep: jax.Array
+     ) -> tuple[
+         at.Float[at.Array, "b s emb"],
+         at.Bool[at.Array, "b s"],
+         at.Bool[at.Array, " s"],
+-        at.Float[at.Array, "b emb"] | None,
++        jax.Array | None,
+     ]:
+         input_mask = []
+         ar_mask = []
+@@ -185,20 +192,7 @@ class Pi0(_model.BaseModel):
+         ar_mask = jnp.array(ar_mask)
+         return tokens, input_mask, ar_mask, adarms_cond
+ 
+-    @override
+-    def compute_loss(
+-        self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
+-    ) -> at.Float[at.Array, "*b ah"]:
+-        preprocess_rng, noise_rng, time_rng = jax.random.split(rng, 3)
+-        observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
+-
+-        batch_shape = actions.shape[:-2]
+-        noise = jax.random.normal(noise_rng, actions.shape)
+-        time = jax.random.beta(time_rng, 1.5, 1, batch_shape) * 0.999 + 0.001
+-        time_expanded = time[..., None, None]
+-        x_t = time_expanded * noise + (1 - time_expanded) * actions
+-        u_t = noise - actions
+-
++    def _predict_velocity(self, observation: _model.Observation, x_t: _model.Actions, time: jax.Array) -> jax.Array:
+         # one big forward pass of prefix + suffix at once
+         prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
+         suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(observation, x_t, time)
+@@ -209,9 +203,49 @@ class Pi0(_model.BaseModel):
+         (prefix_out, suffix_out), _ = self.PaliGemma.llm(
+             [prefix_tokens, suffix_tokens], mask=attn_mask, positions=positions, adarms_cond=[None, adarms_cond]
+         )
+-        v_t = self.action_out_proj(suffix_out[:, -self.action_horizon :])
++        return self.action_out_proj(suffix_out[:, -self.action_horizon :])
+ 
+-        return jnp.mean(jnp.square(v_t - u_t), axis=-1)
++    @override
++    def compute_loss(
++        self, rng: at.KeyArrayLike, observation: _model.Observation, actions: _model.Actions, *, train: bool = False
++    ) -> jax.Array:
++        preprocess_rng, noise_rng, time_rng = jax.random.split(rng, 3)
++        observation = _model.preprocess_observation(preprocess_rng, observation, train=train)
++
++        batch_shape = actions.shape[:-2]
++        source_noise = jax.random.normal(noise_rng, actions.shape)
++        if self.a2a_enabled:
++            if observation.past_actions is None:
++                raise ValueError("A2A requires normalized past_actions in the observation")
++            source = make_past_action_source(
++                observation.past_actions,
++                source_noise,
++                noise_std=self.a2a_noise_std,
++                continuous_dim=self.a2a_continuous_action_dim,
++            )
++        else:
++            source = source_noise
++
++        time = jax.random.beta(time_rng, 1.5, 1, batch_shape) * 0.999 + 0.001
++        x_t = time[..., None, None] * source + (1 - time[..., None, None]) * actions
++        u_t = source - actions
++
++        v_t = self._predict_velocity(observation, x_t, time)
++        losses = jnp.square(v_t - u_t)
++        if self.a2a_enabled:
++            endpoint_v = self._predict_velocity(observation, source, jnp.ones_like(time))
++            endpoint = source - endpoint_v
++            losses = losses + self.a2a_consistency_weight * jnp.abs(endpoint - actions)
++
++        if self.a2a_enabled or self.action_loss_dim is not None:
++            valid = jnp.ones(actions.shape, dtype=jnp.bool_)
++            if self.action_loss_dim is not None:
++                valid &= jnp.arange(actions.shape[-1]) < self.action_loss_dim
++            if observation.action_valid_mask is not None:
++                valid &= observation.action_valid_mask[..., None]
++            count = jnp.sum(valid, axis=(-2, -1))
++            return jnp.sum(jnp.where(valid, losses, 0.0), axis=(-2, -1)) / jnp.maximum(count, 1)
++        return jnp.mean(losses, axis=-1)
+ 
+     @override
+     def sample_actions(
+@@ -228,7 +262,18 @@ class Pi0(_model.BaseModel):
+         dt = -1.0 / num_steps
+         batch_size = observation.state.shape[0]
+         if noise is None:
+-            noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
++            source_noise = jax.random.normal(rng, (batch_size, self.action_horizon, self.action_dim))
++            if self.a2a_enabled:
++                if observation.past_actions is None:
++                    raise ValueError("A2A inference requires normalized past_actions")
++                noise = make_past_action_source(
++                    observation.past_actions,
++                    source_noise,
++                    noise_std=self.a2a_noise_std,
++                    continuous_dim=self.a2a_continuous_action_dim,
++                )
++            else:
++                noise = source_noise
+ 
+         # first fill KV cache with a forward pass of the prefix
+         prefix_tokens, prefix_mask, prefix_ar_mask = self.embed_prefix(observation)
+@@ -238,9 +283,8 @@ class Pi0(_model.BaseModel):
+ 
+         def step(carry):
+             x_t, time = carry
+-            suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(
+-                observation, x_t, jnp.broadcast_to(time, batch_size)
+-            )
++            model_time = jnp.broadcast_to(time, (batch_size,))
++            suffix_tokens, suffix_mask, suffix_ar_mask, adarms_cond = self.embed_suffix(observation, x_t, model_time)
+             # `suffix_attn_mask` is shape (b, suffix_len, suffix_len) indicating how the suffix tokens can attend to each
+             # other
+             suffix_attn_mask = make_attn_mask(suffix_mask, suffix_ar_mask)
+diff --git a/src/openpi/models/pi0_config.py b/src/openpi/models/pi0_config.py
+index 584d83f..930685a 100644
+--- a/src/openpi/models/pi0_config.py
++++ b/src/openpi/models/pi0_config.py
+@@ -1,3 +1,4 @@
++# Pi0.5 A2A configuration.
+ import dataclasses
+ from typing import TYPE_CHECKING
+ 
+@@ -34,6 +35,14 @@ class Pi0Config(_model.BaseModelConfig):
+ 
+     pytorch_compile_mode: str | None = "max-autotune"
+ 
++    # Past-action source shared by JAX training and inference.
++    a2a_enabled: bool = False
++    a2a_noise_std: float = 0.5
++    a2a_consistency_weight: float = 0.5
++    a2a_continuous_action_dim: int = 6
++    # Number of action dimensions represented by the dataset, excluding model padding.
++    action_loss_dim: int | None = None
++
+     def __post_init__(self):
+         if self.max_token_len is None:
+             object.__setattr__(self, "max_token_len", 200 if self.pi05 else 48)
+@@ -46,6 +55,8 @@ class Pi0Config(_model.BaseModelConfig):
+                 "max-autotune",
+                 "max-autotune-no-cudagraphs",
+             ]
++        if self.action_loss_dim is not None and not 0 < self.action_loss_dim <= self.action_dim:
++            raise ValueError("action_loss_dim must be between 1 and action_dim")
+ 
+     @property
+     @override
+diff --git a/src/openpi/policies/libero_policy.py b/src/openpi/policies/libero_policy.py
+index fe5aab0..c8b6bf5 100644
+--- a/src/openpi/policies/libero_policy.py
++++ b/src/openpi/policies/libero_policy.py
+@@ -1,3 +1,4 @@
++# Pi0.5 A2A LIBERO input mapping.
+ import dataclasses
+ 
+ import einops
+@@ -73,6 +74,11 @@ class LiberoInputs(transforms.DataTransformFn):
+         # Actions are only available during training.
+         if "actions" in data:
+             inputs["actions"] = data["actions"]
++        if "actions_is_pad" in data:
++            inputs["action_valid_mask"] = ~np.asarray(data["actions_is_pad"], dtype=bool)
++        if "past_actions" in data:
++            inputs["past_actions"] = data["past_actions"]
++            inputs["past_action_valid_mask"] = data["past_action_valid_mask"]
+ 
+         # Pass the prompt (aka language instruction) to the model.
+         # Keep this for your own dataset (but modify the key if the instruction is not
+diff --git a/src/openpi/policies/policy_config.py b/src/openpi/policies/policy_config.py
+index 6570df0..f43dc80 100644
+--- a/src/openpi/policies/policy_config.py
++++ b/src/openpi/policies/policy_config.py
+@@ -1,3 +1,4 @@
++# Pi0.5 A2A policy normalization.
+ import logging
+ import os
+ import pathlib
+@@ -13,6 +14,17 @@ from openpi.training import config as _config
+ import openpi.transforms as transforms
+ 
+ 
++def input_norm_stats_for_model(
++    norm_stats: dict[str, transforms.NormStats], model_config: _model.BaseModelConfig
++) -> dict[str, transforms.NormStats]:
++    """Mirror the past-action normalization alias used by the training loader."""
++    if not getattr(model_config, "a2a_enabled", False):
++        return norm_stats
++    if "actions" not in norm_stats:
++        raise ValueError("A2A inference requires action normalization statistics")
++    return {**norm_stats, "past_actions": norm_stats["actions"]}
++
++
+ def create_trained_policy(
+     train_config: _config.TrainConfig,
+     checkpoint_dir: pathlib.Path | str,
+@@ -63,6 +75,10 @@ def create_trained_policy(
+             raise ValueError("Asset id is required to load norm stats.")
+         norm_stats = _checkpoints.load_norm_stats(checkpoint_dir / "assets", data_config.asset_id)
+ 
++    # Training adds the action statistics under this alias before normalizing
++    # past_actions. Inference must use the same statistics for its A2A source.
++    input_norm_stats = input_norm_stats_for_model(norm_stats, train_config.model)
++
+     # Determine the device to use for PyTorch models
+     if is_pytorch and pytorch_device is None:
+         try:
+@@ -78,7 +94,7 @@ def create_trained_policy(
+             *repack_transforms.inputs,
+             transforms.InjectDefaultPrompt(default_prompt),
+             *data_config.data_transforms.inputs,
+-            transforms.Normalize(norm_stats, use_quantiles=data_config.use_quantile_norm),
++            transforms.Normalize(input_norm_stats, use_quantiles=data_config.use_quantile_norm),
+             *data_config.model_transforms.inputs,
+         ],
+         output_transforms=[
+diff --git a/src/openpi/training/config.py b/src/openpi/training/config.py
+index 4ca47e1..4610660 100644
+--- a/src/openpi/training/config.py
++++ b/src/openpi/training/config.py
+@@ -1,3 +1,4 @@
++# Pi0.5 JAX A2A LoRA training configuration.
+ """See _CONFIGS for the list of available configs."""
+ 
+ import abc
+@@ -90,6 +91,9 @@ class DataConfig:
+     # If true, will use the LeRobot dataset task to define the prompt.
+     prompt_from_task: bool = False
+ 
++    # If positive, load this many actions immediately preceding the current frame.
++    past_action_horizon: int = 0
++
+     # Only used for RLDS data loader (ie currently only used for DROID).
+     rlds_data_dir: str | None = None
+     # Action space for DROID dataset.
+@@ -306,6 +310,15 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
+                         "observation/wrist_image": "wrist_image",
+                         "observation/state": "state",
+                         "actions": "actions",
++                        "actions_is_pad": "actions_is_pad",
++                        **(
++                            {
++                                "past_actions": "past_actions",
++                                "past_action_valid_mask": "past_action_valid_mask",
++                            }
++                            if self.base_config is not None and self.base_config.past_action_horizon
++                            else {}
++                        ),
+                         "prompt": "prompt",
+                     }
+                 )
+@@ -509,6 +522,8 @@ class TrainConfig:
+     num_workers: int = 2
+     # Number of train steps (batches) to run.
+     num_train_steps: int = 30_000
++    # Derive the exact number of steps from the JAX train loader.
++    num_train_epochs: int | None = None
+ 
+     # How often (in steps) to log training metrics.
+     log_interval: int = 100
+@@ -516,6 +531,8 @@ class TrainConfig:
+     save_interval: int = 1000
+     # If set, any existing checkpoints matching step % keep_period == 0 will not be deleted.
+     keep_period: int | None = 5000
++    # Disable checkpoint writes for short profiling or smoke-test runs.
++    save_checkpoints: bool = True
+ 
+     # If true, will overwrite the checkpoint directory if it already exists.
+     overwrite: bool = False
+@@ -761,6 +778,36 @@ _CONFIGS = [
+         pytorch_weight_path="/path/to/your/pytorch_weight_path",
+         num_train_steps=30_000,
+     ),
++    TrainConfig(
++        name="pi05_libero_a2a_jax_lora",
++        model=pi0_config.Pi0Config(
++            pi05=True,
++            action_horizon=10,
++            discrete_state_input=False,
++            paligemma_variant="gemma_2b_lora",
++            action_expert_variant="gemma_300m_lora",
++            a2a_enabled=True,
++            a2a_noise_std=0.5,
++            a2a_consistency_weight=0.5,
++            a2a_continuous_action_dim=6,
++            action_loss_dim=7,
++        ),
++        data=LeRobotLiberoDataConfig(
++            repo_id="physical-intelligence/libero",
++            assets=AssetsConfig(assets_dir="./assets/pi05_libero_a2a"),
++            base_config=DataConfig(prompt_from_task=True, past_action_horizon=10),
++            extra_delta_transform=False,
++        ),
++        batch_size=384,
++        lr_schedule=_optimizer.CosineDecaySchedule(warmup_steps=0, peak_lr=5e-5, decay_steps=1_000_000, decay_lr=5e-5),
++        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
++        freeze_filter=pi0_config.Pi0Config(
++            paligemma_variant="gemma_2b_lora", action_expert_variant="gemma_300m_lora"
++        ).get_freeze_filter(),
++        ema_decay=None,
++        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
++        num_train_epochs=5,
++    ),
+     #
+     # Fine-tuning Aloha configs.
+     #
+@@ -970,6 +1017,23 @@ _CONFIGS = [
+     *polaris_config.get_polaris_configs(),
+ ]
+ 
++# Five LIBERO epochs at global batch 384 contain 3,560 optimizer steps.
++# Keep the original constant-LR configs intact for checkpoint provenance.
++for source_name in ("pi05_libero_a2a_jax_lora",):
++    source_config = next(config for config in _CONFIGS if config.name == source_name)
++    _CONFIGS.append(
++        dataclasses.replace(
++            source_config,
++            name=f"{source_name}_warmup_cosine",
++            lr_schedule=_optimizer.CosineDecaySchedule(
++                warmup_steps=100,
++                peak_lr=5e-5,
++                decay_steps=3_560,
++                decay_lr=5e-6,
++            ),
++        )
++    )
++
+ if len({config.name for config in _CONFIGS}) != len(_CONFIGS):
+     raise ValueError("Config names must be unique.")
+ _CONFIGS_DICT = {config.name: config for config in _CONFIGS}
+diff --git a/src/openpi/training/data_loader.py b/src/openpi/training/data_loader.py
+index e2ee7dd..f81bacc 100644
+--- a/src/openpi/training/data_loader.py
++++ b/src/openpi/training/data_loader.py
+@@ -138,12 +138,20 @@ def create_torch_dataset(
+         return FakeDataset(model_config, num_samples=1024)
+ 
+     dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
++    if data_config.past_action_horizon:
++        if data_config.past_action_horizon != action_horizon:
++            raise ValueError("A2A requires equal past and future action horizons")
++        offsets = range(-data_config.past_action_horizon, action_horizon)
++    else:
++        offsets = range(action_horizon)
+     dataset = lerobot_dataset.LeRobotDataset(
+         data_config.repo_id,
+-        delta_timestamps={
+-            key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
+-        },
++        delta_timestamps={key: [t / dataset_meta.fps for t in offsets] for key in data_config.action_sequence_keys},
+     )
++    if data_config.past_action_horizon:
++        dataset = TransformedDataset(
++            dataset, [_transforms.SplitPastAndFutureActions(data_config.past_action_horizon)]
++        )
+ 
+     if data_config.prompt_from_task:
+         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
+@@ -179,6 +187,8 @@ def transform_dataset(dataset: Dataset, data_config: _config.DataConfig, *, skip
+                 "Make sure to run `scripts/compute_norm_stats.py --config-name=<your-config>`."
+             )
+         norm_stats = data_config.norm_stats
++        if data_config.past_action_horizon:
++            norm_stats = {**norm_stats, "past_actions": norm_stats["actions"]}
+ 
+     return TransformedDataset(
+         dataset,
+@@ -449,6 +459,14 @@ class TorchDataLoader:
+     def torch_loader(self) -> torch.utils.data.DataLoader:
+         return self._data_loader
+ 
++    def __len__(self) -> int:
++        return len(self._data_loader)
++
++    def set_epoch(self, epoch: int) -> None:
++        sampler = self._data_loader.sampler
++        if hasattr(sampler, "set_epoch"):
++            sampler.set_epoch(epoch)
++
+     def __iter__(self):
+         num_items = 0
+         while True:
+@@ -535,6 +553,13 @@ class DataLoaderImpl(DataLoader):
+     def data_config(self) -> _config.DataConfig:
+         return self._data_config
+ 
++    def __len__(self) -> int:
++        return len(self._data_loader)
++
++    def set_epoch(self, epoch: int) -> None:
++        if hasattr(self._data_loader, "set_epoch"):
++            self._data_loader.set_epoch(epoch)
++
+     def __iter__(self):
+         for batch in self._data_loader:
+             yield _model.Observation.from_dict(batch), batch["actions"]
+diff --git a/src/openpi/transforms.py b/src/openpi/transforms.py
+index 272375e..dc0cfae 100644
+--- a/src/openpi/transforms.py
++++ b/src/openpi/transforms.py
+@@ -334,9 +334,32 @@ class PadStatesAndActions(DataTransformFn):
+         data["state"] = pad_to_dim(data["state"], self.model_action_dim, axis=-1)
+         if "actions" in data:
+             data["actions"] = pad_to_dim(data["actions"], self.model_action_dim, axis=-1)
++        if "past_actions" in data:
++            data["past_actions"] = pad_to_dim(data["past_actions"], self.model_action_dim, axis=-1)
+         return data
+ 
+ 
++@dataclasses.dataclass(frozen=True)
++class SplitPastAndFutureActions(DataTransformFn):
++    """Split one LeRobot query into past history and future targets."""
++
++    past_horizon: int
++
++    def __call__(self, data: DataDict) -> DataDict:
++        actions = data["actions"]
++        is_pad = data["actions_is_pad"]
++        expected = 2 * self.past_horizon
++        if actions.shape[0] != expected:
++            raise ValueError(f"Expected {expected} queried actions, got {actions.shape[0]}")
++        return {
++            **data,
++            "past_actions": actions[: self.past_horizon],
++            "past_action_valid_mask": ~is_pad[: self.past_horizon],
++            "actions": actions[self.past_horizon :],
++            "actions_is_pad": is_pad[self.past_horizon :],
++        }
++
++
+ def flatten_dict(tree: at.PyTree) -> dict:
+     """Flatten a nested dictionary. Uses '/' as the separator."""
+     return traverse_util.flatten_dict(tree, sep="/")
+diff --git a/tests/policy_a2a_norm_test.py b/tests/policy_a2a_norm_test.py
+new file mode 100644
+index 0000000..4984c4b
+--- /dev/null
++++ b/tests/policy_a2a_norm_test.py
+@@ -0,0 +1,31 @@
++# Pi0.5 A2A normalization tests.
++from types import SimpleNamespace
++
++import numpy as np
++
++from openpi import transforms
++from openpi.policies.policy_config import input_norm_stats_for_model
++from openpi.shared.normalize import NormStats
++
++
++def test_a2a_inference_normalizes_past_actions_like_training():
++    action_stats = NormStats(
++        mean=np.zeros(2),
++        std=np.ones(2),
++        q01=np.array([-0.2, -1.0]),
++        q99=np.array([0.2, 1.0]),
++    )
++    stats = {"actions": action_stats}
++    input_stats = input_norm_stats_for_model(stats, SimpleNamespace(a2a_enabled=True))
++    raw = np.array([[0.1, 0.5]], dtype=np.float32)
++
++    result = transforms.Normalize(input_stats, use_quantiles=True)({"past_actions": raw.copy()})
++    expected = transforms.Normalize(stats, use_quantiles=True)({"actions": raw.copy()})
++
++    np.testing.assert_allclose(result["past_actions"], expected["actions"])
++    assert "past_actions" not in stats  # Output unnormalization keeps the original key set.
++
++
++def test_non_a2a_inference_keeps_original_normalization_keys():
++    stats = {"actions": object()}
++    assert input_norm_stats_for_model(stats, SimpleNamespace(a2a_enabled=False)) is stats
+diff --git a/tests/test_pi05_jax_lora.py b/tests/test_pi05_jax_lora.py
+new file mode 100644
+index 0000000..8f30b42
+--- /dev/null
++++ b/tests/test_pi05_jax_lora.py
+@@ -0,0 +1,40 @@
++# Pi0.5 A2A JAX source and preprocessing tests.
++import jax.numpy as jnp
++import numpy as np
++
++from openpi.models import model
++from openpi.models.pi0 import make_past_action_source
++from openpi.models.pi0 import posemb_sincos
++
++
++def test_past_action_source_noise_excludes_gripper_and_padding():
++    past = jnp.arange(2 * 10 * 32, dtype=jnp.float32).reshape(2, 10, 32)
++    noise = jnp.ones_like(past)
++    source = make_past_action_source(past, noise, noise_std=0.5, continuous_dim=6)
++    np.testing.assert_allclose(np.asarray(source[..., :6] - past[..., :6]), 0.5)
++    np.testing.assert_array_equal(np.asarray(source[..., 6:]), np.asarray(past[..., 6:]))
++
++
++def test_tokenwise_time_embedding_matches_scalar_embedding():
++    time = jnp.array([0.2, 0.8], dtype=jnp.float32)
++    scalar = posemb_sincos(time, 64, 4e-3, 4.0)
++    tokenwise = posemb_sincos(jnp.broadcast_to(time[:, None], (2, 10)), 64, 4e-3, 4.0)
++    assert tokenwise.shape == (2, 10, 64)
++    np.testing.assert_allclose(np.asarray(tokenwise[:, 0]), np.asarray(scalar))
++
++
++def test_observation_preprocessing_retains_action_history_and_masks():
++    images = {k: jnp.zeros((1, 224, 224, 3), dtype=jnp.float32) for k in model.IMAGE_KEYS}
++    masks = {k: jnp.ones((1,), dtype=jnp.bool_) for k in model.IMAGE_KEYS}
++    obs = model.Observation(
++        images=images,
++        image_masks=masks,
++        state=jnp.zeros((1, 32), dtype=jnp.float32),
++        past_actions=jnp.ones((1, 10, 32), dtype=jnp.float32),
++        past_action_valid_mask=jnp.ones((1, 10), dtype=jnp.bool_),
++        action_valid_mask=jnp.ones((1, 10), dtype=jnp.bool_),
++    )
++    output = model.preprocess_observation(None, obs, train=False)
++    assert output.past_actions is obs.past_actions
++    assert output.past_action_valid_mask is obs.past_action_valid_mask
++    assert output.action_valid_mask is obs.action_valid_mask
+diff --git a/tests/transforms_a2a_test.py b/tests/transforms_a2a_test.py
+new file mode 100644
+index 0000000..a69d624
+--- /dev/null
++++ b/tests/transforms_a2a_test.py
+@@ -0,0 +1,45 @@
++# Pi0.5 A2A data transform tests.
++import numpy as np
++
++from openpi import transforms
++from openpi.models.model import ModelType
++from openpi.policies.libero_policy import LiberoInputs
++
++
++def test_split_past_future_alignment_and_mask():
++    actions = np.arange(20 * 7, dtype=np.float32).reshape(20, 7)
++    is_pad = np.array([True] * 7 + [False] * 13)
++    out = transforms.SplitPastAndFutureActions(10)({"actions": actions, "actions_is_pad": is_pad})
++
++    np.testing.assert_array_equal(out["past_actions"], actions[:10])
++    np.testing.assert_array_equal(out["actions"], actions[10:])
++    np.testing.assert_array_equal(out["past_action_valid_mask"], ~is_pad[:10])
++
++
++def test_gripper_is_not_part_of_continuous_noise_mask():
++    continuous_dim = 6
++    mask = np.arange(7) < continuous_dim
++    np.testing.assert_array_equal(mask, [True, True, True, True, True, True, False])
++
++
++def test_flow_velocity_sign_and_one_step_endpoint():
++    source = np.array([[[0.4, -0.2]]], dtype=np.float32)
++    future = np.array([[[0.1, 0.3]]], dtype=np.float32)
++    velocity = source - future
++    endpoint = source - velocity
++    np.testing.assert_allclose(velocity, [[[0.3, -0.5]]])
++    np.testing.assert_allclose(endpoint, future)
++
++
++def test_libero_inputs_preserve_future_action_validity():
++    image = np.zeros((224, 224, 3), dtype=np.uint8)
++    result = LiberoInputs(model_type=ModelType.PI05)(
++        {
++            "observation/image": image,
++            "observation/wrist_image": image,
++            "observation/state": np.zeros(8, dtype=np.float32),
++            "actions": np.zeros((10, 7), dtype=np.float32),
++            "actions_is_pad": np.array([False] * 8 + [True] * 2),
++        }
++    )
++    np.testing.assert_array_equal(result["action_valid_mask"], [True] * 8 + [False] * 2)
