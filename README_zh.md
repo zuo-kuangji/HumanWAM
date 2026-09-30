@@ -8,6 +8,8 @@
 
 ImageWAM 是一组基于图像编辑模型基座的 world action model。本仓库包含论文实验中在 LIBERO、LIBERO-plus 和 RoboTwin 上使用的训练与评测代码。
 
+**本分支新增的 π₀.₅ A2A 实验：**[experiments/pi05_a2a](./experiments/pi05_a2a/README.md) 提供独立的 JAX LoRA 实现补丁和 LIBERO 评测说明。该补丁应用于指定版本的上游 OpenPI，不属于下文 ImageWAM 的运行环境。本分支只提交代码，不包含 LoRA 权重或 RTC 实现。
+
 建议从 **FLUX.2 ImageWAM** 开始使用；这一版本提供了4B和9B两个变体，基于FLUX.2 [klein] 4B/9B base，提供系列模型中最强大的性能。仓库同时提供 **OmniGen2 ImageWAM** 和 **Ovis-U1 ImageWAM** 的训练与评测入口，这两个模型基于 OmniGen2 与 Ovis-U1 构建，同样提供了较为良好的性能，其中 Ovis-U1 变体是系列中最小的模型（用于图像编辑的DiT仅1.1B），但在诸多方面与更大的变体相媲美。
 
 下文所有命令默认都在仓库根目录执行。
@@ -15,6 +17,7 @@ ImageWAM 是一组基于图像编辑模型基座的 world action model。本仓�
 ## 目录
 
 - [仓库结构](#仓库结构)
+- [Pi05 A2A 实验](#pi05-a2a-实验)
 - [基础安装](#基础安装)
 - [模型准备](#模型准备)
 - [数据准备](#数据准备)
@@ -31,7 +34,7 @@ ImageWAM 是一组基于图像编辑模型基座的 world action model。本仓�
 ImageWAM/
 ├── configs/                  # 模型、数据、任务和 benchmark 配置
 ├── docs/                     # 更详细的安装、数据、模型和依赖说明
-├── experiments/              # LIBERO / RoboTwin 评测 manager
+├── experiments/              # LIBERO / RoboTwin 评测 manager 和 π₀.₅ A2A 补丁
 ├── scripts/
 │   ├── flux2/                # FLUX.2 ImageWAM 训练与评测入口
 │   ├── omnigen2/             # OmniGen2 ImageWAM 训练与评测入口
@@ -43,6 +46,10 @@ ImageWAM/
 ```
 
 此外，还需要在本地准备数据集（默认放置在`./data`）、预训练模型权重；生成 ActionDiT 初始化权重（默认放置在./checkpoints/）。
+
+## Pi05 A2A 实验
+
+[A2A 使用说明](./experiments/pi05_a2a/README.md) 包含 OpenPI 补丁、五轮 JAX LoRA 训练配置、归一化统计计算方法及一步推理的标准 LIBERO 评测命令。A2A 使用过去十个已执行动作作为 flow source，每次推理调用重新采样 source 噪声；VLM 和 action expert 均使用 LoRA。这是独立的 OpenPI 实验，下文 ImageWAM 的安装与运行命令不适用于它。
 
 ## 基础安装
 
@@ -474,4 +481,3 @@ ImageWAM 基于以下多个代码库构建：
   note   = {TODO: add arXiv or conference information}
 }
 ```
-

@@ -8,6 +8,8 @@ Official codebase for **ImageWAM: Do World Action Models Really Need Video Gener
 
 ImageWAM is a family of world action models built on image-editing foundation models. This repository contains the training and evaluation code used in the paper experiments on LIBERO, LIBERO-plus, and RoboTwin.
 
+**π₀.₅ A2A experiment (this branch):** A standalone JAX LoRA implementation and LIBERO evaluation instructions are in [experiments/pi05_a2a](./experiments/pi05_a2a/README.md). Apply its patch to the pinned upstream OpenPI commit; it is not part of the ImageWAM runtime below. This branch includes code only—no LoRA weights or RTC implementation.
+
 We recommend starting with **FLUX.2 ImageWAM**. It provides 4B and 9B variants based on FLUX.2 [klein] 4B/9B base models, and gives the strongest performance in the series. This repository also provides training and evaluation entrypoints for **OmniGen2 ImageWAM** and **Ovis-U1 ImageWAM**. These variants are built on OmniGen2 and Ovis-U1 and also perform well. The Ovis-U1 variant is the smallest model in the series, with only a 1.1B DiT for image editing, while remaining competitive with larger variants in many settings.
 
 All commands below are assumed to run from the repository root.
@@ -15,6 +17,7 @@ All commands below are assumed to run from the repository root.
 ## Table Of Contents
 
 - [Repository Structure](#repository-structure)
+- [Pi05 A2A Experiment](#pi05-a2a-experiment)
 - [Basic Installation](#basic-installation)
 - [Model Preparation](#model-preparation)
 - [Data Preparation](#data-preparation)
@@ -31,7 +34,7 @@ All commands below are assumed to run from the repository root.
 ImageWAM/
 ├── configs/                  # Model, data, task, and benchmark configs
 ├── docs/                     # More detailed setup, data, model, and dependency notes
-├── experiments/              # LIBERO / RoboTwin evaluation managers
+├── experiments/              # LIBERO / RoboTwin managers and π₀.₅ A2A patch
 ├── scripts/
 │   ├── flux2/                # FLUX.2 ImageWAM training and evaluation entrypoints
 │   ├── omnigen2/             # OmniGen2 ImageWAM training and evaluation entrypoints
@@ -43,6 +46,10 @@ ImageWAM/
 ```
 
 You also need to prepare datasets locally, usually under `./data`, pretrained model weights, and generated ActionDiT initialization weights, usually under `./checkpoints`.
+
+## Pi05 A2A Experiment
+
+The [A2A guide](./experiments/pi05_a2a/README.md) provides an OpenPI patch, the five-epoch JAX LoRA training configuration, normalization-statistics command, and one-step standard LIBERO evaluation commands. The A2A policy uses the previous ten executed actions as its flow source and samples fresh source noise for each inference call. Its VLM and action expert both use LoRA. This is a separate OpenPI experiment; the ImageWAM installation and commands below do not train or evaluate it.
 
 ## Basic Installation
 
@@ -479,4 +486,3 @@ If you find this repository helpful for your research, please cite our paper:
       url={https://arxiv.org/abs/2606.19531}, 
 }
 ```
-
