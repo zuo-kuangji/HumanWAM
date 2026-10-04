@@ -693,17 +693,33 @@ class MoT(nn.Module):
 
         double_mask = _action_mask(attention_mask["double_joint"])
         capture = getattr(self, "action_attention_capture", None)
+        intervention = getattr(self, "action_kv_intervention", None)
+
+        def _layer_mask(base_mask: torch.Tensor, global_layer_idx: int) -> torch.Tensor:
+            if intervention is None or int(intervention.get("layer", -1)) != int(global_layer_idx):
+                return base_mask
+            start = int(intervention["start"])
+            end = int(intervention["end"])
+            if start < 0 or end > int(base_mask.shape[-1]) or end <= start:
+                raise ValueError(
+                    f"Invalid action K/V intervention slice [{start}:{end}] for mask {tuple(base_mask.shape)}"
+                )
+            masked = base_mask.clone()
+            masked[..., start:end] = False
+            return masked
+
         for layer_idx, cache in enumerate(video_kv_cache["double"]):
             block = action_expert.double_blocks[layer_idx]
             state = block.prepare_qkv(action, action_pe, action_t_mod["double_img"])
             k_cat = torch.cat([cache["k"].to(dtype=state["k"].dtype), state["k"]], dim=1)
             v_cat = torch.cat([cache["v"].to(dtype=state["v"].dtype), state["v"]], dim=1)
+            effective_mask = _layer_mask(double_mask, layer_idx)
             if capture is not None and capture.should_capture(layer_idx):
                 mixed, attn_probs = self._mixed_attention(
                     state["q"],
                     k_cat,
                     v_cat,
-                    double_mask,
+                    effective_mask,
                     return_attn_probs=True,
                 )
                 capture.update(
@@ -714,7 +730,7 @@ class MoT(nn.Module):
                     action_len=action_seq_len,
                 )
             else:
-                mixed = self._mixed_attention(state["q"], k_cat, v_cat, double_mask)
+                mixed = self._mixed_attention(state["q"], k_cat, v_cat, effective_mask)
             action = block.apply_post(mixed, state)
 
         single_mask = _action_mask(attention_mask["single"])
@@ -724,12 +740,13 @@ class MoT(nn.Module):
             global_layer_idx = int(len(video_kv_cache["double"])) + int(layer_idx)
             k_cat = torch.cat([cache["k"].to(dtype=state["k"].dtype), state["k"]], dim=1)
             v_cat = torch.cat([cache["v"].to(dtype=state["v"].dtype), state["v"]], dim=1)
+            effective_mask = _layer_mask(single_mask, global_layer_idx)
             if capture is not None and capture.should_capture(global_layer_idx):
                 mixed, attn_probs = self._mixed_attention(
                     state["q"],
                     k_cat,
                     v_cat,
-                    single_mask,
+                    effective_mask,
                     return_attn_probs=True,
                 )
                 capture.update(
@@ -740,7 +757,7 @@ class MoT(nn.Module):
                     action_len=action_seq_len,
                 )
             else:
-                mixed = self._mixed_attention(state["q"], k_cat, v_cat, single_mask)
+                mixed = self._mixed_attention(state["q"], k_cat, v_cat, effective_mask)
             action = block.apply_post(mixed, state)
         return action
 

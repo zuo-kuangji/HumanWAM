@@ -1,0 +1,105 @@
+train:
+  _target_: imagewam.datasets.lerobot.robot_video_dataset.RobotVideoDataset
+  dataset_dirs: ???
+  shape_meta:
+    images:
+      - key: head
+        lerobot_key: observation.images.head_rgb
+        raw_shape: [3, 720, 1280]
+        shape: [3, 224, 224]
+      - key: right_wrist
+        lerobot_key: observation.images.right_wrist_rgb
+        raw_shape: [3, 360, 640]
+        shape: [3, 224, 224]
+    action:
+      - key: right_arm
+        lerobot_key: action.right_arm
+        raw_shape: 6
+        shape: 6
+      - key: right_gripper
+        lerobot_key: action.right_gripper
+        raw_shape: 1
+        shape: 1
+    state:
+      - key: right_arm
+        lerobot_key: observation.state.right_arm
+        raw_shape: 6
+        shape: 6
+      - key: right_gripper
+        lerobot_key: observation.state.right_gripper
+        raw_shape: 1
+        shape: 1
+
+  # A2A maps the preceding 16 absolute joint targets to the next 16 targets.
+  num_frames: 17
+  past_action_size: 16
+  global_sample_stride: 1
+  sample_index_stride: 1
+  action_video_freq_ratio: 1
+  endpoint_frames_only: true
+
+  lerobot_backend: v2
+  lerobot_video_backend: pyav
+  lerobot_v3_init_num_workers: 1
+  lerobot_v3_index_cache: null
+  lerobot_v3_video_backend: pyav
+  lerobot_tolerance_s: 0.04
+
+  video_size: [224, 448]
+  camera_key: null
+  val_set_proportion: 0.0
+  is_training_set: true
+  skip_padding_as_possible: false
+  concat_multi_camera: horizontal
+
+  video_augmentation:
+    _target_: imagewam.datasets.lerobot.transforms.image.VideoAugmentation
+    p: 0.5
+    augment_types: [corrupt_only, color_only, both]
+    color_jitter:
+      brightness: 0.2
+      contrast: 0.2
+      saturation: 0.2
+      hue: 0.03
+    gamma:
+      range: [0.9, 1.1]
+    gaussian_noise:
+      std: 0.01
+    random_resized_crop:
+      scale: [0.95, 1.0]
+      ratio: preserve
+    rotate:
+      degrees: 5.0
+      fill: mean
+
+  require_text_cache: false
+  text_embedding_cache_dir: null
+  qwen_text_cache_dir: ???
+  qwen_context_len: 128
+  qwen_text_cache_format: qwen3_flux2
+  context_len: 128
+  pretrained_norm_stats: null
+
+  processor:
+    _target_: imagewam.datasets.lerobot.processors.imagewam_processor.ImageWAMProcessor
+    shape_meta: ${data.train.shape_meta}
+    num_obs_steps: ${data.train.num_frames}
+    image_obs_steps: 2
+    num_output_cameras: 2
+    action_output_dim: 7
+    proprio_output_dim: 7
+    delta_action_dim_mask: null
+    action_state_transforms: null
+    use_stepwise_action_norm: false
+    norm_default_mode: q01/q99
+    norm_exception_mode: null
+    action_state_merger:
+      _target_: imagewam.datasets.lerobot.transforms.action_state_merger.ConcatLeftAlign
+    train_transforms:
+      - _target_: imagewam.datasets.lerobot.transforms.image.ToTensor
+      - _target_: torchvision.transforms.Resize
+        size: [224, 224]
+    val_transforms:
+      - _target_: imagewam.datasets.lerobot.transforms.image.ToTensor
+      - _target_: torchvision.transforms.Resize
+        size: [224, 224]

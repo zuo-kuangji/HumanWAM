@@ -13,6 +13,7 @@ from omegaconf import OmegaConf
 
 from .trainer import Wan22Trainer
 from .utils.logging_config import get_logger, setup_logging
+from .utils.pytorch_utils import set_global_seed
 from .utils.video_io import save_mp4
 from .utils import misc
 
@@ -324,7 +325,10 @@ def create_imagewam_flux2_klein(
     mot_gqa_implementation: str = "repeat",
     mot_force_flash_attention: bool = False,
     pack_proprio_after_text: bool = True,
+    flux2_action_image_context=None,
     flux2_lora_config=None,
+    zero_init_action_head: bool = False,
+    action_head_init_scale: float = 1.0,
     model_dtype: torch.dtype = torch.bfloat16,
     device: str = "cuda",
 ):
@@ -363,6 +367,15 @@ def create_imagewam_flux2_klein(
         flux2_lora_config = {}
     if not isinstance(flux2_lora_config, dict):
         raise ValueError(f"`flux2_lora_config` must be dict-like, got {type(flux2_lora_config)}")
+    if isinstance(flux2_action_image_context, DictConfig):
+        flux2_action_image_context = OmegaConf.to_container(flux2_action_image_context, resolve=True)
+    if flux2_action_image_context is None:
+        flux2_action_image_context = {}
+    if not isinstance(flux2_action_image_context, dict):
+        raise ValueError(
+            "`flux2_action_image_context` must be dict-like, "
+            f"got {type(flux2_action_image_context)}"
+        )
     return ImageWAM.from_flux2_klein_pretrained(
         flux2_model_path=flux2_model_path,
         ae_model_path=ae_model_path,
@@ -385,10 +398,15 @@ def create_imagewam_flux2_klein(
         action_num_train_timesteps=int(action_scheduler["num_train_timesteps"]),
         loss_lambda_video=float(loss.get("lambda_video", 1.0)),
         loss_lambda_action=float(loss.get("lambda_action", 1.0)),
+        action_a2a=loss.get("action_a2a"),
+        image_i2i=loss.get("image_i2i"),
+        flux2_action_image_context=flux2_action_image_context,
         mot_gqa_implementation=str(mot_gqa_implementation),
         mot_force_flash_attention=bool(mot_force_flash_attention),
         pack_proprio_after_text=bool(pack_proprio_after_text),
         flux2_lora_config=flux2_lora_config,
+        zero_init_action_head=bool(zero_init_action_head),
+        action_head_init_scale=float(action_head_init_scale),
     )
 
 
@@ -1030,6 +1048,9 @@ def run_training(cfg: DictConfig):
         log_level=logging.INFO,
         is_main_process=torch.distributed.get_rank() == 0 if torch.distributed.is_initialized() else True,
     )
+    # Seed before model construction so randomly initialized trainable modules
+    # are reproducible. The trainer seeds again before building its dataloader.
+    set_global_seed(int(cfg.seed))
     misc.register_work_dir(cfg.output_dir)
     config_payload = OmegaConf.to_container(cfg, resolve=True)
     with open(Path(cfg.output_dir) / "config.yaml", "w") as f:

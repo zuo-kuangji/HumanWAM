@@ -19,11 +19,17 @@ persistent_workers: false  # true keeps workers alive across epochs (skips re-fo
 lr_scheduler_type: "cosine"
 learning_rate: 1.0e-4
 warmup_steps: null          # null keeps legacy 5% warmup; set 0 for no warmup.
+lr_scheduler_total_steps: null  # optional full-run horizon when max_steps stops an ablation early
 num_epochs: 1
 max_steps: null
 log_every: 10
 save_every: 100
+# Optional exact checkpoint milestones. These are combined with `save_every`;
+# use `save_every: 0` to save only these steps plus the final checkpoint.
+save_steps: []
+save_at_end: true
 keep_latest_state_only: false  # true keeps all weight checkpoints but only the latest resumable training state.
+keep_latest_weights: null      # null keeps all weights; positive int keeps only the latest N weight checkpoints.
 eval_every: 50
 eval_num_inference_steps: 10
 eval_num_samples: 1
@@ -56,16 +62,17 @@ mixed_precision: "bf16" # one of: [no, fp16, bf16]
 seed: 42
 max_grad_norm: 1.0
 weight_decay: 0.0
+optimizer_foreach: false
 resume: null
 
 # wandb
 wandb:
   enabled: true
-  workspace: arisilin
-  project: imagewam
+  workspace: ${oc.env:WANDB_WORKSPACE,arisilin}
+  project: ${oc.env:WANDB_PROJECT,imagewam}
   name: train
   group: null
-  mode: online
+  mode: ${oc.env:WANDB_MODE,online}
 
 hydra:
   job:

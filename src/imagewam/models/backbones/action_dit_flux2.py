@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Dict
 
 import torch
@@ -213,6 +214,8 @@ class ActionDiTFlux2(nn.Module):
         action_dit_config: dict[str, Any],
         action_dit_pretrained_path: str | None = None,
         skip_dit_load_from_pretrain: bool = False,
+        zero_init_output_head: bool = False,
+        output_head_init_scale: float = 1.0,
         device: str = "cuda",
         torch_dtype: torch.dtype = torch.bfloat16,
     ) -> "ActionDiTFlux2":
@@ -221,16 +224,42 @@ class ActionDiTFlux2(nn.Module):
         model = cls(**action_dit_config).to(device=device, dtype=torch_dtype)
         if skip_dit_load_from_pretrain or not action_dit_pretrained_path:
             logger.info("Initializing ActionDiTFlux2 without pretrained action weights.")
-            return model
-        payload = torch.load(action_dit_pretrained_path, map_location="cpu")
-        state_dict = payload.get("state_dict", payload) if isinstance(payload, dict) else payload
-        if not isinstance(state_dict, dict):
-            raise ValueError(f"Invalid ActionDiTFlux2 checkpoint type: {type(payload)}")
-        missing, unexpected = model.load_state_dict(state_dict, strict=False)
-        if missing:
-            logger.warning("ActionDiTFlux2 missing keys when loading: %s", missing[:20])
-        if unexpected:
-            logger.warning("ActionDiTFlux2 unexpected keys when loading: %s", unexpected[:20])
+        else:
+            payload = torch.load(action_dit_pretrained_path, map_location="cpu")
+            state_dict = payload.get("state_dict", payload) if isinstance(payload, dict) else payload
+            if not isinstance(state_dict, dict):
+                raise ValueError(f"Invalid ActionDiTFlux2 checkpoint type: {type(payload)}")
+            missing, unexpected = model.load_state_dict(state_dict, strict=False)
+            if missing:
+                logger.warning("ActionDiTFlux2 missing keys when loading: %s", missing[:20])
+            if unexpected:
+                logger.warning("ActionDiTFlux2 unexpected keys when loading: %s", unexpected[:20])
+        output_head_init_scale = float(output_head_init_scale)
+        if not math.isfinite(output_head_init_scale) or output_head_init_scale < 0.0:
+            raise ValueError(
+                "`output_head_init_scale` must be finite and non-negative, "
+                f"got {output_head_init_scale}."
+            )
+        if zero_init_output_head and output_head_init_scale != 1.0:
+            raise ValueError(
+                "`zero_init_output_head` and a non-default `output_head_init_scale` "
+                "are mutually exclusive."
+            )
+        if zero_init_output_head:
+            with torch.no_grad():
+                model.head.linear.weight.zero_()
+            logger.info(
+                "Zero-initialized ActionDiTFlux2 output projection "
+                "(head.linear.weight only; modulation weights are unchanged)."
+            )
+        elif output_head_init_scale != 1.0:
+            with torch.no_grad():
+                model.head.linear.weight.mul_(output_head_init_scale)
+            logger.info(
+                "Scaled ActionDiTFlux2 output projection by %.6g "
+                "(head.linear.weight only; modulation weights are unchanged).",
+                output_head_init_scale,
+            )
         return model
 
     @staticmethod

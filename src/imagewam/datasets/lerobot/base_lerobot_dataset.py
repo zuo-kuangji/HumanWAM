@@ -114,6 +114,7 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         lerobot_meta_cache: Optional[str] = None,
         arrow_cache_dir: Optional[str] = None,
         lerobot_backend: str = "v2",
+        lerobot_video_backend: Optional[str] = None,
         lerobot_v3_init_num_workers: int = 1,
         lerobot_v3_index_cache: Optional[str] = None,
         lerobot_v3_video_backend: Optional[str] = None,
@@ -121,7 +122,6 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         episode_index_filter: Optional[Dict[str, Any]] = None,
     ):
         assert len(dataset_dirs) > 0, "At least one dataset directory is required"
-        assert past_action_size == 0
         assert past_obs_size == 0
         assert action_size == obs_size - 1, "In this dataset, action_size should be obs_size - 1"
         profile_init = _profile_init_enabled()
@@ -236,7 +236,9 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
             key = meta["key"]
             default_lerobot_key = f"action.{key}" if key != "default" else "action"
             meta["lerobot_key"] = meta.get("lerobot_key") or default_lerobot_key
-            delta_timestamps[meta["lerobot_key"]] = [(t * global_sample_stride) / fps for t in range(-past_action_size, -past_action_size + action_size)]
+            delta_timestamps[meta["lerobot_key"]] = [
+                (t * global_sample_stride) / fps for t in range(-past_action_size, action_size)
+            ]
 
         episodes = None
         needs_episode_selection = self.episode_index_filter is not None or (
@@ -267,10 +269,12 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         if self.lerobot_backend == "v2":
             dataset_kwargs["lerobot_meta_cache"] = meta_cache_by_root if meta_cache_by_root else None
             dataset_kwargs["hf_dataset_cache_dir"] = arrow_cache_dir
+            if lerobot_video_backend is not None:
+                dataset_kwargs["video_backend"] = lerobot_video_backend
         else:
             dataset_kwargs["init_num_workers"] = int(lerobot_v3_init_num_workers)
             dataset_kwargs["index_cache_path"] = lerobot_v3_index_cache
-            dataset_kwargs["video_backend"] = lerobot_v3_video_backend
+            dataset_kwargs["video_backend"] = lerobot_v3_video_backend or lerobot_video_backend
             if lerobot_tolerance_s is not None:
                 dataset_kwargs["tolerances_s"] = {
                     ds_dir: float(lerobot_tolerance_s)
@@ -466,6 +470,29 @@ class BaseLerobotDataset(torch.utils.data.Dataset):
         for key in ("action_dim_is_pad", "state_dim_is_pad", "embodiment"):
             if key in lerobot_sample:
                 sample[key] = lerobot_sample[key]
+
+        if self.past_action_size > 0:
+            expected_action_len = self.past_action_size + self.action_size
+            sample["past_action"] = {}
+            for meta in self.action_meta:
+                key = meta["key"]
+                action = sample["action"][key]
+                if action.shape[0] != expected_action_len:
+                    raise ValueError(
+                        f"Action '{key}' temporal length mismatch: got {action.shape[0]}, "
+                        f"expected past_action_size + action_size = {expected_action_len}."
+                    )
+                sample["past_action"][key] = action[: self.past_action_size]
+                sample["action"][key] = action[self.past_action_size :]
+
+            action_is_pad = sample["action_is_pad"]
+            if action_is_pad.shape[0] != expected_action_len:
+                raise ValueError(
+                    f"`action_is_pad` temporal length mismatch: got {action_is_pad.shape[0]}, "
+                    f"expected {expected_action_len}."
+                )
+            sample["past_action_is_pad"] = action_is_pad[: self.past_action_size]
+            sample["action_is_pad"] = action_is_pad[self.past_action_size :]
 
         sample = self._get_additional_data(sample, lerobot_sample)
         _mark("additional_data")

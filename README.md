@@ -12,6 +12,15 @@ We recommend starting with **FLUX.2 ImageWAM**. It provides 4B and 9B variants b
 
 All commands below are assumed to run from the repository root.
 
+## R1Lite Real-Robot Training (I2I + A2A + IC)
+
+The [real-robot guide](docs/R1LITE_REAL_ROBOT.md) provides the two-view, 7D
+right-arm training configs, verified dataset preparation, 8-A100 training/resume
+launcher and offline inference example for **place multi cups** and **insert flower**.
+The [final 20-epoch cups checkpoint](https://huggingface.co/ZUO66/imagewam-r1lite-place-multi-cups)
+is an inference-only release with the matching config and normalization statistics.
+No physical rollout success rate is claimed.
+
 ## Table Of Contents
 
 - [Repository Structure](#repository-structure)
@@ -479,4 +488,3 @@ If you find this repository helpful for your research, please cite our paper:
       url={https://arxiv.org/abs/2606.19531}, 
 }
 ```
-

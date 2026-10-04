@@ -1,5 +1,12 @@
 # ImageWAM
 
+## R1Lite 真机训练（I2I + A2A + IC）
+
+[真机训练指南](docs/R1LITE_REAL_ROBOT.md)包含 place multi cups 与 insert flower
+的双视角、右臂7维动作配置、固定版本数据下载与核验、八卡A100训练/恢复入口和离线推理示例。
+[multi cups 最终20轮推理权重](https://huggingface.co/ZUO66/imagewam-r1lite-place-multi-cups)
+附有对应配置和归一化统计，不包含 optimizer，也不声称已验证真机成功率。
+
 **ImageWAM: Do World Action Models Really Need Video Generation, or Just Image Editing?** 的官方代码仓库。
 
 [English](./README.md) | [中文](./README_zh.md)
@@ -474,4 +481,3 @@ ImageWAM 基于以下多个代码库构建：
   note   = {TODO: add arXiv or conference information}
 }
 ```
-

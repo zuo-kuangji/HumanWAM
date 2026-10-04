@@ -1,0 +1,13 @@
+# @package _global_
+defaults:
+  - r1lite_cups_a2ai2i_20ep
+  - _self_
+
+# Same 224x448 two-view, right-arm 7D, I2I+A2A+IC protocol; different dataset.
+data:
+  train:
+    override_instruction: "Use the right arm to pick up the flower from the transparent white vase on the left and insert it into the purple vase on the right."
+
+wandb:
+  group: r1lite-insert-flower-a2ai2i-unitvariance-stopgrad
+  name: r1lite_insert_flower_a100_20ep

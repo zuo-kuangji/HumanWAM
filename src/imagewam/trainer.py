@@ -11,6 +11,7 @@ import time
 import numpy as np
 import torch
 from accelerate import Accelerator
+from accelerate.utils import DistributedType
 from omegaconf import DictConfig
 from PIL import Image
 from torch.optim.lr_scheduler import ConstantLR, CosineAnnealingLR, LinearLR, SequentialLR
@@ -47,7 +48,14 @@ class Wan22Trainer:
         self.max_steps = int(max_steps) if max_steps is not None else None
         self.log_every = int(cfg.log_every)
         self.save_every = int(cfg.save_every)
+        raw_save_steps = getattr(cfg, "save_steps", None) or []
+        self.save_steps = frozenset(int(step) for step in raw_save_steps)
+        if any(step <= 0 for step in self.save_steps):
+            raise ValueError(f"`save_steps` must contain only positive integers, got {sorted(self.save_steps)}.")
+        self.save_at_end = bool(getattr(cfg, "save_at_end", True))
         self.keep_latest_state_only = bool(getattr(cfg, "keep_latest_state_only", False))
+        keep_latest_weights = getattr(cfg, "keep_latest_weights", None)
+        self.keep_latest_weights = None if keep_latest_weights is None else max(int(keep_latest_weights), 0)
         self.eval_every = int(cfg.eval_every)
         self.eval_num_inference_steps = int(cfg.eval_num_inference_steps)
         self.eval_num_samples = max(int(getattr(cfg, "eval_num_samples", 1)), 1)
@@ -110,6 +118,11 @@ class Wan22Trainer:
         proprio_encoder = getattr(self.model, "proprio_encoder", None)
         if proprio_encoder is not None:
             trainable_params.extend(param for param in proprio_encoder.parameters() if param.requires_grad)
+        action_aura_router = getattr(self.model, "action_aura_router", None)
+        if action_aura_router is not None:
+            trainable_params.extend(
+                param for param in action_aura_router.parameters() if param.requires_grad
+            )
         if not trainable_params:
             raise ValueError("No trainable parameters found after applying trainable policy.")
         self.optimizer = torch.optim.AdamW(
@@ -117,22 +130,39 @@ class Wan22Trainer:
             lr=self.learning_rate,
             weight_decay=self.weight_decay,
             betas=(0.9, 0.95),
+            foreach=bool(getattr(cfg, "optimizer_foreach", False)),
         )
         
         self.train_loader = self._build_loader(self.train_dataset, worker_init_fn=worker_init_fn)
         total_train_steps = self._estimate_total_train_steps()
         self.max_steps = total_train_steps
+        scheduler_total_steps_cfg = getattr(cfg, "lr_scheduler_total_steps", None)
+        scheduler_total_steps = (
+            total_train_steps
+            if scheduler_total_steps_cfg is None
+            else max(int(scheduler_total_steps_cfg), 1)
+        )
+        if scheduler_total_steps < total_train_steps:
+            raise ValueError(
+                "`lr_scheduler_total_steps` cannot be smaller than the training stop step: "
+                f"{scheduler_total_steps} < {total_train_steps}."
+            )
         warmup_steps_cfg = getattr(cfg, "warmup_steps", None)
-        warmup_steps = int(total_train_steps * 0.05) if warmup_steps_cfg is None else int(warmup_steps_cfg)
+        warmup_steps = (
+            int(scheduler_total_steps * 0.05)
+            if warmup_steps_cfg is None
+            else int(warmup_steps_cfg)
+        )
         logger.info(
-            "Scheduler setup: type=%s total_train_steps=%d warmup_steps=%d",
+            "Scheduler setup: type=%s training_stop_steps=%d scheduler_total_steps=%d warmup_steps=%d",
             cfg.lr_scheduler_type,
             total_train_steps,
+            scheduler_total_steps,
             warmup_steps,
         )
         self.scheduler = self._build_scheduler(
             scheduler_type=cfg.lr_scheduler_type,
-            total_train_steps=total_train_steps,
+            total_train_steps=scheduler_total_steps,
             warmup_steps=warmup_steps,
         )
         self.global_step = 0
@@ -484,12 +514,17 @@ class Wan22Trainer:
         if proprio_encoder is not None:
             proprio_encoder.train()
             proprio_encoder.requires_grad_(True)
+        action_aura_router = getattr(model, "action_aura_router", None)
+        if action_aura_router is not None:
+            action_aura_router.train()
+            action_aura_router.requires_grad_(True)
 
     @staticmethod
     def _to_batched_eval_sample(sample):
         video = sample["video"]
         prompt = sample["prompt"]
         action = sample.get("action", None)
+        past_action = sample.get("past_action", None)
         proprio = sample.get("proprio", None)
         context = sample.get("context", None)
         context_mask = sample.get("context_mask", None)
@@ -498,6 +533,7 @@ class Wan22Trainer:
         dataset_name = sample.get("dataset_name", None)
         embodiment = sample.get("embodiment", None)
         action_is_pad = sample.get("action_is_pad", None)
+        past_action_is_pad = sample.get("past_action_is_pad", None)
         action_dim_is_pad = sample.get("action_dim_is_pad", None)
         image_is_pad = sample.get("image_is_pad", None)
         proprio_is_pad = sample.get("proprio_is_pad", None)
@@ -541,6 +577,19 @@ class Wan22Trainer:
                 raise ValueError(f"`sample['action']` temporal dimension must be divisible by video frames-1={num_video_frames - 1}, got {action.shape[1]}")
             action_horizon = int(action.shape[1])
 
+        if past_action is not None:
+            if not isinstance(past_action, torch.Tensor):
+                raise TypeError(
+                    f"`sample['past_action']` must be a torch.Tensor, got {type(past_action)}"
+                )
+            if past_action.ndim == 2:
+                past_action = past_action.unsqueeze(0)
+            if past_action.ndim != 3:
+                raise ValueError(
+                    "`sample['past_action']` must be 3D [B, T, a_dim], "
+                    f"got shape {tuple(past_action.shape)}"
+                )
+
         proprio = None
         if "proprio" in sample:
             proprio = sample["proprio"]
@@ -565,6 +614,7 @@ class Wan22Trainer:
             return value
 
         action_is_pad = _batch_mask("action_is_pad", action_is_pad, 2)
+        past_action_is_pad = _batch_mask("past_action_is_pad", past_action_is_pad, 2)
         action_dim_is_pad = _batch_mask("action_dim_is_pad", action_dim_is_pad, 2)
         image_is_pad = _batch_mask("image_is_pad", image_is_pad, 2)
         proprio_is_pad = _batch_mask("proprio_is_pad", proprio_is_pad, 2)
@@ -599,8 +649,10 @@ class Wan22Trainer:
             "prompt": prompt,
             "instruction": prompt,
             "action": action,
+            "past_action": past_action,
             "proprio": proprio,
             "action_is_pad": action_is_pad,
+            "past_action_is_pad": past_action_is_pad,
             "action_dim_is_pad": action_dim_is_pad,
             "image_is_pad": image_is_pad,
             "proprio_is_pad": proprio_is_pad,
@@ -701,6 +753,19 @@ class Wan22Trainer:
                     "seed": 42,
                     "tiled": False,
                 }
+                if bool(getattr(model, "action_a2a_enabled", False)):
+                    past_action = sample.get("past_action")
+                    if not isinstance(past_action, torch.Tensor):
+                        raise ValueError(
+                            "A2A evaluation requires `past_action`; configure a positive past_action_size."
+                        )
+                    infer_kwargs.update(
+                        action_init=past_action[0],
+                        action_init_noise_strength=float(model.action_a2a_source_noise_std),
+                        action_init_noise_type="additive",
+                        action_init_noise_dim_mask=model.action_a2a_source_noise_dim_mask,
+                        clamp_action_init_after_noise=False,
+                    )
                 if (is_omnigen2_stack or is_flux2_stack) and sample.get("text_hidden_states") is not None:
                     infer_kwargs["prompt"] = None
                     infer_kwargs["context"] = sample["text_hidden_states"][0]
@@ -956,6 +1021,23 @@ class Wan22Trainer:
             shutil.rmtree(path)
             logger.info("Removed old training state checkpoint: %s", path)
 
+    def _prune_old_weight_checkpoints(self):
+        if self.keep_latest_weights is None or self.keep_latest_weights <= 0:
+            return
+        weights_root = Path(self.weights_dir)
+        if not weights_root.exists():
+            return
+        checkpoints = []
+        for path in weights_root.glob("step_*.pt"):
+            match = re.match(r"step_(\d+)\.pt$", path.name)
+            if match is None:
+                continue
+            checkpoints.append((int(match.group(1)), path))
+        checkpoints.sort()
+        for _, path in checkpoints[:-self.keep_latest_weights]:
+            path.unlink()
+            logger.info("Removed old weights checkpoint: %s", path)
+
     def save_checkpoint(self):
         step_tag = f"step_{self.global_step:06d}"
 
@@ -963,6 +1045,7 @@ class Wan22Trainer:
         ckpt_path = None
         if self.accelerator.is_main_process:
             ckpt_path = self._save_weights_checkpoint(step_tag=step_tag)
+            self._prune_old_weight_checkpoints()
         self.accelerator.wait_for_everyone()
 
         state_path = os.path.join(self.state_dir, step_tag)
@@ -974,6 +1057,21 @@ class Wan22Trainer:
         self.accelerator.wait_for_everyone()
 
         return {"weights_path": ckpt_path, "state_path": state_path}
+
+    @staticmethod
+    def _checkpoint_save_flags(
+        *,
+        global_step: int,
+        max_steps: int,
+        save_every: int,
+        save_at_end: bool,
+        save_steps=None,
+    ):
+        """Return whether this step needs a periodic save and/or a distinct final save."""
+        milestone_save = global_step in (save_steps or ())
+        periodic_save = milestone_save or (save_every > 0 and global_step % save_every == 0)
+        final_save = save_at_end and global_step >= max_steps and not periodic_save
+        return periodic_save, final_save
 
     def load_training_state(self, state_dir: str):
         self.accelerator.load_state(input_dir=state_dir)
@@ -1064,6 +1162,15 @@ class Wan22Trainer:
 
                 if callable(iter_training_losses):
                     objective_iter = iter(iter_training_losses(sample))
+                    objective_count_fn = getattr(train_model, "training_objective_count", None)
+                    expected_objective_count = (
+                        int(objective_count_fn()) if callable(objective_count_fn) else None
+                    )
+                    sequential_deepspeed = (
+                        self.accelerator.distributed_type == DistributedType.DEEPSPEED
+                        and expected_objective_count is not None
+                        and expected_objective_count > 1
+                    )
                     objective_count = 0
                     while True:
                         objective_forward_start = time.perf_counter()
@@ -1080,14 +1187,33 @@ class Wan22Trainer:
                             else loss + objective_loss.detach().float()
                         )
                         for key, value in objective_loss_dict.items():
-                            loss_dict[key] = float(value)
+                            loss_dict[key] = loss_dict.get(key, 0.0) + float(value)
 
                         objective_backward_start = time.perf_counter()
-                        self.accelerator.backward(objective_loss)
+                        if sequential_deepspeed:
+                            # Accelerate's DeepSpeed backward wrapper also calls
+                            # engine.step().  Sequential objectives must instead
+                            # accumulate their gradients and update once, after
+                            # the final objective for this micro-batch.
+                            is_final_objective = objective_count == expected_objective_count
+                            ds_engine = self.accelerator.deepspeed_engine_wrapped.engine
+                            ds_engine.set_gradient_accumulation_boundary(
+                                is_boundary=self.accelerator.sync_gradients and is_final_objective
+                            )
+                            ds_engine.backward(objective_loss)
+                            if self.accelerator.sync_gradients and is_final_objective:
+                                ds_engine.step()
+                        else:
+                            self.accelerator.backward(objective_loss)
                         backward_elapsed += time.perf_counter() - objective_backward_start
 
                     if objective_count <= 0:
                         raise RuntimeError("`iter_training_losses` yielded no training losses.")
+                    if expected_objective_count is not None and objective_count != expected_objective_count:
+                        raise RuntimeError(
+                            "Sequential training objective count mismatch: "
+                            f"expected {expected_objective_count}, got {objective_count}."
+                        )
                 else:
                     forward_start = time.perf_counter()
                     with self.accelerator.autocast():
@@ -1181,12 +1307,15 @@ class Wan22Trainer:
                         and self.val_dataset is not None
                         and self.global_step % self.eval_every == 0
                     ):
+                        eval_start = time.perf_counter()
                         metrics = self.evaluate()
                         self.accelerator.wait_for_everyone()
+                        eval_elapsed = time.perf_counter() - eval_start
                         if metrics is not None and self.accelerator.is_main_process:
-                            description = "[eval] step=%d samples=%d val_loss=%.4f infer_psnr=%.4f infer_ssim=%.4f" % (
+                            description = "[eval] step=%d samples=%d duration=%.2fs val_loss=%.4f infer_psnr=%.4f infer_ssim=%.4f" % (
                                 self.global_step,
                                 metrics["num_samples"],
+                                eval_elapsed,
                                 metrics["val_loss"],
                                 metrics["psnr_rd"],
                                 metrics["ssim_rd"],
@@ -1205,6 +1334,7 @@ class Wan22Trainer:
                                 "eval/ssim_rd": float(metrics["ssim_rd"]),
                                 "eval/psnr_dg": float(metrics["psnr_dg"]),
                                 "eval/ssim_dg": float(metrics["ssim_dg"]),
+                                "performance/eval_seconds": float(eval_elapsed),
                             }
                             if "action_l2" in metrics:
                                 eval_payload["eval/action_l2"] = float(metrics["action_l2"])
@@ -1212,7 +1342,14 @@ class Wan22Trainer:
                                 eval_payload["eval/action_l1"] = float(metrics["action_l1"])
                             self._wandb_log(eval_payload)
 
-                    if self.save_every > 0 and self.global_step % self.save_every == 0:
+                    saved_checkpoint_this_step, final_checkpoint_needed = self._checkpoint_save_flags(
+                        global_step=self.global_step,
+                        max_steps=self.max_steps,
+                        save_every=self.save_every,
+                        save_at_end=self.save_at_end,
+                        save_steps=self.save_steps,
+                    )
+                    if saved_checkpoint_this_step:
                         ckpt_info = self.save_checkpoint()
                         if self.accelerator.is_main_process:
                             logger.info(
@@ -1223,22 +1360,29 @@ class Wan22Trainer:
                             )
 
                     if self.global_step >= self.max_steps:
-                        ckpt_info = self.save_checkpoint()
-                        if self.accelerator.is_main_process:
-                            logger.info(
-                                "[done] max_steps reached step=%d weights=%s state=%s",
-                                self.global_step,
-                                ckpt_info["weights_path"],
-                                ckpt_info["state_path"],
-                            )
+                        if self.save_at_end:
+                            if final_checkpoint_needed:
+                                ckpt_info = self.save_checkpoint()
+                            if self.accelerator.is_main_process:
+                                logger.info(
+                                    "[done] max_steps reached step=%d weights=%s state=%s",
+                                    self.global_step,
+                                    ckpt_info["weights_path"],
+                                    ckpt_info["state_path"],
+                                )
+                        elif self.accelerator.is_main_process:
+                            logger.info("[done] max_steps reached step=%d save_at_end=false", self.global_step)
                         return
 
-        ckpt_info = self.save_checkpoint()
-        if self.accelerator.is_main_process:
-            logger.info(
-                "[done] training finished step=%d weights=%s state=%s",
-                self.global_step,
-                ckpt_info["weights_path"],
-                ckpt_info["state_path"],
-            )
+        if self.save_at_end:
+            ckpt_info = self.save_checkpoint()
+            if self.accelerator.is_main_process:
+                logger.info(
+                    "[done] training finished step=%d weights=%s state=%s",
+                    self.global_step,
+                    ckpt_info["weights_path"],
+                    ckpt_info["state_path"],
+                )
+        elif self.accelerator.is_main_process:
+            logger.info("[done] training finished step=%d save_at_end=false", self.global_step)
         

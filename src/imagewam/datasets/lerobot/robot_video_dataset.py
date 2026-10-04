@@ -1,6 +1,8 @@
 import hashlib
+import json
 import os
 import time
+from pathlib import Path
 from typing import Optional
 import numpy as np
 import traceback
@@ -44,6 +46,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         is_training_set=False,
         val_split_level: str = "episode",
         global_sample_stride=1,
+        past_action_size: int = 0,
         sample_index_stride: int = 1,
         action_video_freq_ratio: int = 1,
         skip_padding_as_possible: bool = False,
@@ -64,12 +67,14 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         lerobot_meta_cache: Optional[str] = None,
         arrow_cache_dir: Optional[str] = None,
         lerobot_backend: str = "v2",
+        lerobot_video_backend: Optional[str] = None,
         lerobot_v3_init_num_workers: int = 1,
         lerobot_v3_index_cache: Optional[str] = None,
         lerobot_v3_video_backend: Optional[str] = None,
         lerobot_tolerance_s: Optional[float] = None,
         episode_index_filter: Optional[dict] = None,
         slow_getitem_log_sec: float = 0.0,
+        aura_knn_dir: Optional[str] = None,
     ):
         image_obs_indices = [0, num_frames - 1] if endpoint_frames_only else None
         self.slow_getitem_log_sec = float(
@@ -81,6 +86,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             shape_meta=OmegaConf.to_container(shape_meta, resolve=True),
             obs_size=num_frames,
             action_size=num_frames - 1,
+            past_action_size=int(past_action_size),
             val_set_proportion=val_set_proportion,
             is_training_set=is_training_set,
             val_split_level=val_split_level,
@@ -93,6 +99,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             lerobot_meta_cache=lerobot_meta_cache,
             arrow_cache_dir=arrow_cache_dir,
             lerobot_backend=lerobot_backend,
+            lerobot_video_backend=lerobot_video_backend,
             lerobot_v3_init_num_workers=lerobot_v3_init_num_workers,
             lerobot_v3_index_cache=lerobot_v3_index_cache,
             lerobot_v3_video_backend=lerobot_v3_video_backend,
@@ -102,6 +109,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
     
         self.num_frames = num_frames
         self.action_video_freq_ratio = action_video_freq_ratio
+        self.past_action_size = int(past_action_size)
         
         assert (num_frames - 1) % self.action_video_freq_ratio == 0, \
             f"num_frames-1 must be divisible by action_video_freq_ratio, got {num_frames - 1} and {self.action_video_freq_ratio}"
@@ -126,6 +134,47 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         self.qwen_text_cache_format = str(qwen_text_cache_format)
         self.endpoint_frames_only = bool(endpoint_frames_only)
         self.profile_getitem = effective_profile_getitem
+        self.aura_knn_dir = None if aura_knn_dir is None else Path(aura_knn_dir)
+        self._aura_target_spread = None
+        self._aura_nn_histories = None
+        self._aura_nn_weights = None
+        self._aura_knn_valid = None
+        if self.aura_knn_dir is not None:
+            metadata_path = self.aura_knn_dir / "metadata.json"
+            if not metadata_path.is_file():
+                raise FileNotFoundError(f"Missing AURA KNN metadata: {metadata_path}")
+            metadata = json.loads(metadata_path.read_text())
+            self._aura_target_spread = np.load(
+                self.aura_knn_dir / "target_spread.npy", mmap_mode="r"
+            )
+            self._aura_nn_histories = np.load(
+                self.aura_knn_dir / "nn_histories.npy", mmap_mode="r"
+            )
+            valid_path = self.aura_knn_dir / "valid.npy"
+            if valid_path.is_file():
+                self._aura_knn_valid = np.load(valid_path, mmap_mode="r")
+            weights_path = self.aura_knn_dir / "nn_weights.npy"
+            if weights_path.is_file():
+                self._aura_nn_weights = np.load(weights_path, mmap_mode="r")
+            expected_horizon = int(num_frames) - 1
+            if self._aura_target_spread.ndim != 2:
+                raise ValueError("AURA target_spread.npy must have shape [N,D].")
+            if self._aura_nn_histories.ndim != 4:
+                raise ValueError("AURA nn_histories.npy must have shape [N,K,T,D].")
+            if (
+                self._aura_nn_histories.shape[0] != self._aura_target_spread.shape[0]
+                or self._aura_nn_histories.shape[2] != expected_horizon
+                or self._aura_nn_histories.shape[3] != self._aura_target_spread.shape[1]
+            ):
+                raise ValueError(
+                    "AURA KNN arrays disagree on sample/action shapes or do not match "
+                    f"the configured horizon {expected_horizon}."
+                )
+            if int(metadata.get("past_action_size", expected_horizon)) != self.past_action_size:
+                raise ValueError(
+                    "AURA KNN past_action_size does not match the dataset configuration: "
+                    f"{metadata.get('past_action_size')} vs {self.past_action_size}."
+                )
         augmentation_cfg = video_augmentation if video_augmentation is not None else condition_frame_augmentation
         if augmentation_cfg is not None and is_training_set:
             # Hydra's instantiate(..., recursive=True) may have already built nested
@@ -227,8 +276,11 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             action_is_pad = sample["action_is_pad"]
             image_is_pad = sample["image_is_pad"]
             proprio_is_pad = sample["proprio_is_pad"]
+            past_action_is_pad = sample.get("past_action_is_pad")
             has_pad = False
             if bool(action_is_pad.any().item()):
+                has_pad = True
+            if past_action_is_pad is not None and bool(past_action_is_pad.any().item()):
                 has_pad = True
             if bool(image_is_pad.any().item()):
                 has_pad = True
@@ -312,6 +364,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         #   action: [num_frames-1, action_dim] # start from t0, except the last frame
         #   proprio: [num_frames, proprio_dim] # start from t0 to the last frame, aligned with video frames
         action = sample["action"] # [T-1, action_dim]
+        past_action = sample.get("past_action")
         proprio = sample["proprio"][:-1, :] # [T-1, state_dim]， to align with action
         if video.shape[1] <= 1:
             raise ValueError(f"`video` must have at least 2 frames, got shape {tuple(video.shape)}")
@@ -341,7 +394,14 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             "image_is_pad": image_is_pad,
             "action_is_pad": sample["action_is_pad"],
             "proprio_is_pad": sample["proprio_is_pad"],
+            "idx": sample.get("idx", sample_idx),
         }
+        for key in ("episode_index", "dataset_index", "task_index"):
+            if key in sample:
+                data[key] = sample[key]
+        if past_action is not None:
+            data["past_action"] = past_action
+            data["past_action_is_pad"] = sample["past_action_is_pad"]
         if "action_dim_is_pad" in sample:
             data["action_dim_is_pad"] = sample["action_dim_is_pad"]
         if "proprio_dim_is_pad" in sample:
@@ -359,6 +419,24 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             text_hidden_states, text_attention_mask = self._get_cached_qwen_context(instruction)
             data["text_hidden_states"] = text_hidden_states
             data["text_attention_mask"] = text_attention_mask
+        if self._aura_target_spread is not None:
+            raw_idx = int(torch.as_tensor(data["idx"]).item())
+            if raw_idx < 0 or raw_idx >= int(self._aura_target_spread.shape[0]):
+                raise IndexError(
+                    f"AURA KNN index {raw_idx} is outside [0, {self._aura_target_spread.shape[0]})."
+                )
+            if self._aura_knn_valid is not None and not bool(self._aura_knn_valid[raw_idx]):
+                raise ValueError(f"AURA KNN sidecar has no valid entry for sample index {raw_idx}.")
+            data["target_spread"] = torch.from_numpy(
+                np.array(self._aura_target_spread[raw_idx], dtype=np.float32, copy=True)
+            )
+            data["nn_histories"] = torch.from_numpy(
+                np.array(self._aura_nn_histories[raw_idx], dtype=np.float32, copy=True)
+            )
+            if self._aura_nn_weights is not None:
+                data["nn_weights"] = torch.from_numpy(
+                    np.array(self._aura_nn_weights[raw_idx], dtype=np.float32, copy=True)
+                )
         _mark("qwen_cache")
         if profile is not None:
             data["_profile"] = profile

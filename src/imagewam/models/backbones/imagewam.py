@@ -10,6 +10,15 @@ from PIL import Image
 
 from imagewam.utils.logging_config import get_logger
 
+from .action_aura import (
+    ActionAuraScoNet,
+    adaptive_execution_steps,
+    adaptive_inference_steps,
+    diversity_loss_global_knn,
+    finalize_router_weight,
+    mix_action_source,
+    router_scalar,
+)
 from .action_dit import ActionDiT
 from .helpers.loader import load_wan22_ti2v_5b_components
 from .mot import MoT
@@ -41,6 +50,9 @@ class ImageWAM(torch.nn.Module):
         action_num_train_timesteps: int = 1000,
         loss_lambda_video: float = 1.0,
         loss_lambda_action: float = 1.0,
+        action_a2a: Optional[dict[str, Any]] = None,
+        image_i2i: Optional[dict[str, Any]] = None,
+        flux2_action_image_context: Optional[dict[str, Any]] = None,
         stack: str = "wan22",
         omnigen2_online_text_cache_compatible: bool = False,
         qwen_context_len: int = 128,
@@ -91,12 +103,395 @@ class ImageWAM(torch.nn.Module):
         self.torch_dtype = torch_dtype
         self.loss_lambda_video = float(loss_lambda_video)
         self.loss_lambda_action = float(loss_lambda_action)
+        self.action_a2a_config = dict(action_a2a or {})
+        self.action_a2a_enabled = bool(self.action_a2a_config.get("enabled", False))
+        self.action_a2a_fm_weight = float(self.action_a2a_config.get("fm_weight", 1.0))
+        self.action_a2a_ic_weight = float(self.action_a2a_config.get("ic_weight", 0.0))
+        self.action_a2a_ic_steps = int(self.action_a2a_config.get("ic_steps", 0))
+        self.action_a2a_ic_loss = str(self.action_a2a_config.get("ic_loss", "l1")).strip().lower()
+        self.action_a2a_source_noise_std = float(self.action_a2a_config.get("source_noise_std", 0.0))
+        self.action_a2a_source_noise_dim_mask = self.action_a2a_config.get("source_noise_dim_mask")
+        if self.action_a2a_fm_weight < 0.0:
+            raise ValueError(
+                f"`action_a2a.fm_weight` must be non-negative, got {self.action_a2a_fm_weight}."
+            )
+        self.action_aura_config = dict(self.action_a2a_config.get("aura") or {})
+        self.action_aura_enabled = bool(self.action_aura_config.get("enabled", False))
+        self.action_aura_diversity_weight = float(
+            self.action_aura_config.get("diversity_weight", 0.0)
+        )
+        self.action_aura_noise_dims = tuple(
+            int(dim) for dim in self.action_aura_config.get("noise_dims", [])
+        )
+        self.action_aura_adaptive_inference = bool(
+            self.action_aura_config.get("adaptive_inference", False)
+        )
+        self.action_aura_max_inference_steps = int(
+            self.action_aura_config.get("max_inference_steps", 5)
+        )
+        self.action_aura_adaptive_execution = bool(
+            self.action_aura_config.get("adaptive_execution", False)
+        )
+        self.action_aura_min_execution_steps = int(
+            self.action_aura_config.get("min_execution_steps", 2)
+        )
+        self.action_aura_max_execution_steps = int(
+            self.action_aura_config.get("max_execution_steps", 8)
+        )
+        self.action_aura_router = None
+        if self.action_aura_enabled:
+            if not self.action_a2a_enabled:
+                raise ValueError("Action-side AURA requires `action_a2a.enabled: true`.")
+            if str(stack) != "flux2":
+                raise ValueError("The current action-side AURA implementation supports only FLUX.2.")
+            if self.action_a2a_source_noise_std != 0.0:
+                raise ValueError(
+                    "AURA owns the source mixture; set `action_a2a.source_noise_std: 0.0` "
+                    "to avoid applying a second fixed-noise source."
+                )
+            if self.action_aura_diversity_weight < 0.0:
+                raise ValueError("`action_a2a.aura.diversity_weight` must be non-negative.")
+            self.action_aura_router = ActionAuraScoNet(
+                image_token_dim=128,
+                action_dim=int(self.action_expert.action_dim),
+                hidden_dim=int(self.action_aura_config.get("router_hidden_dim", 256)),
+                pool_tokens=int(self.action_aura_config.get("router_pool_tokens", 8)),
+            ).to(device=torch.device(device), dtype=torch_dtype)
+        self.image_i2i_config = dict(image_i2i or {})
+        self.image_i2i_enabled = bool(self.image_i2i_config.get("enabled", False))
+        self.image_i2i_source_mode = str(
+            self.image_i2i_config.get("source_mode", "current")
+        ).strip().lower()
+        if self.image_i2i_source_mode not in {"current", "gaussian"}:
+            raise ValueError(
+                "`image_i2i.source_mode` must be 'current' or 'gaussian', "
+                f"got {self.image_i2i_source_mode!r}."
+            )
+        self.image_i2i_ic_weight = float(self.image_i2i_config.get("ic_weight", 0.0))
+        self.image_i2i_ic_steps = int(self.image_i2i_config.get("ic_steps", 0))
+        self.image_i2i_ic_loss = str(self.image_i2i_config.get("ic_loss", "l1")).strip().lower()
+        self.image_i2i_source_noise_std = float(self.image_i2i_config.get("source_noise_std", 0.0))
+        self.image_i2i_current_residual_scale = float(
+            self.image_i2i_config.get("current_residual_scale", 0.0)
+        )
+        self.image_i2i_variance_normalize = bool(
+            self.image_i2i_config.get("variance_normalize", False)
+        )
+        if self.image_i2i_current_residual_scale < 0.0:
+            raise ValueError(
+                "`image_i2i.current_residual_scale` must be non-negative, got "
+                f"{self.image_i2i_current_residual_scale}."
+            )
+        if (
+            self.image_i2i_current_residual_scale > 0.0
+            and self.image_i2i_source_mode != "gaussian"
+        ):
+            raise ValueError(
+                "`image_i2i.current_residual_scale` requires `source_mode: gaussian`, "
+                f"got source_mode={self.image_i2i_source_mode!r}."
+            )
+        if self.image_i2i_variance_normalize and self.image_i2i_current_residual_scale <= 0.0:
+            raise ValueError(
+                "`image_i2i.variance_normalize` requires a positive "
+                "`image_i2i.current_residual_scale`."
+            )
+        self.flux2_action_image_context_config = dict(flux2_action_image_context or {})
+        self.flux2_action_image_context_mode = str(
+            self.flux2_action_image_context_config.get("mode", "prefix_only")
+        ).strip().lower()
+        self.flux2_action_knowledge_insulation = bool(
+            self.flux2_action_image_context_config.get("knowledge_insulation", False)
+        )
+        self.flux2_action_include_future_tokens = bool(
+            self.flux2_action_image_context_config.get("include_future_tokens", True)
+        )
+        self.flux2_action_reuse_image_fm_workspace = bool(
+            self.flux2_action_image_context_config.get("reuse_image_fm_workspace", False)
+        )
+        if self.flux2_action_image_context_mode not in {"prefix_only", "noise_idm"}:
+            raise ValueError(
+                "`flux2_action_image_context.mode` must be 'prefix_only' or 'noise_idm', "
+                f"got {self.flux2_action_image_context_mode!r}."
+            )
+        if (
+            self.flux2_action_knowledge_insulation
+            and self.flux2_action_image_context_mode != "noise_idm"
+        ):
+            raise ValueError("Flux2 action knowledge insulation requires `mode: noise_idm`.")
+        if self.flux2_action_reuse_image_fm_workspace and not (
+            self.flux2_action_image_context_mode == "noise_idm"
+            and self.flux2_action_knowledge_insulation
+            and self.flux2_action_include_future_tokens
+        ):
+            raise ValueError(
+                "`reuse_image_fm_workspace` requires NoiseIDM future tokens with hard "
+                "knowledge insulation."
+            )
         self.stack = str(stack)
         self.omnigen2_online_text_cache_compatible = bool(omnigen2_online_text_cache_compatible)
         self.qwen_context_len = int(qwen_context_len)
         self.pack_proprio_after_text = bool(pack_proprio_after_text)
 
         self.to(self.device)
+
+    def _apply_action_a2a_source_noise(self, source_action: torch.Tensor) -> torch.Tensor:
+        if self.action_a2a_source_noise_std <= 0.0:
+            return source_action
+        noise = torch.randn_like(source_action) * self.action_a2a_source_noise_std
+        if self.action_a2a_source_noise_dim_mask is not None:
+            dim_mask = torch.as_tensor(
+                self.action_a2a_source_noise_dim_mask,
+                device=source_action.device,
+                dtype=source_action.dtype,
+            )
+            if dim_mask.ndim != 1 or dim_mask.shape[0] != source_action.shape[-1]:
+                raise ValueError(
+                    "`action_a2a.source_noise_dim_mask` must match action_dim, "
+                    f"got {tuple(dim_mask.shape)} for action_dim={source_action.shape[-1]}."
+                )
+            noise = noise * dim_mask.view(1, 1, -1)
+        return source_action + noise
+
+    def _predict_action_aura_weight(self, current_image_tokens: torch.Tensor) -> torch.Tensor:
+        if not bool(getattr(self, "action_aura_enabled", False)) or self.action_aura_router is None:
+            raise RuntimeError("Action-side AURA router is not enabled.")
+        raw_weight = self.action_aura_router(current_image_tokens.detach())
+        return finalize_router_weight(raw_weight, noise_dims=self.action_aura_noise_dims)
+
+    def _build_action_flow_source(
+        self,
+        past_action: torch.Tensor,
+        current_image_tokens: torch.Tensor,
+        *,
+        generator: Optional[torch.Generator] = None,
+        rand_device: Optional[str] = None,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+        if bool(getattr(self, "action_aura_enabled", False)):
+            weight = self._predict_action_aura_weight(current_image_tokens)
+            source = mix_action_source(
+                past_action,
+                weight,
+                generator=generator,
+                rand_device=rand_device,
+            )
+            return source, weight
+        return self._apply_action_a2a_source_noise(past_action), None
+
+    def _action_aux_enabled(self) -> bool:
+        return bool(
+            self.action_a2a_enabled
+            and self.action_a2a_ic_steps > 0
+            and (
+                self.action_a2a_ic_weight > 0.0
+                or (
+                    bool(getattr(self, "action_aura_enabled", False))
+                    and float(getattr(self, "action_aura_diversity_weight", 0.0)) > 0.0
+                )
+            )
+        )
+
+    def _action_aura_metrics(self, weight: torch.Tensor) -> dict[str, float]:
+        score = router_scalar(weight, noise_dims=self.action_aura_noise_dims)
+        if self.action_aura_noise_dims:
+            active_mask = torch.ones(weight.shape[-1], dtype=torch.bool, device=weight.device)
+            active_mask[list(self.action_aura_noise_dims)] = False
+            active_weight = weight[:, active_mask]
+        else:
+            active_weight = weight
+        return {
+            "aura_weight_mean": float(active_weight.detach().float().mean().item()),
+            "aura_weight_std": float(active_weight.detach().float().std(unbiased=False).item()),
+            "aura_score_mean": float(score.detach().float().mean().item()),
+        }
+
+    def _apply_image_i2i_source_noise(
+        self,
+        source_latent: torch.Tensor,
+        *,
+        generator: Optional[torch.Generator] = None,
+        rand_device: Optional[str] = None,
+    ) -> torch.Tensor:
+        """Construct the configured FLUX.2 source while preserving its shape."""
+        source_mode = getattr(self, "image_i2i_source_mode", "current")
+        if source_mode == "current" and self.image_i2i_source_noise_std <= 0.0:
+            return source_latent
+        if generator is None and rand_device is None:
+            noise = torch.randn_like(source_latent)
+        else:
+            noise = torch.randn(
+                tuple(source_latent.shape),
+                generator=generator,
+                device=rand_device or source_latent.device,
+                dtype=torch.float32,
+            ).to(device=source_latent.device, dtype=source_latent.dtype)
+        if source_mode == "gaussian":
+            residual_scale = float(
+                getattr(self, "image_i2i_current_residual_scale", 0.0)
+            )
+            source = noise + residual_scale * source_latent
+            if bool(getattr(self, "image_i2i_variance_normalize", False)):
+                source = source / (1.0 + residual_scale**2) ** 0.5
+            return source
+        if source_mode != "current":
+            raise ValueError(f"Unsupported image I2I source mode: {source_mode!r}.")
+        return source_latent + self.image_i2i_source_noise_std * noise
+
+    def _flux2_action_uses_noise_context(self) -> bool:
+        return self.stack == "flux2" and self.flux2_action_image_context_mode == "noise_idm"
+
+    def _flux2_action_uses_knowledge_insulation(self) -> bool:
+        return self._flux2_action_uses_noise_context() and self.flux2_action_knowledge_insulation
+
+    @staticmethod
+    def _detach_tensor_tree(value):
+        if isinstance(value, torch.Tensor):
+            return value.detach()
+        if isinstance(value, dict):
+            return {key: ImageWAM._detach_tensor_tree(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [ImageWAM._detach_tensor_tree(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(ImageWAM._detach_tensor_tree(item) for item in value)
+        return value
+
+    def _pack_flux2_action_workspace(
+        self,
+        video_pre: dict[str, Any],
+        video_kv_cache: dict[str, object],
+    ) -> dict[str, Any]:
+        """Detach a visual workspace before action losses consume it."""
+        # `final_video` is used only by image consistency. Action needs the
+        # layer-wise K/V entries, so do not retain the final token tensor.
+        action_cache = {
+            key: value for key, value in video_kv_cache.items() if key != "final_video"
+        }
+        return {
+            "video_kv_cache": self._detach_tensor_tree(action_cache),
+            "txt_len": int(video_pre["txt_len"]),
+            "target_len": int(video_pre["target_len"]),
+            "cond_len": int(video_pre["cond_len"]),
+            "text_mask": video_pre["text_mask"].detach(),
+        }
+
+    def _build_flux2_noise_action_context_pre(
+        self,
+        *,
+        inputs: dict[str, torch.Tensor],
+        target_latent: torch.Tensor,
+    ) -> dict[str, Any]:
+        """Build the eval-available visual workspace for Flux2 action."""
+        batch_size = int(target_latent.shape[0])
+        if not self.flux2_action_include_future_tokens:
+            policy_noise = target_latent[:, :0]
+            policy_target_img_ids = inputs["target_img_ids"][:, :0]
+        else:
+            if self.image_i2i_enabled:
+                policy_noise = self._apply_image_i2i_source_noise(inputs["ref_image_latents"])
+                if tuple(policy_noise.shape) != tuple(target_latent.shape):
+                    raise ValueError(
+                        "Image I2I requires current/future FLUX.2 token shapes to match, "
+                        f"got {tuple(policy_noise.shape)} vs {tuple(target_latent.shape)}."
+                    )
+            else:
+                policy_noise = torch.randn_like(target_latent)
+            policy_target_img_ids = inputs["target_img_ids"]
+        policy_timestep = torch.full(
+            (batch_size,),
+            float(self.train_video_scheduler.num_train_timesteps),
+            device=self.device,
+            dtype=target_latent.dtype,
+        )
+        return self.video_expert.pre_dit(
+            x=policy_noise,
+            timestep=self._scheduler_timestep_to_unit(policy_timestep, self.train_video_scheduler),
+            context=inputs["text_hidden_states"],
+            context_mask=inputs["text_attention_mask"],
+            ref_image_hidden_states=inputs["ref_image_latents"],
+            target_img_ids=policy_target_img_ids,
+            ref_img_ids=inputs["ref_img_ids"],
+        )
+
+    def _build_flux2_detached_action_workspace(
+        self,
+        *,
+        inputs: dict[str, torch.Tensor],
+        target_latent: torch.Tensor,
+    ) -> dict[str, Any]:
+        """Build one detached visual K/V workspace shared by action losses."""
+        batch_size = int(target_latent.shape[0])
+        with torch.no_grad():
+            video_pre = self._build_flux2_noise_action_context_pre(
+                inputs=inputs,
+                target_latent=target_latent,
+            )
+            attention_mask = self._build_mot_attention_mask_flux2(
+                batch_size=batch_size,
+                txt_len=int(video_pre["txt_len"]),
+                target_len=int(video_pre["target_len"]),
+                cond_len=int(video_pre["cond_len"]),
+                action_len=0,
+                device=target_latent.device,
+                text_attention_mask=video_pre["text_mask"],
+            )
+            video_kv_cache = self.mot.prefill_flux2_video_cache(
+                video_tokens=video_pre["tokens"],
+                video_freqs=video_pre["freqs"],
+                video_t_mod=video_pre["t_mod"],
+                attention_mask=attention_mask,
+            )
+        return self._pack_flux2_action_workspace(video_pre, video_kv_cache)
+
+    def _apply_action_init_noise(
+        self,
+        action_init: torch.Tensor,
+        *,
+        noise_strength: float,
+        noise_type: str,
+        noise_dim_mask: Optional[Sequence[bool]],
+        clamp_after_noise: bool,
+        generator: Optional[torch.Generator],
+        rand_device: str,
+    ) -> torch.Tensor:
+        if noise_strength <= 0.0:
+            return action_init
+
+        init_noise = torch.randn(
+            tuple(action_init.shape),
+            generator=generator,
+            device=rand_device,
+            dtype=torch.float32,
+        ).to(device=self.device, dtype=self.torch_dtype)
+        dim_mask = None
+        if noise_dim_mask is not None:
+            dim_mask = torch.as_tensor(
+                list(noise_dim_mask),
+                dtype=action_init.dtype,
+                device=action_init.device,
+            )
+            if int(dim_mask.numel()) != int(action_init.shape[-1]):
+                raise ValueError(
+                    "`action_init_noise_dim_mask` length must match action dim "
+                    f"{action_init.shape[-1]}, got {dim_mask.numel()}."
+                )
+            dim_mask = dim_mask.view(1, 1, -1)
+            init_noise = init_noise * dim_mask
+
+        normalized_noise_type = str(noise_type).strip().lower()
+        if normalized_noise_type in {"additive", "add", "std"}:
+            output = action_init + noise_strength * init_noise
+        elif normalized_noise_type in {"blend", "lerp"}:
+            blend_strength = min(noise_strength, 1.0)
+            if dim_mask is None:
+                output = (1.0 - blend_strength) * action_init + blend_strength * init_noise
+            else:
+                output = action_init + blend_strength * (init_noise - action_init) * dim_mask
+        else:
+            raise ValueError(
+                f"Unsupported action_init_noise_type={noise_type!r}; expected additive or blend."
+            )
+        if clamp_after_noise:
+            output = torch.clamp(output, -1.0, 1.0)
+        return output
 
     @classmethod
     def from_wan22_pretrained(
@@ -436,12 +831,17 @@ class ImageWAM(torch.nn.Module):
         action_num_train_timesteps: int = 1000,
         loss_lambda_video: float = 1.0,
         loss_lambda_action: float = 1.0,
+        action_a2a: Optional[dict[str, Any]] = None,
+        image_i2i: Optional[dict[str, Any]] = None,
+        flux2_action_image_context: Optional[dict[str, Any]] = None,
         mot_gqa_implementation: str = "repeat",
         mot_force_flash_attention: bool = False,
         pack_proprio_after_text: bool = True,
         flux2_lora_config: Optional[dict[str, Any]] = None,
         qwen3_model_spec: str | None = None,
         qwen_context_len: int = 512,
+        zero_init_action_head: bool = False,
+        action_head_init_scale: float = 1.0,
     ):
         from safetensors.torch import load_file as load_sft
 
@@ -518,6 +918,8 @@ class ImageWAM(torch.nn.Module):
         action_expert = ActionDiTFlux2.from_pretrained(
             action_dit_config=action_cfg,
             action_dit_pretrained_path=action_dit_pretrained_path,
+            zero_init_output_head=zero_init_action_head,
+            output_head_init_scale=action_head_init_scale,
             device=device,
             torch_dtype=torch_dtype,
         )
@@ -568,6 +970,9 @@ class ImageWAM(torch.nn.Module):
             action_num_train_timesteps=action_num_train_timesteps,
             loss_lambda_video=loss_lambda_video,
             loss_lambda_action=loss_lambda_action,
+            action_a2a=action_a2a,
+            image_i2i=image_i2i,
+            flux2_action_image_context=flux2_action_image_context,
             stack="flux2",
             qwen_context_len=int(qwen_context_len),
             pack_proprio_after_text=bool(pack_proprio_after_text),
@@ -832,7 +1237,7 @@ class ImageWAM(torch.nn.Module):
         proprio: Optional[torch.Tensor],
         source: str,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        if self.proprio_encoder is None:
+        if getattr(self, "proprio_encoder", None) is None:
             return context, context_mask
         if proprio is None:
             raise ValueError(f"`{source}` requires `proprio` when `proprio_dim` is enabled.")
@@ -1649,13 +2054,19 @@ class ImageWAM(torch.nn.Module):
                 source="Ovis-U1 training sample",
             )
         action = sample["action"].to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
+        past_action = sample.get("past_action")
+        if past_action is not None:
+            past_action = past_action.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
         action_is_pad = sample.get("action_is_pad")
         if action_is_pad is not None:
             action_is_pad = action_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
+        past_action_is_pad = sample.get("past_action_is_pad")
+        if past_action_is_pad is not None:
+            past_action_is_pad = past_action_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
         action_dim_is_pad = sample.get("action_dim_is_pad")
         if action_dim_is_pad is not None:
             action_dim_is_pad = action_dim_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
-        return {
+        result = {
             "target_latent": target_tokens,
             "target_img_ids": target_img_ids,
             "ref_image_latents": ref_tokens,
@@ -1663,9 +2074,20 @@ class ImageWAM(torch.nn.Module):
             "text_hidden_states": text_hidden_states,
             "text_attention_mask": text_attention_mask,
             "action": action,
+            "past_action": past_action,
             "action_is_pad": action_is_pad,
+            "past_action_is_pad": past_action_is_pad,
             "action_dim_is_pad": action_dim_is_pad,
         }
+        for key in ("target_spread", "nn_histories", "nn_weights"):
+            value = sample.get(key)
+            if value is not None:
+                result[key] = value.to(
+                    device=self.device,
+                    dtype=self.torch_dtype,
+                    non_blocking=True,
+                )
+        return result
 
     @torch.no_grad()
     def _encode_flux2_image_tokens(
@@ -1887,13 +2309,19 @@ class ImageWAM(torch.nn.Module):
                 source="FLUX.2 training sample",
             )
         action = sample["action"].to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
+        past_action = sample.get("past_action")
+        if past_action is not None:
+            past_action = past_action.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
         action_is_pad = sample.get("action_is_pad")
         if action_is_pad is not None:
             action_is_pad = action_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
+        past_action_is_pad = sample.get("past_action_is_pad")
+        if past_action_is_pad is not None:
+            past_action_is_pad = past_action_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
         action_dim_is_pad = sample.get("action_dim_is_pad")
         if action_dim_is_pad is not None:
             action_dim_is_pad = action_dim_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
-        return {
+        result = {
             "target_latent": target_tokens,
             "target_img_ids": target_img_ids,
             "ref_image_latents": ref_tokens,
@@ -1901,9 +2329,46 @@ class ImageWAM(torch.nn.Module):
             "text_hidden_states": text_hidden_states,
             "text_attention_mask": text_attention_mask,
             "action": action,
+            "past_action": past_action,
             "action_is_pad": action_is_pad,
+            "past_action_is_pad": past_action_is_pad,
             "action_dim_is_pad": action_dim_is_pad,
         }
+        for key in ("target_spread", "nn_histories", "nn_weights"):
+            value = sample.get(key)
+            if value is not None:
+                result[key] = value.to(
+                    device=self.device,
+                    dtype=self.torch_dtype,
+                    non_blocking=True,
+                )
+        return result
+
+    def _refresh_flux2_trainable_condition(
+        self,
+        inputs: dict[str, torch.Tensor],
+        sample,
+    ) -> dict[str, torch.Tensor]:
+        """Rebuild the small trainable proprio graph for a new loss backward.
+
+        FLUX.2 image latents and cached Qwen states are frozen and can be reused
+        across objectives.  The appended proprio token is produced by a
+        trainable encoder, however, so each independently-backpropagated loss
+        needs its own autograd graph.
+        """
+        if getattr(self, "proprio_encoder", None) is None:
+            return inputs
+        text_hidden_states, text_attention_mask = self._encode_flux2_text(sample)
+        text_hidden_states, text_attention_mask = self._append_proprio_to_context_if_enabled(
+            context=text_hidden_states,
+            context_mask=text_attention_mask,
+            proprio=sample.get("proprio"),
+            source="FLUX.2 training sample",
+        )
+        refreshed = dict(inputs)
+        refreshed["text_hidden_states"] = text_hidden_states
+        refreshed["text_attention_mask"] = text_attention_mask
+        return refreshed
 
     def build_inputs_dim(self, sample, tiled: bool = False):
         del tiled
@@ -2078,6 +2543,7 @@ class ImageWAM(torch.nn.Module):
         action_len: int,
         device: torch.device,
         text_attention_mask: torch.Tensor | None = None,
+        action_can_attend_target: bool = False,
     ) -> dict[str, torch.Tensor]:
         t0 = 0
         r0 = txt_len
@@ -2090,8 +2556,9 @@ class ImageWAM(torch.nn.Module):
         mask[:, r0:x0, t0:x0] = True
         # Target/noisy image uses stable prefix and target self-context.
         mask[:, x0:a0, t0:a0] = True
-        # Action uses stable prefix and action self-context, not target/noisy image.
-        mask[:, a0:total, t0:x0] = True
+        # NoiseIDM exposes its eval-available noise slot; Prefix-Only excludes it.
+        action_context_end = a0 if action_can_attend_target else x0
+        mask[:, a0:total, t0:action_context_end] = True
         mask[:, a0:total, a0:total] = True
         if text_attention_mask is not None:
             if text_attention_mask.ndim != 2 or tuple(text_attention_mask.shape) != (batch_size, txt_len):
@@ -2162,6 +2629,222 @@ class ImageWAM(torch.nn.Module):
             valid_sum = valid.sum(dim=1).clamp(min=1.0)
             return (action_loss_token * valid).sum(dim=1) / valid_sum
         return action_loss_token.mean(dim=1)
+
+    def _compute_action_ic_loss_per_sample(
+        self,
+        pred_action: torch.Tensor,
+        target_action: torch.Tensor,
+        action_is_pad: Optional[torch.Tensor],
+        action_dim_is_pad: Optional[torch.Tensor] = None,
+    ) -> torch.Tensor:
+        loss_type = self.action_a2a_ic_loss
+        if loss_type in {"smooth_l1", "huber"}:
+            action_loss_dim = F.smooth_l1_loss(pred_action.float(), target_action.float(), reduction="none")
+        elif loss_type == "l1":
+            action_loss_dim = F.l1_loss(pred_action.float(), target_action.float(), reduction="none")
+        elif loss_type == "mse":
+            action_loss_dim = F.mse_loss(pred_action.float(), target_action.float(), reduction="none")
+        else:
+            raise ValueError(
+                f"Unsupported action_a2a.ic_loss={self.action_a2a_ic_loss!r}; "
+                "expected one of: smooth_l1, huber, l1, mse."
+            )
+
+        if action_dim_is_pad is not None:
+            dim_valid = (~action_dim_is_pad).to(device=action_loss_dim.device, dtype=action_loss_dim.dtype)
+            dim_valid_sum = dim_valid.sum(dim=1).clamp(min=1.0).unsqueeze(1)
+            action_loss_token = (action_loss_dim * dim_valid.unsqueeze(1)).sum(dim=2) / dim_valid_sum
+        else:
+            action_loss_token = action_loss_dim.mean(dim=2)
+
+        if action_is_pad is not None:
+            valid = (~action_is_pad).to(device=action_loss_token.device, dtype=action_loss_token.dtype)
+            valid_sum = valid.sum(dim=1).clamp(min=1.0)
+            return (action_loss_token * valid).sum(dim=1) / valid_sum
+        return action_loss_token.mean(dim=1)
+
+    def _compute_action_aura_reconstruction_loss(
+        self,
+        *,
+        pred_action: torch.Tensor,
+        target_action: torch.Tensor,
+        router_weight: torch.Tensor,
+        action_is_pad: Optional[torch.Tensor],
+        action_dim_is_pad: Optional[torch.Tensor],
+    ) -> torch.Tensor:
+        """One-step Euler reconstruction with the paper's stop-gradient gate."""
+        loss_type = self.action_a2a_ic_loss
+        if loss_type in {"smooth_l1", "huber"}:
+            error = F.smooth_l1_loss(pred_action.float(), target_action.float(), reduction="none")
+        elif loss_type == "l1":
+            error = F.l1_loss(pred_action.float(), target_action.float(), reduction="none")
+        elif loss_type == "mse":
+            error = F.mse_loss(pred_action.float(), target_action.float(), reduction="none")
+        else:
+            raise ValueError(
+                f"Unsupported action_a2a.ic_loss={loss_type!r}; expected l1, mse, or smooth_l1."
+            )
+        valid = torch.ones_like(error)
+        if action_is_pad is not None:
+            valid = valid * (~action_is_pad).to(error.dtype).unsqueeze(-1)
+        if action_dim_is_pad is not None:
+            valid = valid * (~action_dim_is_pad).to(error.dtype).unsqueeze(1)
+        gate = (1.0 - router_weight.float()).detach().unsqueeze(1)
+        return (error * gate * valid).sum() / valid.sum().clamp(min=1.0)
+
+    def _compute_action_aura_diversity_loss(
+        self,
+        *,
+        start_action: torch.Tensor,
+        router_weight: torch.Tensor,
+        inputs: dict[str, torch.Tensor],
+    ) -> torch.Tensor:
+        target_spread = inputs.get("target_spread")
+        nn_histories = inputs.get("nn_histories")
+        if target_spread is None or nn_histories is None:
+            raise ValueError(
+                "Action-side AURA diversity requires the precomputed visual-KNN fields "
+                "`target_spread` and `nn_histories`. Configure data.train.aura_knn_dir "
+                "after running scripts/flux2/precompute_action_aura_knn.py."
+            )
+        return diversity_loss_global_knn(
+            start_action,
+            target_spread,
+            nn_histories,
+            router_weight,
+            noise_dims=self.action_aura_noise_dims,
+            nn_weights=inputs.get("nn_weights"),
+        )
+
+    def _compute_image_i2i_ic_loss(self, pred_latent: torch.Tensor, target_latent: torch.Tensor) -> torch.Tensor:
+        loss_type = self.image_i2i_ic_loss
+        if loss_type in {"smooth_l1", "huber"}:
+            return F.smooth_l1_loss(pred_latent.float(), target_latent.float())
+        if loss_type == "l1":
+            return F.l1_loss(pred_latent.float(), target_latent.float())
+        if loss_type == "mse":
+            return F.mse_loss(pred_latent.float(), target_latent.float())
+        raise ValueError(
+            f"Unsupported image_i2i.ic_loss={self.image_i2i_ic_loss!r}; "
+            "expected one of: smooth_l1, huber, l1, mse."
+        )
+
+    def _denoise_action_flux2_from_start(
+        self,
+        *,
+        start_action: torch.Tensor,
+        text_hidden_states: torch.Tensor,
+        text_attention_mask: torch.Tensor,
+        ref_image_latents: torch.Tensor,
+        ref_img_ids: torch.Tensor,
+        target_latent: Optional[torch.Tensor] = None,
+        target_img_ids: Optional[torch.Tensor] = None,
+        num_inference_steps: int,
+        sigma_shift: Optional[float] = None,
+        detach_video_cache: bool = False,
+        video_workspace: Optional[dict[str, Any]] = None,
+    ) -> torch.Tensor:
+        latents_action = start_action
+        batch_size = int(latents_action.shape[0])
+        use_noise_action_context = self._flux2_action_uses_noise_context()
+
+        def _build_video_prefix_cache() -> tuple[dict[str, Any], dict[str, object]]:
+            if use_noise_action_context:
+                if target_latent is None or target_img_ids is None:
+                    raise ValueError("Flux2 NoiseIDM action IC requires target latent shape and target image ids.")
+                video_pre_local = self._build_flux2_noise_action_context_pre(
+                    inputs={
+                        "text_hidden_states": text_hidden_states,
+                        "text_attention_mask": text_attention_mask,
+                        "ref_image_latents": ref_image_latents,
+                        "target_img_ids": target_img_ids,
+                        "ref_img_ids": ref_img_ids,
+                    },
+                    target_latent=target_latent,
+                )
+            else:
+                empty_target = ref_image_latents.new_zeros(batch_size, 0, ref_image_latents.shape[-1])
+                empty_target_ids = ref_img_ids.new_zeros(batch_size, 0, ref_img_ids.shape[-1])
+                video_timestep = torch.zeros((batch_size,), dtype=ref_image_latents.dtype, device=self.device)
+                video_pre_local = self.video_expert.pre_dit(
+                    x=empty_target,
+                    timestep=video_timestep,
+                    context=text_hidden_states,
+                    context_mask=text_attention_mask,
+                    ref_image_hidden_states=ref_image_latents,
+                    target_img_ids=empty_target_ids,
+                    ref_img_ids=ref_img_ids,
+                )
+            prefix_attention_mask = self._build_mot_attention_mask_flux2(
+                batch_size=batch_size,
+                txt_len=int(video_pre_local["txt_len"]),
+                target_len=int(video_pre_local["target_len"]),
+                cond_len=int(video_pre_local["cond_len"]),
+                action_len=0,
+                device=latents_action.device,
+                text_attention_mask=video_pre_local["text_mask"],
+            )
+            video_kv_cache_local = self.mot.prefill_flux2_video_cache(
+                video_tokens=video_pre_local["tokens"],
+                video_freqs=video_pre_local["freqs"],
+                video_t_mod=video_pre_local["t_mod"],
+                attention_mask=prefix_attention_mask,
+            )
+            return video_pre_local, video_kv_cache_local
+
+        if video_workspace is not None:
+            if not use_noise_action_context:
+                raise ValueError("A shared visual workspace requires Flux2 `mode: noise_idm`.")
+            video_pre = {
+                "txt_len": int(video_workspace["txt_len"]),
+                "target_len": int(video_workspace["target_len"]),
+                "cond_len": int(video_workspace["cond_len"]),
+                "text_mask": video_workspace["text_mask"],
+            }
+            video_kv_cache = video_workspace["video_kv_cache"]
+        elif detach_video_cache:
+            # IC should train the action denoising path. The video/text prefix is conditioning,
+            # so building its cache without gradients avoids storing a second full video graph.
+            with torch.no_grad():
+                video_pre, video_kv_cache = _build_video_prefix_cache()
+        else:
+            video_pre, video_kv_cache = _build_video_prefix_cache()
+
+        full_attention_mask = self._build_mot_attention_mask_flux2(
+            batch_size=batch_size,
+            txt_len=int(video_pre["txt_len"]),
+            target_len=int(video_pre["target_len"]),
+            cond_len=int(video_pre["cond_len"]),
+            action_len=int(latents_action.shape[1]),
+            device=latents_action.device,
+            text_attention_mask=video_pre["text_mask"],
+            action_can_attend_target=use_noise_action_context,
+        )
+        prefix_len = int(video_pre["txt_len"]) + int(video_pre["cond_len"]) + int(video_pre["target_len"])
+        infer_timesteps_action, infer_deltas_action = self.infer_action_scheduler.build_inference_schedule(
+            num_inference_steps=num_inference_steps,
+            device=self.device,
+            dtype=latents_action.dtype,
+            shift_override=sigma_shift,
+        )
+        for step_t_action, step_delta_action in zip(infer_timesteps_action, infer_deltas_action):
+            timestep_action = step_t_action.expand(batch_size).to(dtype=latents_action.dtype, device=self.device)
+            action_pre = self.action_expert.pre_dit(
+                action_tokens=latents_action,
+                timestep=self._scheduler_timestep_to_unit(timestep_action, self.infer_action_scheduler),
+            )
+            action_tokens = self.mot.forward_action_with_video_cache(
+                action_tokens=action_pre["tokens"],
+                action_freqs=None,
+                action_t_mod=action_pre["t_mod"],
+                action_context_payload={"ids": action_pre["ids"]},
+                video_kv_cache=video_kv_cache,
+                attention_mask=full_attention_mask,
+                video_seq_len=prefix_len,
+            )
+            pred_action = self.action_expert.post_dit(action_tokens, action_pre)
+            latents_action = self.infer_action_scheduler.step(pred_action, step_delta_action, latents_action)
+        return latents_action
 
     def _training_loss_omnigen2(self, sample, tiled: bool = False):
         debug_every = int(os.environ.get("IMAGEWAM_DEBUG_OMNIGEN2_FORWARD_EVERY", "0") or "0")
@@ -2401,13 +3084,32 @@ class ImageWAM(torch.nn.Module):
             "loss_action": self.loss_lambda_action * float(loss_action.detach().item()),
         }
 
-    def _training_loss_flux2(self, sample, tiled: bool = False):
-        inputs = self.build_inputs_flux2(sample, tiled=tiled)
+    def _training_loss_flux2(
+        self,
+        sample,
+        tiled: bool = False,
+        include_action_ic: bool = True,
+        inputs: Optional[dict[str, torch.Tensor]] = None,
+        action_video_workspace: Optional[dict[str, Any]] = None,
+        return_action_workspace: bool = False,
+    ):
+        if inputs is None:
+            inputs = self.build_inputs_flux2(sample, tiled=tiled)
         target_latent = inputs["target_latent"]
         action = inputs["action"]
+        past_action = inputs.get("past_action")
         batch_size = int(target_latent.shape[0])
+        action_aura_weight = None
 
-        noise_video = torch.randn_like(target_latent)
+        if self.image_i2i_enabled:
+            noise_video = self._apply_image_i2i_source_noise(inputs["ref_image_latents"])
+            if tuple(noise_video.shape) != tuple(target_latent.shape):
+                raise ValueError(
+                    "Image I2I requires current/future FLUX.2 token shapes to match, "
+                    f"got {tuple(noise_video.shape)} vs {tuple(target_latent.shape)}."
+                )
+        else:
+            noise_video = torch.randn_like(target_latent)
         timestep_video = self.train_video_scheduler.sample_training_t(
             batch_size=batch_size,
             device=self.device,
@@ -2416,14 +3118,31 @@ class ImageWAM(torch.nn.Module):
         noisy_latent = self.train_video_scheduler.add_noise(target_latent, noise_video, timestep_video)
         target_video = self.train_video_scheduler.training_target(target_latent, noise_video, timestep_video)
 
-        noise_action = torch.randn_like(action)
-        timestep_action = self.train_action_scheduler.sample_training_t(
-            batch_size=batch_size,
-            device=self.device,
-            dtype=action.dtype,
-        )
-        noisy_action = self.train_action_scheduler.add_noise(action, noise_action, timestep_action)
-        target_action = self.train_action_scheduler.training_target(action, noise_action, timestep_action)
+        action_fm_enabled = self.action_a2a_fm_weight > 0.0
+        if action_fm_enabled:
+            if self.action_a2a_enabled:
+                if past_action is None:
+                    raise ValueError("Raw-action A2A requires `sample['past_action']`; set data.train.past_action_size.")
+                if tuple(past_action.shape) != tuple(action.shape):
+                    raise ValueError(
+                        f"`past_action` must match future action shape for raw-action A2A, "
+                        f"got {tuple(past_action.shape)} vs {tuple(action.shape)}."
+                    )
+                # A2A uses normalized recent actions. AURA replaces the fixed
+                # additive perturbation with its learned convex source mixture.
+                noise_action, action_aura_weight = self._build_action_flow_source(
+                    past_action,
+                    inputs["ref_image_latents"],
+                )
+            else:
+                noise_action = torch.randn_like(action)
+            timestep_action = self.train_action_scheduler.sample_training_t(
+                batch_size=batch_size,
+                device=self.device,
+                dtype=action.dtype,
+            )
+            noisy_action = self.train_action_scheduler.add_noise(action, noise_action, timestep_action)
+            target_action = self.train_action_scheduler.training_target(action, noise_action, timestep_action)
 
         video_pre = self.video_expert.pre_dit(
             x=noisy_latent,
@@ -2434,28 +3153,145 @@ class ImageWAM(torch.nn.Module):
             target_img_ids=inputs["target_img_ids"],
             ref_img_ids=inputs["ref_img_ids"],
         )
-        action_pre = self.action_expert.pre_dit(
-            action_tokens=noisy_action,
-            timestep=self._scheduler_timestep_to_unit(timestep_action, self.train_action_scheduler),
-        )
-        attention_mask = self._build_mot_attention_mask_flux2(
-            batch_size=batch_size,
-            txt_len=int(video_pre["txt_len"]),
-            target_len=int(video_pre["target_len"]),
-            cond_len=int(video_pre["cond_len"]),
-            action_len=int(action_pre["tokens"].shape[1]),
-            device=noisy_latent.device,
-            text_attention_mask=video_pre["text_mask"],
-        )
-        tokens_out = self.mot(
-            embeds_all={"video": video_pre["tokens"], "action": action_pre["tokens"]},
-            attention_mask=attention_mask,
-            freqs_all={"video": video_pre["freqs"]},
-            context_all={"video": None, "action": {"ids": action_pre["ids"]}},
-            t_mod_all={"video": video_pre["t_mod"], "action": action_pre["t_mod"]},
-        )
-        pred_video = self.video_expert.post_dit(tokens_out["video"], video_pre)
-        pred_action = self.action_expert.post_dit(tokens_out["action"], action_pre)
+        if not action_fm_enabled:
+            # Consistency-only A2A still keeps the image FM objective, but the
+            # random-t action path must not run or contribute gradients.
+            video_attention_mask = self._build_mot_attention_mask_flux2(
+                batch_size=batch_size,
+                txt_len=int(video_pre["txt_len"]),
+                target_len=int(video_pre["target_len"]),
+                cond_len=int(video_pre["cond_len"]),
+                action_len=0,
+                device=noisy_latent.device,
+                text_attention_mask=video_pre["text_mask"],
+            )
+            pred_video = self.video_expert.post_dit(
+                self._forward_flux2_video_only(video_pre, video_attention_mask),
+                video_pre,
+            )
+            pred_action = None
+        elif self._flux2_action_uses_noise_context():
+            action_pre = self.action_expert.pre_dit(
+                action_tokens=noisy_action,
+                timestep=self._scheduler_timestep_to_unit(timestep_action, self.train_action_scheduler),
+            )
+            video_attention_mask = self._build_mot_attention_mask_flux2(
+                batch_size=batch_size,
+                txt_len=int(video_pre["txt_len"]),
+                target_len=int(video_pre["target_len"]),
+                cond_len=int(video_pre["cond_len"]),
+                action_len=0,
+                device=noisy_latent.device,
+                text_attention_mask=video_pre["text_mask"],
+            )
+            isolate_action_context = self._flux2_action_uses_knowledge_insulation()
+            reuse_image_fm_workspace = (
+                isolate_action_context
+                and action_video_workspace is None
+                and self.flux2_action_reuse_image_fm_workspace
+            )
+            if reuse_image_fm_workspace:
+                # Standard Flow-Matching training for the noise-to-future
+                # ablation: one random-t video forward supplies both the image
+                # velocity loss and a detached visual workspace for action.
+                # No iterative video denoising is unrolled during training.
+                video_kv_cache = self.mot.prefill_flux2_video_cache(
+                    video_tokens=video_pre["tokens"],
+                    video_freqs=video_pre["freqs"],
+                    video_t_mod=video_pre["t_mod"],
+                    attention_mask=video_attention_mask,
+                )
+                pred_video = self.video_expert.post_dit(video_kv_cache["final_video"], video_pre)
+                action_video_workspace = self._pack_flux2_action_workspace(video_pre, video_kv_cache)
+            else:
+                pred_video = self.video_expert.post_dit(
+                    self._forward_flux2_video_only(video_pre, video_attention_mask),
+                    video_pre,
+                )
+
+            if action_video_workspace is not None:
+                if not isolate_action_context:
+                    raise ValueError("A shared detached visual workspace requires knowledge insulation.")
+                action_video_pre = {
+                    "txt_len": int(action_video_workspace["txt_len"]),
+                    "target_len": int(action_video_workspace["target_len"]),
+                    "cond_len": int(action_video_workspace["cond_len"]),
+                    "text_mask": action_video_workspace["text_mask"],
+                }
+                action_video_kv_cache = action_video_workspace["video_kv_cache"]
+            elif isolate_action_context:
+                action_video_workspace = self._build_flux2_detached_action_workspace(
+                    inputs=inputs,
+                    target_latent=target_latent,
+                )
+                action_video_pre = {
+                    "txt_len": int(action_video_workspace["txt_len"]),
+                    "target_len": int(action_video_workspace["target_len"]),
+                    "cond_len": int(action_video_workspace["cond_len"]),
+                    "text_mask": action_video_workspace["text_mask"],
+                }
+                action_video_kv_cache = action_video_workspace["video_kv_cache"]
+            else:
+                action_video_pre = self._build_flux2_noise_action_context_pre(
+                    inputs=inputs,
+                    target_latent=target_latent,
+                )
+            action_attention_mask = self._build_mot_attention_mask_flux2(
+                batch_size=batch_size,
+                txt_len=int(action_video_pre["txt_len"]),
+                target_len=int(action_video_pre["target_len"]),
+                cond_len=int(action_video_pre["cond_len"]),
+                action_len=int(action_pre["tokens"].shape[1]),
+                device=noisy_latent.device,
+                text_attention_mask=action_video_pre["text_mask"],
+                action_can_attend_target=True,
+            )
+            if isolate_action_context:
+                action_tokens = self.mot.forward_action_with_video_cache(
+                    action_tokens=action_pre["tokens"],
+                    action_freqs=None,
+                    action_t_mod=action_pre["t_mod"],
+                    action_context_payload={"ids": action_pre["ids"]},
+                    video_kv_cache=action_video_kv_cache,
+                    attention_mask=action_attention_mask,
+                    video_seq_len=(
+                        int(action_video_pre["txt_len"])
+                        + int(action_video_pre["cond_len"])
+                        + int(action_video_pre["target_len"])
+                    ),
+                )
+            else:
+                action_tokens = self.mot(
+                    embeds_all={"video": action_video_pre["tokens"], "action": action_pre["tokens"]},
+                    attention_mask=action_attention_mask,
+                    freqs_all={"video": action_video_pre["freqs"]},
+                    context_all={"video": None, "action": {"ids": action_pre["ids"]}},
+                    t_mod_all={"video": action_video_pre["t_mod"], "action": action_pre["t_mod"]},
+                )["action"]
+            pred_action = self.action_expert.post_dit(action_tokens, action_pre)
+        else:
+            action_pre = self.action_expert.pre_dit(
+                action_tokens=noisy_action,
+                timestep=self._scheduler_timestep_to_unit(timestep_action, self.train_action_scheduler),
+            )
+            attention_mask = self._build_mot_attention_mask_flux2(
+                batch_size=batch_size,
+                txt_len=int(video_pre["txt_len"]),
+                target_len=int(video_pre["target_len"]),
+                cond_len=int(video_pre["cond_len"]),
+                action_len=int(action_pre["tokens"].shape[1]),
+                device=noisy_latent.device,
+                text_attention_mask=video_pre["text_mask"],
+            )
+            tokens_out = self.mot(
+                embeds_all={"video": video_pre["tokens"], "action": action_pre["tokens"]},
+                attention_mask=attention_mask,
+                freqs_all={"video": video_pre["freqs"]},
+                context_all={"video": None, "action": {"ids": action_pre["ids"]}},
+                t_mod_all={"video": video_pre["t_mod"], "action": action_pre["t_mod"]},
+            )
+            pred_video = self.video_expert.post_dit(tokens_out["video"], video_pre)
+            pred_action = self.action_expert.post_dit(tokens_out["action"], action_pre)
 
         video_loss_per_sample = F.mse_loss(pred_video.float(), target_video.float(), reduction="none").flatten(1).mean(dim=1)
         video_weight = self.train_video_scheduler.training_weight(timestep_video).to(
@@ -2463,22 +3299,273 @@ class ImageWAM(torch.nn.Module):
             dtype=video_loss_per_sample.dtype,
         )
         loss_video = (video_loss_per_sample * video_weight).mean()
-        action_loss_per_sample = self._compute_action_loss_per_sample(
-            pred_action=pred_action,
-            target_action=target_action,
-            action_is_pad=inputs["action_is_pad"],
-            action_dim_is_pad=inputs.get("action_dim_is_pad"),
+        if action_fm_enabled:
+            action_loss_per_sample = self._compute_action_loss_per_sample(
+                pred_action=pred_action,
+                target_action=target_action,
+                action_is_pad=inputs["action_is_pad"],
+                action_dim_is_pad=inputs.get("action_dim_is_pad"),
+            )
+            action_weight = self.train_action_scheduler.training_weight(timestep_action).to(
+                action_loss_per_sample.device,
+                dtype=action_loss_per_sample.dtype,
+            )
+            loss_action_fm = (action_loss_per_sample * action_weight).mean()
+        else:
+            loss_action_fm = loss_video.new_zeros(())
+        loss_action_total = self.action_a2a_fm_weight * loss_action_fm
+        loss_action_ic = None
+        loss_action_diversity = None
+        if (
+            include_action_ic
+            and self._action_aux_enabled()
+            and past_action is not None
+        ):
+            source_action_ic, action_ic_aura_weight = self._build_action_flow_source(
+                past_action,
+                inputs["ref_image_latents"],
+            )
+            pred_action_ic = self._denoise_action_flux2_from_start(
+                start_action=source_action_ic,
+                text_hidden_states=inputs["text_hidden_states"],
+                text_attention_mask=inputs["text_attention_mask"],
+                ref_image_latents=inputs["ref_image_latents"],
+                ref_img_ids=inputs["ref_img_ids"],
+                target_latent=target_latent,
+                target_img_ids=inputs["target_img_ids"],
+                num_inference_steps=self.action_a2a_ic_steps,
+                detach_video_cache=True,
+            )
+            if action_ic_aura_weight is None:
+                action_ic_per_sample = self._compute_action_ic_loss_per_sample(
+                    pred_action=pred_action_ic,
+                    target_action=action,
+                    action_is_pad=inputs["action_is_pad"],
+                    action_dim_is_pad=inputs.get("action_dim_is_pad"),
+                )
+                loss_action_ic = action_ic_per_sample.mean()
+            else:
+                loss_action_ic = self._compute_action_aura_reconstruction_loss(
+                    pred_action=pred_action_ic,
+                    target_action=action,
+                    router_weight=action_ic_aura_weight,
+                    action_is_pad=inputs["action_is_pad"],
+                    action_dim_is_pad=inputs.get("action_dim_is_pad"),
+                )
+                if self.action_aura_diversity_weight > 0.0:
+                    loss_action_diversity = self._compute_action_aura_diversity_loss(
+                        start_action=source_action_ic,
+                        router_weight=action_ic_aura_weight,
+                        inputs=inputs,
+                    )
+                    loss_action_total = (
+                        loss_action_total
+                        + self.action_aura_diversity_weight * loss_action_diversity
+                    )
+            loss_action_total = loss_action_total + self.action_a2a_ic_weight * loss_action_ic
+
+        loss_total = self.loss_lambda_video * loss_video + self.loss_lambda_action * loss_action_total
+        weighted_loss_action_fm = (
+            self.loss_lambda_action
+            * self.action_a2a_fm_weight
+            * float(loss_action_fm.detach().item())
         )
-        action_weight = self.train_action_scheduler.training_weight(timestep_action).to(
-            action_loss_per_sample.device,
-            dtype=action_loss_per_sample.dtype,
-        )
-        loss_action = (action_loss_per_sample * action_weight).mean()
-        loss_total = self.loss_lambda_video * loss_video + self.loss_lambda_action * loss_action
-        return loss_total, {
+        metrics = {
             "loss_video": self.loss_lambda_video * float(loss_video.detach().item()),
-            "loss_action": self.loss_lambda_action * float(loss_action.detach().item()),
+            # Keep loss_action comparable with the original ImageWAM action loss.
+            "loss_action": weighted_loss_action_fm,
         }
+        if self.action_a2a_enabled:
+            metrics["loss_action_fm"] = weighted_loss_action_fm
+            # In sequential mode the auxiliary action objective logs the same
+            # router statistics.  Logging them here as well makes the trainer's
+            # metric accumulator add the two values (e.g. a valid w=0.5 is
+            # displayed as 1.0), so emit them only once per optimizer step.
+            if action_aura_weight is not None and (
+                include_action_ic or not self._action_aux_enabled()
+            ):
+                metrics.update(self._action_aura_metrics(action_aura_weight))
+            if loss_action_ic is not None:
+                weighted_loss_ic = (
+                    self.loss_lambda_action
+                    * self.action_a2a_ic_weight
+                    * float(loss_action_ic.detach().item())
+                )
+                metrics["loss_ic"] = weighted_loss_ic
+                metrics["action_ic_loss"] = weighted_loss_ic
+                if action_ic_aura_weight is not None:
+                    # AURA calls this one-step gated denoising objective the
+                    # reconstruction/consistency loss.  Keep the historical IC
+                    # names above so existing dashboards remain comparable.
+                    metrics["aura_reconstruction_loss"] = weighted_loss_ic
+                    metrics["consistency_loss"] = weighted_loss_ic
+            if loss_action_diversity is not None:
+                metrics["aura_diversity_loss"] = (
+                    self.loss_lambda_action
+                    * self.action_aura_diversity_weight
+                    * float(loss_action_diversity.detach().item())
+                )
+        if return_action_workspace:
+            if action_video_workspace is None:
+                raise RuntimeError("Requested an action visual workspace, but none was produced.")
+            return loss_total, metrics, action_video_workspace
+        return loss_total, metrics
+
+    def _training_loss_flux2_action_ic(
+        self,
+        sample,
+        tiled: bool = False,
+        inputs: Optional[dict[str, torch.Tensor]] = None,
+        action_video_workspace: Optional[dict[str, Any]] = None,
+    ):
+        if inputs is None:
+            inputs = self.build_inputs_flux2(sample, tiled=tiled)
+        action = inputs["action"]
+        past_action = inputs.get("past_action")
+        if past_action is None:
+            raise ValueError("Raw-action A2A IC requires `sample['past_action']`; set data.train.past_action_size.")
+        if tuple(past_action.shape) != tuple(action.shape):
+            raise ValueError(
+                f"`past_action` must match future action shape for raw-action A2A IC, "
+                f"got {tuple(past_action.shape)} vs {tuple(action.shape)}."
+            )
+
+        source_action, action_aura_weight = self._build_action_flow_source(
+            past_action,
+            inputs["ref_image_latents"],
+        )
+        pred_action_ic = self._denoise_action_flux2_from_start(
+            start_action=source_action,
+            text_hidden_states=inputs["text_hidden_states"],
+            text_attention_mask=inputs["text_attention_mask"],
+            ref_image_latents=inputs["ref_image_latents"],
+            ref_img_ids=inputs["ref_img_ids"],
+            target_latent=inputs["target_latent"],
+            target_img_ids=inputs["target_img_ids"],
+            num_inference_steps=self.action_a2a_ic_steps,
+            detach_video_cache=True,
+            video_workspace=action_video_workspace,
+        )
+        if action_aura_weight is None:
+            action_ic_per_sample = self._compute_action_ic_loss_per_sample(
+                pred_action=pred_action_ic,
+                target_action=action,
+                action_is_pad=inputs["action_is_pad"],
+                action_dim_is_pad=inputs.get("action_dim_is_pad"),
+            )
+            loss_action_ic = action_ic_per_sample.mean()
+        else:
+            loss_action_ic = self._compute_action_aura_reconstruction_loss(
+                pred_action=pred_action_ic,
+                target_action=action,
+                router_weight=action_aura_weight,
+                action_is_pad=inputs["action_is_pad"],
+                action_dim_is_pad=inputs.get("action_dim_is_pad"),
+            )
+        weighted_loss_action_ic = self.loss_lambda_action * self.action_a2a_ic_weight * loss_action_ic
+        loss_total = weighted_loss_action_ic
+        metrics = {
+            "loss_ic": float(weighted_loss_action_ic.detach().item()),
+            "action_ic_loss": float(weighted_loss_action_ic.detach().item()),
+        }
+        if action_aura_weight is not None:
+            metrics.update(self._action_aura_metrics(action_aura_weight))
+            metrics["aura_reconstruction_loss"] = float(
+                weighted_loss_action_ic.detach().item()
+            )
+            metrics["consistency_loss"] = float(weighted_loss_action_ic.detach().item())
+            if self.action_aura_diversity_weight > 0.0:
+                diversity_loss = self._compute_action_aura_diversity_loss(
+                    start_action=source_action,
+                    router_weight=action_aura_weight,
+                    inputs=inputs,
+                )
+                weighted_diversity = (
+                    self.loss_lambda_action
+                    * self.action_aura_diversity_weight
+                    * diversity_loss
+                )
+                loss_total = loss_total + weighted_diversity
+                metrics["aura_diversity_loss"] = float(weighted_diversity.detach().item())
+        return loss_total, metrics
+
+    def _training_loss_flux2_image_ic(
+        self,
+        sample,
+        tiled: bool = False,
+        inputs: Optional[dict[str, torch.Tensor]] = None,
+    ):
+        if inputs is None:
+            inputs = self.build_inputs_flux2(sample, tiled=tiled)
+        target_latent = inputs["target_latent"]
+        source_latent = self._apply_image_i2i_source_noise(inputs["ref_image_latents"])
+        if tuple(source_latent.shape) != tuple(target_latent.shape):
+            raise ValueError(
+                "Image I2I requires current/future FLUX.2 token shapes to match, "
+                f"got {tuple(source_latent.shape)} vs {tuple(target_latent.shape)}."
+            )
+        latents_video = source_latent
+        batch_size = int(latents_video.shape[0])
+        infer_timesteps, infer_deltas = self.infer_video_scheduler.build_inference_schedule(
+            num_inference_steps=self.image_i2i_ic_steps,
+            device=self.device,
+            dtype=latents_video.dtype,
+        )
+        # Only the full future-token hard-KI path can reuse the first IC
+        # forward as the action workspace.  The no-future ablation needs a
+        # separate current-prefix-only cache, so retaining a full IC cache here
+        # would waste one model-sized set of per-layer K/V tensors.
+        reuse_image_ic_workspace = (
+            self._flux2_action_uses_knowledge_insulation()
+            and self.flux2_action_include_future_tokens
+        )
+        action_video_workspace = None
+        for step_idx, (step_t, step_delta) in enumerate(zip(infer_timesteps, infer_deltas)):
+            timestep_video = step_t.expand(batch_size).to(dtype=latents_video.dtype, device=self.device)
+            video_pre = self.video_expert.pre_dit(
+                x=latents_video,
+                timestep=self._scheduler_timestep_to_unit(timestep_video, self.infer_video_scheduler),
+                context=inputs["text_hidden_states"],
+                context_mask=inputs["text_attention_mask"],
+                ref_image_hidden_states=inputs["ref_image_latents"],
+                target_img_ids=inputs["target_img_ids"],
+                ref_img_ids=inputs["ref_img_ids"],
+            )
+            attention_mask = self._build_mot_attention_mask_flux2(
+                batch_size=batch_size,
+                txt_len=int(video_pre["txt_len"]),
+                target_len=int(video_pre["target_len"]),
+                cond_len=int(video_pre["cond_len"]),
+                action_len=0,
+                device=latents_video.device,
+                text_attention_mask=video_pre["text_mask"],
+            )
+            if step_idx == 0 and reuse_image_ic_workspace:
+                video_kv_cache = self.mot.prefill_flux2_video_cache(
+                    video_tokens=video_pre["tokens"],
+                    video_freqs=video_pre["freqs"],
+                    video_t_mod=video_pre["t_mod"],
+                    attention_mask=attention_mask,
+                )
+                action_video_workspace = self._pack_flux2_action_workspace(video_pre, video_kv_cache)
+                video_tokens = video_kv_cache["final_video"]
+            else:
+                video_tokens = self._forward_flux2_video_only(video_pre, attention_mask)
+            pred_video = self.video_expert.post_dit(video_tokens, video_pre)
+            latents_video = self.infer_video_scheduler.step(pred_video, step_delta, latents_video)
+
+        if reuse_image_ic_workspace and action_video_workspace is None:
+            raise RuntimeError("Image I2I consistency produced no visual workspace.")
+        loss_image_ic = self._compute_image_i2i_ic_loss(latents_video, target_latent)
+        weighted_loss_image_ic = self.loss_lambda_video * self.image_i2i_ic_weight * loss_image_ic
+        return (
+            weighted_loss_image_ic,
+            {
+                "loss_image_ic": float(weighted_loss_image_ic.detach().item()),
+                "image_i2i_ic_loss": float(weighted_loss_image_ic.detach().item()),
+            },
+            action_video_workspace,
+        )
 
     def _training_loss_dim(self, sample, tiled: bool = False):
         inputs = self.build_inputs_dim(sample, tiled=tiled)
@@ -2719,6 +3806,96 @@ class ImageWAM(torch.nn.Module):
         }
         return loss_total, loss_dict
 
+    def iter_training_losses(self, sample, tiled: bool = False):
+        if (
+            self.stack == "flux2"
+            and self.image_i2i_enabled
+            and self.image_i2i_ic_weight > 0.0
+            and self.image_i2i_ic_steps > 0
+        ):
+            inputs = self.build_inputs_flux2(sample, tiled=tiled)
+            image_ic_loss, image_ic_metrics, action_video_workspace = self._training_loss_flux2_image_ic(
+                sample,
+                tiled=tiled,
+                inputs=inputs,
+            )
+            yield image_ic_loss, image_ic_metrics
+
+            shared_workspace = None
+            if self._flux2_action_uses_knowledge_insulation():
+                if self.flux2_action_include_future_tokens:
+                    shared_workspace = action_video_workspace
+                else:
+                    shared_workspace = self._build_flux2_detached_action_workspace(
+                        inputs=inputs,
+                        target_latent=inputs["target_latent"],
+                    )
+            # The proprio encoder is trainable.  A fresh appended proprio token
+            # prevents later objectives from reusing the graph freed by the
+            # preceding backward, while frozen VAE image tokens stay shared.
+            inputs = self._refresh_flux2_trainable_condition(inputs, sample)
+            yield self._training_loss_flux2(
+                sample,
+                tiled=tiled,
+                include_action_ic=False,
+                inputs=inputs,
+                action_video_workspace=shared_workspace,
+            )
+            if self._action_aux_enabled():
+                inputs = self._refresh_flux2_trainable_condition(inputs, sample)
+                yield self._training_loss_flux2_action_ic(
+                    sample,
+                    tiled=tiled,
+                    inputs=inputs,
+                    action_video_workspace=shared_workspace,
+                )
+            return
+        if (
+            self.stack == "flux2"
+            and self._action_aux_enabled()
+        ):
+            inputs = self.build_inputs_flux2(sample, tiled=tiled)
+            if self.flux2_action_reuse_image_fm_workspace:
+                main_loss, main_metrics, shared_workspace = self._training_loss_flux2(
+                    sample,
+                    tiled=tiled,
+                    include_action_ic=False,
+                    inputs=inputs,
+                    return_action_workspace=True,
+                )
+                yield main_loss, main_metrics
+                inputs = self._refresh_flux2_trainable_condition(inputs, sample)
+                yield self._training_loss_flux2_action_ic(
+                    sample,
+                    tiled=tiled,
+                    inputs=inputs,
+                    action_video_workspace=shared_workspace,
+                )
+                return
+            yield self._training_loss_flux2(sample, tiled=tiled, include_action_ic=False, inputs=inputs)
+            inputs = self._refresh_flux2_trainable_condition(inputs, sample)
+            yield self._training_loss_flux2_action_ic(sample, tiled=tiled, inputs=inputs)
+            return
+        yield self.training_loss(sample, tiled=tiled)
+
+    def training_objective_count(self) -> int:
+        """Return the exact number of sequential losses yielded for one batch."""
+        if (
+            self.stack == "flux2"
+            and self.image_i2i_enabled
+            and self.image_i2i_ic_weight > 0.0
+            and self.image_i2i_ic_steps > 0
+        ):
+            return 2 + int(
+                self._action_aux_enabled()
+            )
+        if (
+            self.stack == "flux2"
+            and self._action_aux_enabled()
+        ):
+            return 2
+        return 1
+
     @torch.no_grad()
     def _predict_joint_noise(
         self,
@@ -2889,6 +4066,11 @@ class ImageWAM(torch.nn.Module):
         text_cfg_scale: float = 1.0,
         num_inference_steps: int = 20,
         sigma_shift: Optional[float] = None,
+        action_init: Optional[torch.Tensor] = None,
+        action_init_noise_strength: float = 0.0,
+        action_init_noise_type: str = "blend",
+        action_init_noise_dim_mask: Optional[Sequence[bool]] = None,
+        clamp_action_init_after_noise: bool = False,
         seed: Optional[int] = None,
         rand_device: str = "cpu",
         tiled: bool = False,
@@ -2906,6 +4088,11 @@ class ImageWAM(torch.nn.Module):
                 context_mask=context_mask.clone() if context_mask is not None else None,
                 num_inference_steps=num_inference_steps,
                 sigma_shift=sigma_shift,
+                action_init=action_init,
+                action_init_noise_strength=action_init_noise_strength,
+                action_init_noise_type=action_init_noise_type,
+                action_init_noise_dim_mask=action_init_noise_dim_mask,
+                clamp_action_init_after_noise=clamp_action_init_after_noise,
                 seed=seed,
                 rand_device=rand_device,
                 tiled=tiled,
@@ -2962,12 +4149,29 @@ class ImageWAM(torch.nn.Module):
             device=rand_device,
             dtype=torch.float32,
         ).to(device=self.device, dtype=self.torch_dtype)
-        latents_action = torch.randn(
-            (1, action_horizon, self.action_expert.action_dim),
-            generator=action_generator,
-            device=rand_device,
-            dtype=torch.float32,
-        ).to(device=self.device, dtype=self.torch_dtype)
+        if action_init is None:
+            latents_action = torch.randn(
+                (1, action_horizon, self.action_expert.action_dim),
+                generator=action_generator,
+                device=rand_device,
+                dtype=torch.float32,
+            ).to(device=self.device, dtype=self.torch_dtype)
+        else:
+            if action_init.ndim == 2:
+                action_init = action_init.unsqueeze(0)
+            expected_shape = (1, action_horizon, self.action_expert.action_dim)
+            if tuple(action_init.shape) != expected_shape:
+                raise ValueError(f"`action_init` shape must be {expected_shape}, got {tuple(action_init.shape)}")
+            latents_action = action_init.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
+            latents_action = self._apply_action_init_noise(
+                latents_action,
+                noise_strength=float(action_init_noise_strength),
+                noise_type=action_init_noise_type,
+                noise_dim_mask=action_init_noise_dim_mask,
+                clamp_after_noise=clamp_action_init_after_noise,
+                generator=action_generator,
+                rand_device=rand_device,
+            )
 
         input_image = input_image.to(device=self.device, dtype=self.torch_dtype)
         first_frame_latents = self._encode_input_image_latents_tensor(input_image=input_image, tiled=tiled)
@@ -3066,7 +4270,16 @@ class ImageWAM(torch.nn.Module):
         negative_prompt: Optional[str] = None,
         text_cfg_scale: float = 1.0,
         num_inference_steps: int = 20,
+        image_num_inference_steps: Optional[int] = None,
+        image_warm_start_progress: Optional[float] = None,
+        image_gaussian_current_residual_scale: Optional[float] = None,
+        image_gaussian_current_residual_variance_normalize: bool = False,
         sigma_shift: Optional[float] = None,
+        action_init: Optional[torch.Tensor] = None,
+        action_init_noise_strength: float = 0.0,
+        action_init_noise_type: str = "blend",
+        action_init_noise_dim_mask: Optional[Sequence[bool]] = None,
+        clamp_action_init_after_noise: bool = False,
         seed: Optional[int] = None,
         rand_device: str = "cpu",
         tiled: bool = False,
@@ -3082,6 +4295,11 @@ class ImageWAM(torch.nn.Module):
                 context_mask=context_mask,
                 num_inference_steps=num_inference_steps,
                 sigma_shift=sigma_shift,
+                action_init=action_init,
+                action_init_noise_strength=action_init_noise_strength,
+                action_init_noise_type=action_init_noise_type,
+                action_init_noise_dim_mask=action_init_noise_dim_mask,
+                clamp_action_init_after_noise=clamp_action_init_after_noise,
                 seed=seed,
                 rand_device=rand_device,
             )
@@ -3094,7 +4312,18 @@ class ImageWAM(torch.nn.Module):
                 context=context,
                 context_mask=context_mask,
                 num_inference_steps=num_inference_steps,
+                image_num_inference_steps=image_num_inference_steps,
+                image_warm_start_progress=image_warm_start_progress,
+                image_gaussian_current_residual_scale=image_gaussian_current_residual_scale,
+                image_gaussian_current_residual_variance_normalize=(
+                    image_gaussian_current_residual_variance_normalize
+                ),
                 sigma_shift=sigma_shift,
+                action_init=action_init,
+                action_init_noise_strength=action_init_noise_strength,
+                action_init_noise_type=action_init_noise_type,
+                action_init_noise_dim_mask=action_init_noise_dim_mask,
+                clamp_action_init_after_noise=clamp_action_init_after_noise,
                 seed=seed,
                 rand_device=rand_device,
             )
@@ -3283,6 +4512,11 @@ class ImageWAM(torch.nn.Module):
         context_mask: Optional[torch.Tensor] = None,
         num_inference_steps: int = 20,
         sigma_shift: Optional[float] = None,
+        action_init: Optional[torch.Tensor] = None,
+        action_init_noise_strength: float = 0.0,
+        action_init_noise_type: str = "blend",
+        action_init_noise_dim_mask: Optional[Sequence[bool]] = None,
+        clamp_action_init_after_noise: bool = False,
         seed: Optional[int] = None,
         rand_device: str = "cpu",
     ) -> dict[str, Any]:
@@ -3328,12 +4562,29 @@ class ImageWAM(torch.nn.Module):
             device=rand_device,
             dtype=torch.float32,
         ).to(device=self.device, dtype=self.torch_dtype)
-        latents_action = torch.randn(
-            (batch_size, action_horizon, self.action_expert.action_dim),
-            generator=generator,
-            device=rand_device,
-            dtype=torch.float32,
-        ).to(device=self.device, dtype=self.torch_dtype)
+        if action_init is None:
+            latents_action = torch.randn(
+                (batch_size, action_horizon, self.action_expert.action_dim),
+                generator=generator,
+                device=rand_device,
+                dtype=torch.float32,
+            ).to(device=self.device, dtype=self.torch_dtype)
+        else:
+            if action_init.ndim == 2:
+                action_init = action_init.unsqueeze(0)
+            expected_shape = (batch_size, action_horizon, self.action_expert.action_dim)
+            if tuple(action_init.shape) != expected_shape:
+                raise ValueError(f"`action_init` shape must be {expected_shape}, got {tuple(action_init.shape)}")
+            latents_action = action_init.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
+            latents_action = self._apply_action_init_noise(
+                latents_action,
+                noise_strength=float(action_init_noise_strength),
+                noise_type=action_init_noise_type,
+                noise_dim_mask=action_init_noise_dim_mask,
+                clamp_after_noise=clamp_action_init_after_noise,
+                generator=generator,
+                rand_device=rand_device,
+            )
 
         timestep_cond = torch.full(
             (batch_size,),
@@ -3481,6 +4732,11 @@ class ImageWAM(torch.nn.Module):
         context_mask: Optional[torch.Tensor] = None,
         num_inference_steps: int = 20,
         sigma_shift: Optional[float] = None,
+        action_init: Optional[torch.Tensor] = None,
+        action_init_noise_strength: float = 0.0,
+        action_init_noise_type: str = "blend",
+        action_init_noise_dim_mask: Optional[Sequence[bool]] = None,
+        clamp_action_init_after_noise: bool = False,
         seed: Optional[int] = None,
         rand_device: str = "cpu",
     ) -> dict[str, Any]:
@@ -3493,6 +4749,11 @@ class ImageWAM(torch.nn.Module):
             context_mask=context_mask,
             num_inference_steps=num_inference_steps,
             sigma_shift=sigma_shift,
+            action_init=action_init,
+            action_init_noise_strength=action_init_noise_strength,
+            action_init_noise_type=action_init_noise_type,
+            action_init_noise_dim_mask=action_init_noise_dim_mask,
+            clamp_action_init_after_noise=clamp_action_init_after_noise,
             seed=seed,
             rand_device=rand_device,
         )
@@ -3521,7 +4782,16 @@ class ImageWAM(torch.nn.Module):
         context: Optional[torch.Tensor] = None,
         context_mask: Optional[torch.Tensor] = None,
         num_inference_steps: int = 20,
+        image_num_inference_steps: Optional[int] = None,
+        image_warm_start_progress: Optional[float] = None,
+        image_gaussian_current_residual_scale: Optional[float] = None,
+        image_gaussian_current_residual_variance_normalize: bool = False,
         sigma_shift: Optional[float] = None,
+        action_init: Optional[torch.Tensor] = None,
+        action_init_noise_strength: float = 0.0,
+        action_init_noise_type: str = "blend",
+        action_init_noise_dim_mask: Optional[Sequence[bool]] = None,
+        clamp_action_init_after_noise: bool = False,
         seed: Optional[int] = None,
         rand_device: str = "cpu",
     ) -> dict[str, Any]:
@@ -3542,58 +4812,296 @@ class ImageWAM(torch.nn.Module):
         input_image = input_image.to(device=self.device, dtype=self.torch_dtype)
         ref_tokens, ref_img_ids = self._encode_flux2_image_tokens(input_image, time_value=10.0)
         batch_size = int(ref_tokens.shape[0])
-        empty_target = ref_tokens.new_zeros(batch_size, 0, ref_tokens.shape[-1])
-        empty_target_ids = ref_img_ids.new_zeros(batch_size, 0, ref_img_ids.shape[-1])
 
         generator = None if seed is None else torch.Generator(device=rand_device).manual_seed(seed)
-        latents_action = torch.randn(
-            (batch_size, action_horizon, self.action_expert.action_dim),
-            generator=generator,
-            device=rand_device,
-            dtype=torch.float32,
-        ).to(device=self.device, dtype=self.torch_dtype)
+        warm_start_progress = None
+        gaussian_current_residual_scale = None
+        configured_current_residual_scale = float(
+            getattr(self, "image_i2i_current_residual_scale", 0.0)
+        )
+        if image_gaussian_current_residual_scale is not None:
+            gaussian_current_residual_scale = float(image_gaussian_current_residual_scale)
+            if gaussian_current_residual_scale < 0.0:
+                raise ValueError(
+                    "`image_gaussian_current_residual_scale` must be non-negative, "
+                    f"got {gaussian_current_residual_scale}."
+                )
+            if self.image_i2i_source_mode != "gaussian":
+                raise ValueError(
+                    "Gaussian-current residual inference requires a Gaussian image-source "
+                    f"checkpoint, got source_mode={self.image_i2i_source_mode!r}."
+                )
+            if configured_current_residual_scale > 0.0:
+                raise ValueError(
+                    "This checkpoint already configures "
+                    f"image_i2i.current_residual_scale={configured_current_residual_scale}; "
+                    "do not also pass `image_gaussian_current_residual_scale`, which would "
+                    "add the current latent twice."
+                )
+        if image_warm_start_progress is not None:
+            warm_start_progress = float(image_warm_start_progress)
+            if not 0.0 <= warm_start_progress < 1.0:
+                raise ValueError(
+                    "`image_warm_start_progress` must be in [0, 1), "
+                    f"got {warm_start_progress}."
+                )
+            if self.image_i2i_source_mode != "gaussian":
+                raise ValueError(
+                    "Image warm-start inference is defined for a Gaussian image-source "
+                    "checkpoint, got source_mode="
+                    f"{self.image_i2i_source_mode!r}."
+                )
+            if configured_current_residual_scale > 0.0:
+                raise ValueError(
+                    "RIVER-style warm start is not defined on top of a checkpoint that "
+                    "already configures image_i2i.current_residual_scale="
+                    f"{configured_current_residual_scale}."
+                )
+        if warm_start_progress is not None and gaussian_current_residual_scale is not None:
+            raise ValueError(
+                "`image_warm_start_progress` and "
+                "`image_gaussian_current_residual_scale` are mutually exclusive."
+            )
+        if (
+            image_gaussian_current_residual_variance_normalize
+            and gaussian_current_residual_scale is None
+        ):
+            raise ValueError(
+                "`image_gaussian_current_residual_variance_normalize` requires "
+                "`image_gaussian_current_residual_scale`."
+            )
+        action_aura_weight = None
+        action_aura_enabled = bool(getattr(self, "action_aura_enabled", False))
+        if action_aura_enabled and action_init is None:
+            raise ValueError(
+                "Action-side AURA inference requires `action_init` containing the "
+                "normalized recent action history."
+            )
+        if action_init is None:
+            latents_action = torch.randn(
+                (batch_size, action_horizon, self.action_expert.action_dim),
+                generator=generator,
+                device=rand_device,
+                dtype=torch.float32,
+            ).to(device=self.device, dtype=self.torch_dtype)
+        else:
+            if action_init.ndim == 2:
+                action_init = action_init.unsqueeze(0)
+            if action_init.ndim != 3:
+                raise ValueError(f"`action_init` must be [T,D] or [B,T,D], got {tuple(action_init.shape)}")
+            expected_shape = (batch_size, action_horizon, self.action_expert.action_dim)
+            if tuple(action_init.shape) != expected_shape:
+                raise ValueError(f"`action_init` shape must be {expected_shape}, got {tuple(action_init.shape)}")
+            latents_action = action_init.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
+            if action_aura_enabled:
+                if float(action_init_noise_strength) != 0.0:
+                    raise ValueError(
+                        "AURA inference owns the action source mixture; set "
+                        "EVALUATION.action_init_noise_strength=0.0."
+                    )
+                action_aura_weight = self._predict_action_aura_weight(ref_tokens)
+                latents_action = mix_action_source(
+                    latents_action,
+                    action_aura_weight,
+                    generator=generator,
+                    rand_device=rand_device,
+                )
+            else:
+                noise_strength = float(action_init_noise_strength)
+                latents_action = self._apply_action_init_noise(
+                    latents_action,
+                    noise_strength=noise_strength,
+                    noise_type=action_init_noise_type,
+                    noise_dim_mask=action_init_noise_dim_mask,
+                    clamp_after_noise=clamp_action_init_after_noise,
+                    generator=generator,
+                    rand_device=rand_device,
+                )
 
+        if self._flux2_action_uses_noise_context():
+            from .flux2_video_expert import Flux2VideoExpert
+
+            if not self.flux2_action_include_future_tokens:
+                # Match the no-future training workspace exactly: retain the
+                # text/current-image prefix, but do not create target slots for
+                # action attention. Image I2I can remain enabled as an image
+                # training objective without exposing future tokens to action.
+                target_tokens = ref_tokens.new_zeros(batch_size, 0, ref_tokens.shape[-1])
+                target_img_ids = ref_img_ids.new_zeros(batch_size, 0, ref_img_ids.shape[-1])
+                action_can_attend_target = False
+            else:
+                if self.image_i2i_enabled:
+                    target_tokens = self._apply_image_i2i_source_noise(
+                        ref_tokens,
+                        generator=generator,
+                        rand_device=rand_device,
+                    )
+                else:
+                    target_tokens = torch.randn(
+                        ref_tokens.shape,
+                        generator=generator,
+                        device=rand_device,
+                        dtype=torch.float32,
+                    ).to(device=self.device, dtype=self.torch_dtype)
+                if gaussian_current_residual_scale is not None:
+                    # Fixed-timestep inference perturbation: inject a current-frame
+                    # residual but deliberately keep sigma=1 and the original
+                    # one-step delta.  This is not RIVER-style path truncation.
+                    target_tokens = (
+                        target_tokens + gaussian_current_residual_scale * ref_tokens
+                    )
+                    if image_gaussian_current_residual_variance_normalize:
+                        target_tokens = target_tokens / (
+                            1.0 + gaussian_current_residual_scale**2
+                        ) ** 0.5
+                elif warm_start_progress is not None:
+                    # RIVER-style inference-only warm start.  In this scheduler,
+                    # sigma=1 is the Gaussian endpoint and sigma=0 is data, so a
+                    # progress s along the reverse path is represented by
+                    # z=(1-s)*eps+s*current at sigma=1-s.
+                    target_tokens = (
+                        (1.0 - warm_start_progress) * target_tokens
+                        + warm_start_progress * ref_tokens
+                    )
+                target_img_ids = Flux2VideoExpert.build_img_ids(
+                    batch_size=batch_size,
+                    token_height=int(input_image.shape[-2]) // 16,
+                    token_width=int(input_image.shape[-1]) // 16,
+                    time_value=0.0,
+                    device=self.device,
+                    dtype=self.torch_dtype,
+                )
+                action_can_attend_target = True
+            initial_video_sigma = (
+                1.0 if warm_start_progress is None else 1.0 - warm_start_progress
+            )
+            video_timestep = torch.full(
+                (batch_size,),
+                initial_video_sigma * float(self.infer_video_scheduler.num_train_timesteps),
+                dtype=ref_tokens.dtype,
+                device=self.device,
+            )
+            video_timestep = self._scheduler_timestep_to_unit(video_timestep, self.infer_video_scheduler)
+        else:
+            target_tokens = ref_tokens.new_zeros(batch_size, 0, ref_tokens.shape[-1])
+            target_img_ids = ref_img_ids.new_zeros(batch_size, 0, ref_img_ids.shape[-1])
+            video_timestep = torch.zeros((batch_size,), dtype=ref_tokens.dtype, device=self.device)
+            action_can_attend_target = False
+
+        effective_action_inference_steps = int(num_inference_steps)
+        if action_aura_weight is not None and self.action_aura_adaptive_inference:
+            max_steps = min(
+                int(num_inference_steps),
+                int(self.action_aura_max_inference_steps),
+            )
+            effective_action_inference_steps = int(
+                adaptive_inference_steps(
+                    action_aura_weight,
+                    max_steps=max_steps,
+                    noise_dims=self.action_aura_noise_dims,
+                )[0].item()
+            )
         infer_timesteps_action, infer_deltas_action = self.infer_action_scheduler.build_inference_schedule(
-            num_inference_steps=num_inference_steps,
+            num_inference_steps=effective_action_inference_steps,
             device=self.device,
             dtype=latents_action.dtype,
             shift_override=sigma_shift,
         )
-        video_timestep = torch.zeros((batch_size,), dtype=ref_tokens.dtype, device=self.device)
-        video_pre = self.video_expert.pre_dit(
-            x=empty_target,
-            timestep=video_timestep,
-            context=text_hidden,
-            context_mask=text_mask,
-            ref_image_hidden_states=ref_tokens,
-            target_img_ids=empty_target_ids,
-            ref_img_ids=ref_img_ids,
-        )
-        prefix_attention_mask = self._build_mot_attention_mask_flux2(
-            batch_size=batch_size,
-            txt_len=int(video_pre["txt_len"]),
-            target_len=0,
-            cond_len=int(video_pre["cond_len"]),
-            action_len=0,
-            device=latents_action.device,
-            text_attention_mask=video_pre["text_mask"],
-        )
-        video_kv_cache = self.mot.prefill_flux2_video_cache(
-            video_tokens=video_pre["tokens"],
-            video_freqs=video_pre["freqs"],
-            video_t_mod=video_pre["t_mod"],
-            attention_mask=prefix_attention_mask,
-        )
+        def _prefill_video_workspace(
+            current_tokens: torch.Tensor,
+            current_timestep: torch.Tensor,
+        ) -> tuple[dict[str, Any], dict[str, torch.Tensor], dict[str, object]]:
+            current_pre = self.video_expert.pre_dit(
+                x=current_tokens,
+                timestep=current_timestep,
+                context=text_hidden,
+                context_mask=text_mask,
+                ref_image_hidden_states=ref_tokens,
+                target_img_ids=target_img_ids,
+                ref_img_ids=ref_img_ids,
+            )
+            current_mask = self._build_mot_attention_mask_flux2(
+                batch_size=batch_size,
+                txt_len=int(current_pre["txt_len"]),
+                target_len=int(current_pre["target_len"]),
+                cond_len=int(current_pre["cond_len"]),
+                action_len=0,
+                device=latents_action.device,
+                text_attention_mask=current_pre["text_mask"],
+            )
+            current_cache = self.mot.prefill_flux2_video_cache(
+                video_tokens=current_pre["tokens"],
+                video_freqs=current_pre["freqs"],
+                video_t_mod=current_pre["t_mod"],
+                attention_mask=current_mask,
+            )
+            return current_pre, current_mask, current_cache
+
+        if image_num_inference_steps is None:
+            # Legacy one-workspace behavior used by existing checkpoints.
+            video_pre, prefix_attention_mask, video_kv_cache = _prefill_video_workspace(
+                target_tokens,
+                video_timestep,
+            )
+        else:
+            image_steps = int(image_num_inference_steps)
+            if image_steps <= 0:
+                raise ValueError(f"`image_num_inference_steps` must be positive, got {image_steps}.")
+            if not (self._flux2_action_uses_noise_context() and self.flux2_action_include_future_tokens):
+                raise ValueError(
+                    "Iterative image inference requires NoiseIDM future visual tokens."
+                )
+            if warm_start_progress is None:
+                infer_timesteps_video, infer_deltas_video = self.infer_video_scheduler.build_inference_schedule(
+                    num_inference_steps=image_steps,
+                    device=self.device,
+                    dtype=target_tokens.dtype,
+                    shift_override=sigma_shift,
+                )
+            else:
+                # Continue the same linear FM path from sigma=1-s to sigma=0.
+                # The requested experiments use one image step; the general
+                # construction below also keeps multi-step probing well-defined.
+                sigma_start = 1.0 - warm_start_progress
+                sigma_steps = torch.linspace(
+                    sigma_start,
+                    0.0,
+                    image_steps + 1,
+                    device=self.device,
+                    dtype=torch.float32,
+                )
+                infer_timesteps_video = (
+                    sigma_steps[:-1] * float(self.infer_video_scheduler.num_train_timesteps)
+                ).to(dtype=target_tokens.dtype)
+                infer_deltas_video = (sigma_steps[1:] - sigma_steps[:-1]).to(
+                    dtype=target_tokens.dtype
+                )
+            for step_t_video, step_delta_video in zip(infer_timesteps_video, infer_deltas_video):
+                raw_timestep_video = step_t_video.expand(batch_size).to(
+                    dtype=target_tokens.dtype,
+                    device=self.device,
+                )
+                unit_timestep_video = self._scheduler_timestep_to_unit(
+                    raw_timestep_video,
+                    self.infer_video_scheduler,
+                )
+                video_pre, prefix_attention_mask, video_kv_cache = _prefill_video_workspace(
+                    target_tokens,
+                    unit_timestep_video,
+                )
+                pred_video = self.video_expert.post_dit(video_kv_cache["final_video"], video_pre)
+                target_tokens = self.infer_video_scheduler.step(pred_video, step_delta_video, target_tokens)
         full_attention_mask = self._build_mot_attention_mask_flux2(
             batch_size=batch_size,
             txt_len=int(video_pre["txt_len"]),
-            target_len=0,
+            target_len=int(video_pre["target_len"]),
             cond_len=int(video_pre["cond_len"]),
             action_len=int(latents_action.shape[1]),
             device=latents_action.device,
             text_attention_mask=video_pre["text_mask"],
+            action_can_attend_target=action_can_attend_target,
         )
-        prefix_len = int(video_pre["txt_len"]) + int(video_pre["cond_len"])
+        prefix_len = int(video_pre["txt_len"]) + int(video_pre["cond_len"]) + int(video_pre["target_len"])
         self._configure_action_attention_capture(
             condition_slice=(int(video_pre["txt_len"]), int(video_pre["txt_len"]) + int(video_pre["cond_len"])),
             condition_grid=(int(input_image.shape[-2]) // 16, int(input_image.shape[-1]) // 16),
@@ -3603,31 +5111,135 @@ class ImageWAM(torch.nn.Module):
                 "stack": str(self.stack),
                 "source": "flux2_infer_action",
                 "condition": "ref_image_tokens",
+                "action_image_context": self.flux2_action_image_context_mode,
                 "txt_len": int(video_pre["txt_len"]),
                 "cond_len": int(video_pre["cond_len"]),
+                "target_len": int(video_pre["target_len"]),
                 "input_size": [int(input_image.shape[-2]), int(input_image.shape[-1])],
             },
         )
-        for action_step_idx, (step_t_action, step_delta_action) in enumerate(zip(infer_timesteps_action, infer_deltas_action)):
-            self._start_action_attention_capture_step(action_step_idx)
-            timestep_action = step_t_action.expand(batch_size).to(dtype=latents_action.dtype, device=self.device)
-            action_pre = self.action_expert.pre_dit(
-                action_tokens=latents_action,
-                timestep=self._scheduler_timestep_to_unit(timestep_action, self.infer_action_scheduler),
-            )
-            action_tokens = self.mot.forward_action_with_video_cache(
-                action_tokens=action_pre["tokens"],
-                action_freqs=None,
-                action_t_mod=action_pre["t_mod"],
-                action_context_payload={"ids": action_pre["ids"]},
-                video_kv_cache=video_kv_cache,
-                attention_mask=full_attention_mask,
-                video_seq_len=prefix_len,
-            )
-            pred_action = self.action_expert.post_dit(action_tokens, action_pre)
-            latents_action = self.infer_action_scheduler.step(pred_action, step_delta_action, latents_action)
+        action_start = latents_action.clone()
 
-        return {"action": latents_action[0].detach().to(device="cpu", dtype=torch.float32)}
+        def _run_action_from(start: torch.Tensor, *, capture_steps: bool) -> torch.Tensor:
+            current_action = start.clone()
+            for action_step_idx, (step_t_action, step_delta_action) in enumerate(
+                zip(infer_timesteps_action, infer_deltas_action)
+            ):
+                if capture_steps:
+                    self._start_action_attention_capture_step(action_step_idx)
+                timestep_action = step_t_action.expand(batch_size).to(
+                    dtype=current_action.dtype,
+                    device=self.device,
+                )
+                action_pre = self.action_expert.pre_dit(
+                    action_tokens=current_action,
+                    timestep=self._scheduler_timestep_to_unit(timestep_action, self.infer_action_scheduler),
+                )
+                action_tokens = self.mot.forward_action_with_video_cache(
+                    action_tokens=action_pre["tokens"],
+                    action_freqs=None,
+                    action_t_mod=action_pre["t_mod"],
+                    action_context_payload={"ids": action_pre["ids"]},
+                    video_kv_cache=video_kv_cache,
+                    attention_mask=full_attention_mask,
+                    video_seq_len=prefix_len,
+                )
+                pred_action = self.action_expert.post_dit(action_tokens, action_pre)
+                current_action = self.infer_action_scheduler.step(
+                    pred_action,
+                    step_delta_action,
+                    current_action,
+                )
+            return current_action
+
+        latents_action = _run_action_from(action_start, capture_steps=True)
+
+        causal_probe = getattr(self.mot, "action_kv_causal_probe", None)
+        if causal_probe is not None and causal_probe.should_probe():
+            txt_len = int(video_pre["txt_len"])
+            cond_len = int(video_pre["cond_len"])
+            target_len = int(video_pre["target_len"])
+            action_len = int(action_start.shape[1])
+            has_state_token = self.proprio_encoder is not None and proprio is not None
+            valid_text_len = int(video_pre["text_mask"][0].to(dtype=torch.bool).sum().item())
+            state_start = valid_text_len - 1 if has_state_token else valid_text_len
+            call_idx = causal_probe.start_call(
+                {
+                    "stack": str(self.stack),
+                    "source": "flux2_infer_action",
+                    "txt_len": txt_len,
+                    "valid_text_len": valid_text_len,
+                    "state_index": state_start if has_state_token else None,
+                    "current_len": cond_len,
+                    "future_len": target_len,
+                    "action_len": action_len,
+                    "num_layers": int(len(video_kv_cache["double"]) + len(video_kv_cache["single"])),
+                }
+            )
+            regions = {
+                "language": (0, state_start if has_state_token else valid_text_len),
+                **({"state": (state_start, state_start + 1)} if has_state_token else {}),
+                "current": (txt_len, txt_len + cond_len),
+                "future": (txt_len + cond_len, txt_len + cond_len + target_len),
+                "action_self": (prefix_len, prefix_len + action_len),
+            }
+            try:
+                for layer_idx in range(
+                    int(len(video_kv_cache["double"]) + len(video_kv_cache["single"]))
+                ):
+                    for region, (start, end) in regions.items():
+                        if end <= start:
+                            continue
+                        self.mot.action_kv_intervention = {
+                            "layer": int(layer_idx),
+                            "region": region,
+                            "start": int(start),
+                            "end": int(end),
+                        }
+                        ablated_action = _run_action_from(action_start, capture_steps=False)
+                        causal_probe.record(
+                            call_idx=call_idx,
+                            layer=layer_idx,
+                            region=region,
+                            baseline=latents_action,
+                            ablated=ablated_action,
+                        )
+            finally:
+                self.mot.action_kv_intervention = None
+
+        result = {
+            "action": latents_action[0].detach().to(device="cpu", dtype=torch.float32),
+            "num_inference_steps": effective_action_inference_steps,
+        }
+        if action_aura_weight is not None:
+            score = router_scalar(
+                action_aura_weight,
+                noise_dims=self.action_aura_noise_dims,
+            )
+            max_execution_steps = min(
+                int(action_horizon),
+                int(self.action_aura_max_execution_steps),
+            )
+            if self.action_aura_adaptive_execution:
+                execution_steps = int(
+                    adaptive_execution_steps(
+                        action_aura_weight,
+                        min_steps=min(self.action_aura_min_execution_steps, max_execution_steps),
+                        max_steps=max_execution_steps,
+                        noise_dims=self.action_aura_noise_dims,
+                    )[0].item()
+                )
+            else:
+                execution_steps = max_execution_steps
+            result.update(
+                action_pred=result["action"],
+                router_weight=action_aura_weight[0].detach().to(
+                    device="cpu", dtype=torch.float32
+                ),
+                score=float(score[0].detach().float().item()),
+                num_execution_steps=execution_steps,
+            )
+        return result
 
     def _forward_flux2_video_only(
         self,
@@ -3698,9 +5310,12 @@ class ImageWAM(torch.nn.Module):
         context: Optional[torch.Tensor] = None,
         context_mask: Optional[torch.Tensor] = None,
         num_inference_steps: int = 20,
+        image_gaussian_current_residual_scale: Optional[float] = None,
+        image_gaussian_current_residual_variance_normalize: bool = False,
         sigma_shift: Optional[float] = None,
         seed: Optional[int] = None,
         rand_device: str = "cpu",
+        return_latents: bool = False,
     ) -> dict[str, Any]:
         from .flux2_video_expert import Flux2VideoExpert
 
@@ -3728,12 +5343,51 @@ class ImageWAM(torch.nn.Module):
         latent_w = int(width) // 16
 
         generator = None if seed is None else torch.Generator(device=rand_device).manual_seed(seed)
-        latents_video = torch.randn(
-            ref_tokens.shape,
-            generator=generator,
-            device=rand_device,
-            dtype=torch.float32,
-        ).to(device=self.device, dtype=self.torch_dtype)
+        if self.image_i2i_enabled:
+            latents_video = self._apply_image_i2i_source_noise(
+                ref_tokens,
+                generator=generator,
+                rand_device=rand_device,
+            )
+        else:
+            latents_video = torch.randn(
+                ref_tokens.shape,
+                generator=generator,
+                device=rand_device,
+                dtype=torch.float32,
+            ).to(device=self.device, dtype=self.torch_dtype)
+        if image_gaussian_current_residual_scale is not None:
+            residual_scale = float(image_gaussian_current_residual_scale)
+            if residual_scale < 0.0:
+                raise ValueError(
+                    "`image_gaussian_current_residual_scale` must be non-negative, "
+                    f"got {residual_scale}."
+                )
+            if self.image_i2i_source_mode != "gaussian":
+                raise ValueError(
+                    "Gaussian-current residual video inference requires a Gaussian "
+                    f"image-source checkpoint, got source_mode={self.image_i2i_source_mode!r}."
+                )
+            configured_current_residual_scale = float(
+                getattr(self, "image_i2i_current_residual_scale", 0.0)
+            )
+            if configured_current_residual_scale > 0.0:
+                raise ValueError(
+                    "This checkpoint already configures "
+                    f"image_i2i.current_residual_scale={configured_current_residual_scale}; "
+                    "do not also pass `image_gaussian_current_residual_scale`, which would "
+                    "add the current latent twice."
+                )
+            # Keep the original sigma=1 schedule; current is an additive input
+            # residual rather than a reinterpretation of the FM timestep.
+            latents_video = latents_video + residual_scale * ref_tokens
+            if image_gaussian_current_residual_variance_normalize:
+                latents_video = latents_video / (1.0 + residual_scale**2) ** 0.5
+        elif image_gaussian_current_residual_variance_normalize:
+            raise ValueError(
+                "`image_gaussian_current_residual_variance_normalize` requires "
+                "`image_gaussian_current_residual_scale`."
+            )
         target_img_ids = Flux2VideoExpert.build_img_ids(
             batch_size=batch_size,
             token_height=latent_h,
@@ -3774,7 +5428,10 @@ class ImageWAM(torch.nn.Module):
             latents_video = self.infer_video_scheduler.step(pred_video, step_delta, latents_video)
 
         image = self._decode_flux2_image_tokens(latents_video, height=height, width=width)
-        return {"image": image[0].detach().cpu()}
+        result = {"image": image[0].detach().cpu()}
+        if return_latents:
+            result["latents"] = latents_video.detach().to(device="cpu", dtype=torch.float32)
+        return result
 
     @torch.no_grad()
     def infer_action_omnigen2(
@@ -4231,6 +5888,11 @@ class ImageWAM(torch.nn.Module):
         action_cfg_scale: float = 1.0,
         num_inference_steps: int = 20,
         sigma_shift: Optional[float] = None,
+        action_init: Optional[torch.Tensor] = None,
+        action_init_noise_strength: float = 0.0,
+        action_init_noise_type: str = "blend",
+        action_init_noise_dim_mask: Optional[Sequence[bool]] = None,
+        clamp_action_init_after_noise: bool = False,
         seed: Optional[int] = None,
         rand_device: str = "cpu",
         tiled: bool = False,
@@ -4311,6 +5973,11 @@ class ImageWAM(torch.nn.Module):
                 context_mask=context_mask,
                 num_inference_steps=num_inference_steps,
                 sigma_shift=sigma_shift,
+                action_init=action_init,
+                action_init_noise_strength=action_init_noise_strength,
+                action_init_noise_type=action_init_noise_type,
+                action_init_noise_dim_mask=action_init_noise_dim_mask,
+                clamp_action_init_after_noise=clamp_action_init_after_noise,
                 seed=seed,
                 rand_device=rand_device,
             )
@@ -4326,6 +5993,11 @@ class ImageWAM(torch.nn.Module):
                 context_mask=context_mask,
                 num_inference_steps=num_inference_steps,
                 sigma_shift=sigma_shift,
+                action_init=action_init,
+                action_init_noise_strength=action_init_noise_strength,
+                action_init_noise_type=action_init_noise_type,
+                action_init_noise_dim_mask=action_init_noise_dim_mask,
+                clamp_action_init_after_noise=clamp_action_init_after_noise,
                 seed=seed,
                 rand_device=rand_device,
             )
@@ -4357,6 +6029,11 @@ class ImageWAM(torch.nn.Module):
             text_cfg_scale=text_cfg_scale,
             num_inference_steps=num_inference_steps,
             sigma_shift=sigma_shift,
+            action_init=action_init,
+            action_init_noise_strength=action_init_noise_strength,
+            action_init_noise_type=action_init_noise_type,
+            action_init_noise_dim_mask=action_init_noise_dim_mask,
+            clamp_action_init_after_noise=clamp_action_init_after_noise,
             seed=seed,
             rand_device=rand_device,
             tiled=tiled,
@@ -4389,6 +6066,9 @@ class ImageWAM(torch.nn.Module):
             payload["save_trainable_only"] = bool(getattr(self, "save_trainable_only", False))
         if self.proprio_encoder is not None:
             payload["proprio_encoder"] = self.proprio_encoder.state_dict()
+        action_aura_router = getattr(self, "action_aura_router", None)
+        if action_aura_router is not None:
+            payload["action_aura_router"] = action_aura_router.state_dict()
         if optimizer is not None:
             payload["optimizer"] = optimizer.state_dict()
         torch.save(payload, path)
@@ -4433,6 +6113,22 @@ class ImageWAM(torch.nn.Module):
                 logger.warning("Checkpoint has no `proprio_encoder` weights; keeping current `proprio_encoder` params.")
         elif "proprio_encoder" in payload:
             logger.warning("Checkpoint contains `proprio_encoder` weights but current model has `proprio_dim=None`; ignoring.")
+        action_aura_router = getattr(self, "action_aura_router", None)
+        if action_aura_router is not None:
+            if "action_aura_router" in payload:
+                action_aura_router.load_state_dict(
+                    payload["action_aura_router"], strict=True
+                )
+                logger.info("Loaded action-side AURA ScoNet weights from checkpoint.")
+            else:
+                logger.warning(
+                    "Checkpoint has no `action_aura_router` weights; keeping the newly "
+                    "initialized ScoNet parameters."
+                )
+        elif "action_aura_router" in payload:
+            logger.warning(
+                "Checkpoint contains action-side AURA weights but AURA is disabled; ignoring them."
+            )
 
         if optimizer is not None and "optimizer" in payload:
             optimizer.load_state_dict(payload["optimizer"])
@@ -4447,6 +6143,10 @@ class ImageWAM(torch.nn.Module):
         if action_expert is not None:
             action_expert.train()
             action_expert.requires_grad_(True)
+        action_aura_router = getattr(self, "action_aura_router", None)
+        if action_aura_router is not None:
+            action_aura_router.train()
+            action_aura_router.requires_grad_(True)
         if video_expert is None or not bool(getattr(video_expert, "flux2_lora_enabled", False)):
             return
         video_expert.train()

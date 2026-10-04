@@ -278,6 +278,28 @@ class ImageWAMProcessor(BaseProcessor):
             sample["gt_action"] = deepcopy(data["action"])
 
         # 3. action & state
+        # Raw-action A2A uses past logged actions as the flow start. Keep past
+        # and future actions in one action batch through transforms/norms so
+        # both chunks live in the exact same normalized command space.
+        past_action_len = None
+        past_action_is_pad = None
+        if "past_action" in data:
+            if "action" not in data:
+                raise ValueError("`past_action` requires `action` in the same sample.")
+            past_action = data.pop("past_action")
+            past_action_is_pad = torch.as_tensor(data.pop("past_action_is_pad"), dtype=torch.bool)
+            action_is_pad = torch.as_tensor(data["action_is_pad"], dtype=torch.bool)
+            if set(past_action.keys()) != set(data["action"].keys()):
+                raise ValueError(
+                    f"`past_action` keys {list(past_action.keys())} must match action keys {list(data['action'].keys())}."
+                )
+            past_action_len = int(next(iter(past_action.values())).shape[0])
+            for key, cur_past_action in past_action.items():
+                if int(cur_past_action.shape[0]) != past_action_len:
+                    raise ValueError("All `past_action` keys must have the same temporal length.")
+                data["action"][key] = torch.cat([cur_past_action, data["action"][key]], dim=0)
+            data["action_is_pad"] = torch.cat([past_action_is_pad, action_is_pad], dim=0)
+
         if "action" in data and self.delta_action_dim_mask is not None:
             action_is_pad = torch.as_tensor(data["action_is_pad"], dtype=torch.bool)
             if bool(action_is_pad.any().item()):
@@ -293,10 +315,18 @@ class ImageWAMProcessor(BaseProcessor):
         _mark("action_state")
 
         if "action" in data:
-            sample["action"] = data["action"] # [action_horizon, action_dim]
-            sample["action_is_pad"] = data["action_is_pad"] # [action_horizon,]
+            if past_action_len is not None:
+                sample["past_action"] = data["action"][:past_action_len] # [past_action_horizon, action_dim]
+                sample["past_action_is_pad"] = data["action_is_pad"][:past_action_len] # [past_action_horizon,]
+                sample["action"] = data["action"][past_action_len:] # [action_horizon, action_dim]
+                sample["action_is_pad"] = data["action_is_pad"][past_action_len:] # [action_horizon,]
+            else:
+                sample["action"] = data["action"] # [action_horizon, action_dim]
+                sample["action_is_pad"] = data["action_is_pad"] # [action_horizon,]
             sample["action_dim_is_pad"] = data["action_dim_is_pad"] # [action_dim,]
             assert sample["action"].shape[-1] == self.action_output_dim
+            if "past_action" in sample:
+                assert sample["past_action"].shape[-1] == self.action_output_dim
             # sample["action"][sample["action_is_pad"], :-1] = 0.0 # NOTE: we assume use delta_eef_pose + gripper， so pad action is 0
 
         
@@ -307,8 +337,9 @@ class ImageWAMProcessor(BaseProcessor):
         assert sample["proprio"].shape[-1] == self.proprio_output_dim
 
         sample["idx"] = data["idx"]
-        if "embodiment" in data:
-            sample["embodiment"] = data["embodiment"]
+        for key in ("embodiment", "episode_index", "dataset_index", "task_index"):
+            if key in data:
+                sample[key] = data[key]
         if profile is not None:
             sample["_profile"] = profile
 

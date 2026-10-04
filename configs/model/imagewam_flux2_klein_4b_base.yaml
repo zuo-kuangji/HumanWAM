@@ -12,7 +12,16 @@ mot_checkpoint_mixed_attn: true
 mot_gqa_implementation: repeat
 mot_force_flash_attention: false
 pack_proprio_after_text: true
+flux2_action_image_context:
+  mode: prefix_only
 action_dit_pretrained_path: null
+# Optional A2A identity prior: zero only the final action velocity projection
+# after loading the pretrained action backbone. All modulation weights stay intact.
+zero_init_action_head: false
+# Optional soft identity prior for A2A. A value below 1 scales only the final
+# action velocity projection after pretrained weights are loaded. Keep this at
+# 1.0 when zero_init_action_head=true.
+action_head_init_scale: 1.0
 
 flux2_lora_config:
   enabled: false
@@ -55,3 +64,30 @@ action_scheduler:
 loss:
   lambda_video: 0.5
   lambda_action: 1.0
+  action_a2a:
+    enabled: false
+    fm_weight: 1.0
+    ic_weight: 0.0
+    ic_steps: 0
+    ic_loss: l1
+    source_noise_std: 0.0
+    aura:
+      enabled: false
+      router_hidden_dim: 256
+      router_pool_tokens: 8
+      diversity_weight: 0.0
+      noise_dims: []
+      adaptive_inference: false
+      max_inference_steps: 5
+      adaptive_execution: false
+      min_execution_steps: 2
+      max_execution_steps: 8
+  image_i2i:
+    enabled: false
+    source_mode: current
+    current_residual_scale: 0.0
+    variance_normalize: false
+    ic_weight: 0.0
+    ic_steps: 0
+    ic_loss: l1
+    source_noise_std: 0.0

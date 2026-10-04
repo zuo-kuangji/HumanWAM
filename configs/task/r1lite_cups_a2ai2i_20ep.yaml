@@ -1,0 +1,70 @@
+# @package _global_
+defaults:
+  - libero_flux2_klein_4b_base_imagewam
+  - override /data: r1lite_cups_head_right
+  - _self_
+
+batch_size: 10  # Verified on 8 x A100 80GB; reduce on smaller devices.
+num_workers: 4
+prefetch_factor: 2
+persistent_workers: true
+learning_rate: 1e-4
+lr_scheduler_type: cosine
+warmup_steps: null
+num_epochs: 20
+max_steps: null
+gradient_accumulation_steps: 1
+save_every: 0
+save_at_end: true
+keep_latest_weights: 4
+keep_latest_state_only: true
+eval_every: 0
+weight_decay: 0.01
+mixed_precision: bf16
+resume: null
+seed: 42
+
+data:
+  train:
+    qwen_context_len: 128
+
+model:
+  flux2_src_path: ${oc.env:FLUX2_SRC,./third_party/flux2}
+  proprio_dim: 7
+  qwen_context_len: 128
+  load_text_encoder: false
+  mot_checkpoint_mixed_attn: true
+  flux2_action_image_context:
+    mode: noise_idm
+    include_future_tokens: true
+    knowledge_insulation: true
+    reuse_image_fm_workspace: false
+  loss:
+    lambda_video: 0.5
+    lambda_action: 1.0
+    action_a2a:
+      enabled: true
+      source_noise_std: 0.5
+      source_noise_dim_mask: [true, true, true, true, true, true, true]
+      ic_weight: 0.5
+      ic_steps: 1
+      ic_loss: l1
+    image_i2i:
+      enabled: true
+      source_mode: gaussian
+      current_residual_scale: 1.0
+      variance_normalize: true
+      ic_weight: 1.0
+      ic_steps: 1
+      ic_loss: l1
+
+EVALUATION:
+  action_init_mode: past_executed_actions
+  action_init_noise_strength: 0.5
+  action_init_noise_type: additive
+  num_inference_steps: 1
+
+wandb:
+  enabled: false
+  group: r1lite-cups-a2ai2i-unitvariance-stopgrad
+  name: r1lite_cups_a100_20ep
