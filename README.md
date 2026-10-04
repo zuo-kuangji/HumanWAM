@@ -17,8 +17,9 @@ All commands below are assumed to run from the repository root.
 The [real-robot guide](docs/R1LITE_REAL_ROBOT.md) provides the two-view, 7D
 right-arm training configs, verified dataset preparation, 8-A100 training/resume
 launcher and offline inference example for **place multi cups** and **insert flower**.
-The [final 20-epoch cups checkpoint](https://huggingface.co/ZUO66/imagewam-r1lite-place-multi-cups)
-is an inference-only release with the matching config and normalization statistics.
+The final 20-epoch [cups](https://huggingface.co/ZUO66/imagewam-r1lite-place-multi-cups)
+and [flower](https://huggingface.co/ZUO66/imagewam-r1lite-insert-flower) checkpoints
+are inference-only releases with matching configs and normalization statistics.
 No physical rollout success rate is claimed.
 
 ## Table Of Contents

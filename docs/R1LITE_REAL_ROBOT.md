@@ -119,7 +119,7 @@ Inference `.pt` weights alone do **not** contain optimizer/scheduler/RNG state.
 Store outputs on a data volume: a full eight-rank optimizer state is about 60 GiB,
 each retained inference weight about 8.4 GiB, plus temporary checkpoint-write space.
 
-## Final cups checkpoint and offline inference
+## Final checkpoints and offline inference
 
 [Download the final cups inference release](https://huggingface.co/ZUO66/imagewam-r1lite-place-multi-cups).
 It contains only `step_015280.pt`, portable `config.yaml`, training
@@ -139,6 +139,24 @@ in the **same physical joint/gripper units and order as the dataset**. The examp
 uses the release's stats, verifies a strict full-checkpoint load and saves 16 x 7
 absolute targets. It does not send predictions to hardware. By default it uses
 fresh noise; `--seed` is only for explicit reproducibility tests.
+
+[Download the final flower inference release](https://huggingface.co/ZUO66/imagewam-r1lite-insert-flower).
+Its final checkpoint is `step_011440.pt` (20 epochs). It was trained from base
+initialization, not continued from cups. Use the flower release's own config,
+stats and instruction; do not mix them with cups.
+
+```bash
+hf download ZUO66/imagewam-r1lite-insert-flower --local-dir checkpoints/r1lite_flower
+python scripts/r1lite/infer.py --release checkpoints/r1lite_flower \
+  --head head.png --right-wrist right_wrist.png --inputs raw_inputs.npz \
+  --output flower_prediction.npz --flux2-src "$FLUX2_SRC" \
+  --flux2-weights "$FLUX2_MODEL_PATH" --ae-weights "$FLUX2_AE_MODEL_PATH"
+```
+
+The adapter selects the final checkpoint from `manifest.json` and defaults to
+the instruction override in `config.yaml`. Flower therefore automatically uses
+the right-arm, left-transparent-white-vase to right-purple-vase instruction.
+An explicit `--instruction` overrides this only when intentionally requested.
 
 Qwen can be loaded online, or supply `--text-cache` with the matching prompt's
 precomputed `*.qwen3_flux2_len128.pt`. Keep camera order, normalization and prompt

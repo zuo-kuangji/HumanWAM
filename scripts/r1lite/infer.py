@@ -1,6 +1,7 @@
 """Offline right-arm prediction example. Does not command a physical robot."""
 import argparse
 import hashlib
+import json
 from pathlib import Path
 import sys
 
@@ -35,6 +36,25 @@ def normalize_inputs(normalizer, past, proprio):
             torch.cat([sample["state"][k] for k in ["right_arm", "right_gripper"]], -1).unsqueeze(0))
 
 
+def release_settings(release, cfg, instruction=None):
+    manifest = json.loads((release / "manifest.json").read_text())
+    step = int(manifest["checkpoint_step"])
+    if not manifest.get("inference_only") or manifest.get("optimizer_included"):
+        raise ValueError("Expected an inference-only release manifest")
+    dataset = manifest["dataset"]
+    supported = {"at237299966/r1lite_place_multi_cups": 15280,
+                 "at237299966/r1lite_insert_flower": 11440}
+    if supported.get(dataset) != step:
+        raise ValueError("Unsupported dataset/final checkpoint combination")
+    filename = f"step_{step:06d}.pt"
+    if filename not in {item["path"] for item in manifest["files"]}:
+        raise ValueError("Final checkpoint absent from release manifest")
+    default = cfg.data.train.get("override_instruction") or "place multi cups"
+    if dataset.endswith("r1lite_insert_flower") and not cfg.data.train.get("override_instruction"):
+        raise ValueError("Flower release must contain its training instruction override")
+    return release / filename, step, default if instruction is None else instruction
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--release", type=Path, required=True)
@@ -47,18 +67,19 @@ def main():
     p.add_argument("--ae-weights", required=True)
     p.add_argument("--qwen", default="Qwen/Qwen3-4B")
     p.add_argument("--text-cache", type=Path, help="Optional matching prompt's .qwen3_flux2_len128.pt")
-    p.add_argument("--instruction", default="place multi cups")
+    p.add_argument("--instruction", help="Defaults to the selected release's training instruction")
     p.add_argument("--device", default="cuda:0")
     p.add_argument("--seed", type=int, default=None, help="Default: fresh noise on every call")
     args = p.parse_args()
-    prompt = "A video recorded from a robot's point of view executing the following instruction: " + args.instruction
+    cfg = OmegaConf.load(args.release / "config.yaml")
+    checkpoint, expected_step, instruction = release_settings(args.release, cfg, args.instruction)
+    prompt = "A video recorded from a robot's point of view executing the following instruction: " + instruction
     if args.text_cache:
         expected = hashlib.sha256(prompt.encode("utf-8")).hexdigest() + ".qwen3_flux2_len128.pt"
         if args.text_cache.name != expected:
             p.error("Text cache filename must match the exact instruction's SHA256 and context length 128")
     if args.output.exists():
         p.error("Refusing to overwrite prediction output")
-    cfg = OmegaConf.load(args.release / "config.yaml")
     model_cfg = cfg.model
     model_cfg.flux2_src_path = args.flux2_src
     model_cfg.flux2_model_path = args.flux2_weights
@@ -69,9 +90,9 @@ def main():
     model_cfg.mot_checkpoint_mixed_attn = False
     model = instantiate(model_cfg, model_dtype=torch.bfloat16, device=args.device).eval()
     # Fail closed on a mismatched full checkpoint; native load_checkpoint is permissive.
-    payload = torch.load(args.release / "step_015280.pt", map_location="cpu", weights_only=True, mmap=True)
-    if payload.get("step") != 15280 or "optimizer" in payload:
-        raise ValueError("Expected final cups inference checkpoint")
+    payload = torch.load(checkpoint, map_location="cpu", weights_only=True, mmap=True)
+    if payload.get("step") != expected_step or "optimizer" in payload:
+        raise ValueError("Expected the selected release's final inference checkpoint")
     model.mot.load_state_dict(payload["mot"], strict=True)
     model.proprio_encoder.load_state_dict(payload["proprio_encoder"], strict=True)
     del payload

@@ -1,8 +1,10 @@
 """CPU contracts for the public real-robot configuration and input adapter."""
 import importlib.util
+import json
 from pathlib import Path
 
 from hydra import compose, initialize_config_dir
+from omegaconf import OmegaConf
 import numpy as np
 from PIL import Image
 import pytest
@@ -103,3 +105,23 @@ def test_inference_requires_finite_matching_shapes():
         infer.normalize_inputs(Identity(), np.zeros((15, 7)), np.ones(7))
     with pytest.raises(ValueError):
         infer.normalize_inputs(Identity(), np.full((16, 7), np.nan), np.ones(7))
+
+
+@pytest.mark.parametrize("dataset,step,instruction", [
+    ("r1lite_place_multi_cups", 15280, None),
+    ("r1lite_insert_flower", 11440, "Use the right arm to pick up the flower.")])
+def test_release_selects_final_checkpoint_and_training_prompt(tmp_path, dataset, step, instruction):
+    infer = load_script("infer")
+    manifest = {"dataset": f"at237299966/{dataset}", "checkpoint_step": step,
+                "inference_only": True, "optimizer_included": False,
+                "files": [{"path": f"step_{step:06d}.pt"}]}
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    cfg = OmegaConf.create({"data": {"train": {"override_instruction": instruction}}})
+    checkpoint, actual_step, prompt = infer.release_settings(tmp_path, cfg)
+    assert checkpoint.name == f"step_{step:06d}.pt" and actual_step == step
+    assert prompt == (instruction or "place multi cups")
+    assert infer.release_settings(tmp_path, cfg, "explicit override")[2] == "explicit override"
+    manifest["checkpoint_step"] -= 1
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(ValueError):
+        infer.release_settings(tmp_path, cfg)
