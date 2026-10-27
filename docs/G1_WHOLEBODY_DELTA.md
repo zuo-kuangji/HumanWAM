@@ -15,6 +15,18 @@
 | `scripts/wholebody/build_config.py` | 按真实加载器生成正式/试跑配置 |
 | `scripts/wholebody/train.py` | 五步试跑和正式训练入口 |
 
+## Chair 数据来源：训练与测试
+
+Chair 任务的训练和测试数据使用
+[OKayQi/wb_chair](https://huggingface.co/datasets/OKayQi/wb_chair)，选择
+`chair_no_waved.zip` 与 `chair_waved.zip` 两个数据包。
+Chair 的动作监督标签使用数据中记录的 **action 控制指令**，不以观测 state 替代动作标签。
+当前 state 只作为策略的条件输入。
+
+Chair 的 action 指令需要对应的字段映射。下文76D适配器当前读取
+`action.motion_token` 和实测 Inspire 手状态，与 Chair 的指令标签模式分开。
+本节只记录数据来源和标签约定，适配器保持不变，尚未执行 Chair 训练或测试。
+
 ## 1. 数据要求与字段映射
 
 输入为单任务、30 FPS 的 LeRobot v2.1 数据，所有 episode 参与训练，没有验证集。

@@ -32,6 +32,14 @@ field mapping, causal windows, per-dataset normalization, portable configuration
 builder, CPU tests and a mandatory five-update smoke stage. This is a
 motion-latent training interface, not a direct joint-command controller.
 
+**Chair training/testing data:** use
+[OKayQi/wb_chair](https://huggingface.co/datasets/OKayQi/wb_chair), specifically
+`chair_no_waved.zip` and `chair_waved.zip`. The chair setup uses recorded
+**action commands** as action supervision, not observation states substituted
+for action labels. Current observation states are conditioning inputs.
+This command-label setup is distinct from the measured-hand-state recipe
+above; the current 76D adapter does not automatically switch to chair command fields.
+
 ## Table Of Contents
 
 - [Repository Structure](#repository-structure)

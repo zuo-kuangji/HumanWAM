@@ -8,6 +8,12 @@
 stop-gradient，以及配置生成、CPU检查和五步试跑。76D输出不是76个关节角，
 真机执行仍需匹配的 motion decoder 和安全控制链。
 
+**Chair 训练/测试数据：**使用
+[OKayQi/wb_chair](https://huggingface.co/datasets/OKayQi/wb_chair) 中的
+`chair_no_waved.zip` 和 `chair_waved.zip`。Chair 的动作监督采用数据中记录的
+**action 控制指令**，不是拿观测 state 代替动作标签；当前 state 仅作为条件输入。
+这与上述76D实测手状态配方是不同的标签模式，现有适配器不会自动切换到 Chair 的指令字段。
+
 ## R1Lite 真机训练（I2I + A2A + IC）
 
 [真机训练指南](docs/R1LITE_REAL_ROBOT.md)包含 place multi cups 与 insert flower
