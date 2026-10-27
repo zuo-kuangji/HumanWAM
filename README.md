@@ -22,6 +22,16 @@ and [flower](https://huggingface.co/ZUO66/imagewam-r1lite-insert-flower) checkpo
 are inference-only releases with matching configs and normalization statistics.
 No physical rollout success rate is claimed.
 
+## G1 Whole-Body Delta-Flow Training
+
+The [whole-body training guide](docs/G1_WHOLEBODY_DELTA.md) documents the
+FLUX.2 4B recipe with **64D motion latents + 12D measured Inspire hand states**,
+current-state conditioning restricted to the action expert, and visual/action
+FM + endpoint consistency with stop-gradient. It includes the exact LeRobot
+field mapping, causal windows, per-dataset normalization, portable configuration
+builder, CPU tests and a mandatory five-update smoke stage. This is a
+motion-latent training interface, not a direct joint-command controller.
+
 ## Table Of Contents
 
 - [Repository Structure](#repository-structure)

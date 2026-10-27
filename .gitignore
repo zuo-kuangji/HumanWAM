@@ -53,6 +53,7 @@ scripts/optional/
 *.bin
 *.pickle
 *.txt
+!requirements/wholebody-cu128.txt
 
 # Other uncheckable file types
 *.zip

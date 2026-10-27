@@ -1,0 +1,130 @@
+# Resolved by scripts/wholebody/build_config.py; do not launch this template.
+# The numerical state is action-only. It is never appended to text/image tokens.
+output_dir: ???
+batch_size: 8
+gradient_accumulation_steps: 2
+num_workers: 4
+prefetch_factor: 2
+persistent_workers: true
+num_epochs: 60
+max_steps: ???
+lr_scheduler_total_steps: ???
+warmup_steps: ???
+lr_scheduler_type: cosine
+learning_rate: 0.0001
+# The native trainer uses 0.01 * learning_rate as the cosine minimum: 1e-6.
+weight_decay: 0.01
+optimizer_foreach: false
+mixed_precision: bf16
+seed: 42
+max_grad_norm: 1.0
+resume: null
+log_every: 5
+rank_timer_every: 20
+rank_timer_sync_cuda: true
+save_every: ???
+save_steps: []
+save_at_end: true
+keep_latest_weights: 4
+keep_latest_state_only: true
+eval_every: 0
+eval_num_inference_steps: 1
+eval_num_samples: 1
+precache_arrow: false
+precache_num_workers: 0
+build_lerobot_meta_cache: false
+build_norm_stats: false
+precache_fuse_norm_stats: false
+norm_stats_cache_enabled: false
+wandb:
+  enabled: false
+  workspace: null
+  project: imagewam-wholebody
+  name: deltaflow76-p25
+  group: wholebody-action76-state44
+  mode: disabled
+data:
+  train:
+    _target_: imagewam.datasets.wholebody.WholeBodyLeRobotDataset
+    dataset_dir: ???
+    stats_path: ???
+    qwen_text_cache_dir: ???
+    split: train
+    train_split_mode: all_episodes
+    action_horizon: 40
+    past_action_size: 40
+    qwen_context_len: 128
+    qwen_text_dim: 7680
+    video_cache_frames: 64
+  val: null
+model:
+  _target_: imagewam.wholebody_delta.create_imagewam_flux2_wholebody_delta
+  flux2_src_path: ???
+  flux2_model_path: ???
+  ae_model_path: ???
+  qwen3_model_spec: ???
+  variant: klein-base-4b
+  qwen_context_len: 128
+  load_text_encoder: false
+  proprio_dim: 44
+  action_state_dim: 44
+  expected_action_dim: 76
+  expected_action_horizon: 40
+  state_only_init_seed: 42
+  mot_checkpoint_mixed_attn: true
+  mot_gqa_implementation: repeat
+  mot_force_flash_attention: false
+  pack_proprio_after_text: false
+  action_dit_pretrained_path: ???
+  action_initializer_sha256: ???
+  zero_init_action_head: false
+  action_head_init_scale: 1.0
+  flux2_action_image_context:
+    mode: noise_idm
+    include_future_tokens: true
+    knowledge_insulation: true
+    reuse_image_fm_workspace: false
+  flux2_lora_config:
+    enabled: false
+  action_dit_config:
+    action_dim: 76
+    hidden_dim: 1024
+    num_heads: 24
+    attn_head_dim: 128
+    num_layers_double: 5
+    num_layers_single: 20
+    mlp_ratio: 4.0
+    max_action_horizon: 64
+    use_gradient_checkpointing: true
+  video_scheduler:
+    train_shift: 5.0
+    infer_shift: 5.0
+    num_train_timesteps: 1000
+  action_scheduler:
+    train_shift: 5.0
+    infer_shift: 5.0
+    num_train_timesteps: 1000
+  loss:
+    lambda_video: 0.5
+    lambda_action: 1.0
+    action_a2a:
+      enabled: true
+      fm_weight: 1.0
+      ic_weight: 0.5
+      ic_steps: 1
+      ic_loss: l1
+      source_noise_std: 0.5
+      # build_config.py fills the explicit all-76 mask.
+      source_noise_dim_mask: ???
+      aura:
+        enabled: false
+    image_i2i:
+      enabled: true
+      source_mode: gaussian
+      current_residual_scale: 0.5773502691896258
+      variance_normalize: true
+      ic_weight: 1.0
+      ic_steps: 1
+      ic_loss: l1
+      source_noise_std: 0.0
+wholebody_contract: ???

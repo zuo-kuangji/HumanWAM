@@ -1,5 +1,13 @@
 # ImageWAM
 
+## G1 全身 Delta-Flow 训练
+
+[全身训练与数据处理说明](docs/G1_WHOLEBODY_DELTA.md)提供 FLUX.2 4B 的
+**64D motion latent＋双手各6D实测状态**训练入口，完整说明数据字段、当前 state
+仅进动作分支、40步历史/目标窗口、任务独立归一化、视觉/动作 FM＋IC 与
+stop-gradient，以及配置生成、CPU检查和五步试跑。76D输出不是76个关节角，
+真机执行仍需匹配的 motion decoder 和安全控制链。
+
 ## R1Lite 真机训练（I2I + A2A + IC）
 
 [真机训练指南](docs/R1LITE_REAL_ROBOT.md)包含 place multi cups 与 insert flower
