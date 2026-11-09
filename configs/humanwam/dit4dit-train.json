@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "backend": "dit4dit",
+  "source_dir": "${HUMANWAM_ROOT}/third_party/DiT4DiT",
+  "options": {
+    "native_config": "${DIT4DIT_NATIVE_CONFIG}",
+    "num_processes": 8,
+    "overrides": {
+      "framework.cosmos25.base_model": "${DIT4DIT_COSMOS_MODEL}",
+      "datasets.vla_data.data_root_dir": "${DIT4DIT_DATA_ROOT}",
+      "datasets.vla_data.data_mix": "${DIT4DIT_DATA_MIX}",
+      "run_root_dir": "${DIT4DIT_OUTPUT_ROOT}",
+      "run_id": "${DIT4DIT_RUN_ID}",
+      "trainer.freeze_modules": "backbone_interface.extractor.text_encoder,backbone_interface.extractor.vae"
+    }
+  }
+}

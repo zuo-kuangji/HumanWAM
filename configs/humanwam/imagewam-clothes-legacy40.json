@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "backend": "imagewam_delta",
+  "python": "${IMAGEWAM_PYTHON}",
+  "options": {
+    "release_kind": "clothes_legacy",
+    "release": "${IMAGEWAM_RELEASE}",
+    "base_model": "${FLUX2_MODEL_PATH}",
+    "ae": "${FLUX2_AE_MODEL_PATH}",
+    "horizon": 40,
+    "device": "cuda:0",
+    "port": 8090
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "backend": "groot_n17",
+  "options": {
+    "base_model_path": "${GROOT_BASE_MODEL}",
+    "dataset_path": "${GROOT_DATASET}",
+    "output_dir": "${GROOT_OUTPUT}",
+    "embodiment_tag": "UNITREE_G1_SONIC",
+    "num_gpus": 8,
+    "global_batch_size": 128,
+    "max_steps": 10000,
+    "save_steps": 1000
+  }
+}

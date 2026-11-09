@@ -1,0 +1,15 @@
+[submodule "third_party/Isaac-GR00T"]
+	path = third_party/Isaac-GR00T
+	url = https://github.com/NVIDIA/Isaac-GR00T.git
+[submodule "third_party/GR00T-WholeBodyControl"]
+	path = third_party/GR00T-WholeBodyControl
+	url = https://github.com/NVlabs/GR00T-WholeBodyControl.git
+[submodule "third_party/openpi"]
+	path = third_party/openpi
+	url = https://github.com/Physical-Intelligence/openpi.git
+[submodule "third_party/DiT4DiT"]
+	path = third_party/DiT4DiT
+	url = https://github.com/Mondo-Robotics/DiT4DiT.git
+[submodule "third_party/Psi0"]
+	path = third_party/Psi0
+	url = https://github.com/physical-superintelligence-lab/Psi0.git

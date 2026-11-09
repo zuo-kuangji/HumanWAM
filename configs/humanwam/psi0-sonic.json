@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "backend": "psi0",
+  "source_dir": "${HUMANWAM_ROOT}/third_party/Psi0",
+  "python": "${PSI0_PYTHON}",
+  "options": {
+    "run_dir": "${PSI0_RUN_DIR}",
+    "ckpt_step": 40000,
+    "raw_state_dim": 45,
+    "action_schema": "psi0_sonic_native",
+    "device": "cuda:0",
+    "host": "127.0.0.1",
+    "port": 8014,
+    "num_inference_steps": 8
+  }
+}

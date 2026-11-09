@@ -53,6 +53,7 @@ scripts/optional/
 *.bin
 *.pickle
 *.txt
+!requirements/wholebody-cu128.txt
 
 # Other uncheckable file types
 *.zip
@@ -64,6 +65,8 @@ scripts/optional/
 *.pyc
 *Thumbs.db
 *.patch
+!patches/
+!patches/*.patch
 
 # Credential information that should never be checked in
 credentials

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "backend": "pi05",
+  "python": "${OPENPI_PYTHON}",
+  "options": {
+    "method": "gaussian",
+    "config_name": "pi05_libero",
+    "checkpoint_dir": "${PI05_CHECKPOINT}",
+    "num_steps": 10,
+    "port": 8000
+  }
+}

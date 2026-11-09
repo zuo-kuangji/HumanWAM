@@ -1,4 +1,47 @@
+# HumanWAM
+
+统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow 、DiT4DiT 和 Psi-Zero 五类 policy。
+
+- [统一安装、代码结构与维护说明](docs/POLICY_MAINTENANCE.md)
+- [初始权重、下载与恢复说明](docs/MODEL_INITIALIZATION.md)
+- [实际运行验证结果](docs/policies/RUNTIME_VALIDATION_20261109.md)
+- [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
+- [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
+- [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
+- [DiT4DiT](docs/policies/DIT4DIT.md)
+- [Psi-Zero / SONIC](docs/policies/PSI0.md)
+
+新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
+各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
+ImageWAM 新全身训练默认16步，下面继承的历史说明如出现40步，仅对应旧配置。
+
+```bash
+export HUMANWAM_ROOT="$PWD"
+python3 scripts/humanwam/bootstrap.py
+python3 -m pip install -e packages/humanwam
+humanwam list
+humanwam doctor
+```
+
+下面保留原 ImageWAM 安装、benchmark 和历史真机说明。
+
+---
+
 # ImageWAM
+
+## G1 全身 Delta-Flow 训练
+
+[全身训练与数据处理说明](docs/G1_WHOLEBODY_DELTA.md)提供 FLUX.2 4B 的
+**64D motion latent＋双手各6D实测状态**训练入口，完整说明数据字段、当前 state
+仅进动作分支、40步历史/目标窗口、任务独立归一化、视觉/动作 FM＋IC 与
+stop-gradient，以及配置生成、CPU检查和五步试跑。76D输出不是76个关节角，
+真机执行仍需匹配的 motion decoder 和安全控制链。
+
+**Chair 训练/测试数据：**使用
+[OKayQi/wb_chair](https://huggingface.co/datasets/OKayQi/wb_chair) 中的
+`chair_no_waved.zip` 和 `chair_waved.zip`。Chair 的动作监督采用数据中记录的
+**action 控制指令**，不是拿观测 state 代替动作标签；当前 state 仅作为条件输入。
+这与上述76D实测手状态配方是不同的标签模式，现有适配器不会自动切换到 Chair 的指令字段。
 
 ## R1Lite 真机训练（I2I + A2A + IC）
 
@@ -8,7 +51,7 @@
 [insert flower](https://huggingface.co/ZUO66/imagewam-r1lite-insert-flower) 最终20轮推理权重
 附有各自配置和归一化统计，不包含 optimizer，也不声称已验证真机成功率。
 
-**ImageWAM: Do World Action Models Really Need Video Generation, or Just Image Editing?** 的官方代码仓库。
+以下保留上游 **ImageWAM: Do World Action Models Really Need Video Generation, or Just Image Editing?** 的使用说明。HumanWAM 由 [zuo-kuangji](https://github.com/zuo-kuangji) 独立维护，保留上游来源与许可证。
 
 [English](./README.md) | [中文](./README_zh.md)
 

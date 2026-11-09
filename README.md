@@ -1,6 +1,35 @@
+# HumanWAM
+
+统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow 、DiT4DiT 和 Psi-Zero 五类 policy。
+
+- [统一安装、代码结构与维护说明](docs/POLICY_MAINTENANCE.md)
+- [初始权重、下载与恢复说明](docs/MODEL_INITIALIZATION.md)
+- [实际运行验证结果](docs/policies/RUNTIME_VALIDATION_20261109.md)
+- [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
+- [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
+- [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
+- [DiT4DiT](docs/policies/DIT4DIT.md)
+- [Psi-Zero / SONIC](docs/policies/PSI0.md)
+
+新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
+各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
+ImageWAM 新全身训练默认16步，下面继承的历史说明如出现40步，仅对应旧配置。
+
+```bash
+export HUMANWAM_ROOT="$PWD"
+python3 scripts/humanwam/bootstrap.py
+python3 -m pip install -e packages/humanwam
+humanwam list
+humanwam doctor
+```
+
+下面保留原 ImageWAM 安装、benchmark 和历史真机说明。
+
+---
+
 # ImageWAM
 
-Official codebase for **ImageWAM: Do World Action Models Really Need Video Generation, or Just Image Editing?**
+The following section retains the upstream guide for **ImageWAM: Do World Action Models Really Need Video Generation, or Just Image Editing?** HumanWAM is independently maintained by [zuo-kuangji](https://github.com/zuo-kuangji); upstream attribution and licenses are preserved.
 
 [English](./README.md) | [中文](./README_zh.md) 
 
@@ -21,6 +50,24 @@ The final 20-epoch [cups](https://huggingface.co/ZUO66/imagewam-r1lite-place-mul
 and [flower](https://huggingface.co/ZUO66/imagewam-r1lite-insert-flower) checkpoints
 are inference-only releases with matching configs and normalization statistics.
 No physical rollout success rate is claimed.
+
+## G1 Whole-Body Delta-Flow Training
+
+The [whole-body training guide](docs/G1_WHOLEBODY_DELTA.md) documents the
+FLUX.2 4B recipe with **64D motion latents + 12D measured Inspire hand states**,
+current-state conditioning restricted to the action expert, and visual/action
+FM + endpoint consistency with stop-gradient. It includes the exact LeRobot
+field mapping, causal windows, per-dataset normalization, portable configuration
+builder, CPU tests and a mandatory five-update smoke stage. This is a
+motion-latent training interface, not a direct joint-command controller.
+
+**Chair training/testing data:** use
+[OKayQi/wb_chair](https://huggingface.co/datasets/OKayQi/wb_chair), specifically
+`chair_no_waved.zip` and `chair_waved.zip`. The chair setup uses recorded
+**action commands** as action supervision, not observation states substituted
+for action labels. Current observation states are conditioning inputs.
+This command-label setup is distinct from the measured-hand-state recipe
+above; the current 76D adapter does not automatically switch to chair command fields.
 
 ## Table Of Contents
 

@@ -1,0 +1,22 @@
+{
+  "state": {
+    "left_leg": {"original_key": "observation.state", "start": 0, "end": 6},
+    "right_leg": {"original_key": "observation.state", "start": 6, "end": 12},
+    "waist": {"original_key": "observation.state", "start": 12, "end": 15},
+    "left_arm": {"original_key": "observation.state", "start": 15, "end": 22},
+    "right_arm": {"original_key": "observation.state", "start": 29, "end": 36},
+    "left_hand": {"original_key": "observation.inspire_left_hand_state", "start": 0, "end": 6},
+    "right_hand": {"original_key": "observation.inspire_right_hand_state", "start": 0, "end": 6},
+    "projected_gravity": {"original_key": "observation.projected_gravity", "start": 0, "end": 3}
+  },
+  "action": {
+    "motion_token": {"original_key": "action.motion_token", "start": 0, "end": 64},
+    "left_hand_joints": {"original_key": "observation.inspire_left_hand_state", "start": 0, "end": 6},
+    "right_hand_joints": {"original_key": "observation.inspire_right_hand_state", "start": 0, "end": 6}
+  },
+  "video": {
+    "ego_view": {"original_key": "observation.images.ego_view"},
+    "chest": {"original_key": "observation.images.chest"}
+  },
+  "annotation": {"human.task_description": {"original_key": "task_index"}}
+}
