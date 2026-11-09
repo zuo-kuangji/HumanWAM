@@ -1,113 +1,108 @@
-# G1 joint41 / joint47 ImageWAM Delta-flow
+# G1 joint47 ImageWAM Delta-flow v2
 
-这是一条独立的关节参考训练路线。原来的 `motion64 + Inspire12 = 76D` 模型及发布权重继续使用原入口。
-Fast-WAM 的原生 Gaussian FM 接口见 [FASTWAM.md](policies/FASTWAM.md)，本页不将 Fast-WAM 的 LIBERO/RoboTwin 权重转换成 G1 控制器。
+The existing [motion76 recipe](G1_WHOLEBODY_DELTA.md) predicts `SONIC motion64 + measured Inspire12`. This separate joint-reference recipe predicts `body29 + measured Inspire12 + root rotation6D = 47D`. It needs its own projections, statistics, source contract and checkpoint. Released motion76 weights are not joint predictions. Fast-WAM's native Gaussian FM interface is documented separately in [FASTWAM.md](policies/FASTWAM.md).
 
-## 输出与数据字段
+The v2 joint47 recipe predicts **40 source-time samples**, keeps **16 historical samples**, and executes **16 source-time samples** before replanning. The other24 predictions provide actual model lookahead for SONIC. This differs from the v1 H16 joint prototype and legacy H40 motion-token model.
 
-| 配置 | 动作目标 | 躯干姿态来源 | SONIC 接法 |
-|---|---|---|---|
-| `joint41` | 身体关节29 + 左右实测 Inspire 各6 | 必须另外提供未来世界坐标系 wxyz 四元数轨迹 | v1 joint-reference encoder，再经 decoder |
-| `joint47` | joint41 + 世界坐标系躯干 rotation6D | 模型预测，转成 wxyz 四元数 | 同上 |
-| 旧 `motion76` | motion token64 + Inspire12 | 原有 motion-token 路线 | 原发布包的 token 接口 |
+## Declare the label source
 
-`joint41` 不是只给 SONIC 29 个数就能闭合的控制链。它还缺未来姿态轨迹。
-`joint47` 同时预测姿态，但目前两种关节模型都没有训练权重或真机效果记录。
+`--body-target` must be chosen explicitly. All v2 preparations require a source-contract JSON; its SHA256 is preserved in statistics, generated configuration and checkpoint metadata.
 
-默认 `body_target=wbc`，身体标签来自 `action.wbc` 的 `[0:22] + [29:36]`，共29维。
-这是旧控制器解码后记录的电机位置目标，不能称为原始遥操作运动参考。
-新模型预测这种目标再送 SONIC encoder/decoder，会形成一条新的控制链；代码明确记录
-`body_target_source=wbc_motor_qtarget`，并将控制等价性标为未验证。
-`--body-target measured` 是另一种显式实验，身体标签改用 `observation.state` 的相同29维，不能与 wbc checkpoint 或统计互换。
+| Choice | Body label | Scope |
+|---|---|---|
+| `direct_reference` | Verified original motion-reference qpos with matching root quaternion | Requires verified frame, pairing and synchronization |
+| `measured` | Recorded `observation.state` body29 | Measured-trajectory prediction experiment |
+| `wbc` | Recorded `action.wbc` body29 | WBC motor-qtarget prediction experiment |
 
-左右手仍取同一目标行的 `observation.inspire_left_hand_state` 和
-`observation.inspire_right_hand_state`。每手按 `[pinky, ring, middle, index, thumb_bend, thumb_rotation]` 排列，物理范围为 `[0,1]`。
-这12维是连续实测反馈，不是开关值，也不是 SONIC 原生 Dex3 的左右各7维命令。
+The audited clothing, trash-bin and pillow collections have measured joints and WBC motor targets. They do not have a verified full original29D reference field. The pose sender's `joint_pos` is initialized to zeros and only its wrist entries are assigned; it is not a full-body original reference. See [the recorder audit](policies/REFERENCE_LABEL_AUDIT_20261110.md) for actual source paths, excerpts and SHA256 fingerprints.
 
-47D 的最后6维由 `teleop.body_quat_w` 转换，顺序是旋转矩阵前两列
-`[R00,R10,R20,R01,R11,R21]`。需要同时保留 `teleop.stream_mode` 和
-`teleop.smpl_frame_index`，有效条件是 mode 属于 `{1,4}` 且 SMPL 帧号大于0。
-缺少有效性字段会拒绝准备47D数据。记录器在信号丢失时写入的单位四元数不作为真实姿态标签。
-无效时刻只屏蔽最后6维 FM/IC 损失，并将这些目标和历史维度在归一化后置零；其余41维继续训练。
-姿态归一化统计只用有效姿态行，不删 episode，不创建验证集。
+For an experiment on these collections, [g1_existing_measured_v1.json](../configs/wholebody/source_contracts/g1_existing_measured_v1.json) pairs measured joints with `observation.root_orientation`. It records same-stage pairing and a verified IMU frame, while leaving hardware synchronization unverified. It does not certify deployment readiness or original-reference equivalence. The separate [WBC experiment example](../configs/wholebody/source_contracts/g1_existing_wbc_experiment_v1.json) explicitly records `same_stage_pairing=false`: it combines a previous motor target with a measured root, not a matched original q/root reference. A `direct_reference` dataset needs newly verified source fields and provenance; no such contract is supplied for these recordings.
 
-当前状态始终是 `body29 + Inspire12 + projected_gravity3 = 44D`，只取当前 anchor。
-state 通过动作专家的独立投影进入动作 tokens，视觉和文本均不含数值 state。
-未来关节、手和姿态只作为动作标签。视觉 FM/IC 单独更新视觉分支，动作损失通过 stop-gradient 阻断对视觉分支的梯度。
+The source contract declares the original qpos key,29 explicit indices/names, radian units, root key/order/frame, validity policy, pairing and provenance. Its `root_frame=world` describes the recorded quaternion, not the frame of the model's6D target.
 
-## H16 的时间口径
+## State, output and heading frame
 
-该路线固定30 FPS、history16、horizon16、stride2。每个 anchor 为 `t`：
+```text
+action47 = body29 | left Inspire6 | right Inspire6 | root rotation6D
+state44  = current body29 | current Inspire12 | projected_gravity3
+```
 
-| 内容 | 原始帧偏移 |
+Body joint names follow the explicit dataset canonical order and are reordered by name at the SONIC boundary. Hands use the same target row's `observation.inspire_left_hand_state` and `observation.inspire_right_hand_state`, ordered `[pinky, ring, middle, index, thumb_bend, thumb_rotation]`, in `[0,1]`. These are continuous measured states, not binary switches or Dex3's7D commands.
+
+Root means the floating base/pelvis orientation, not torso-link orientation or root xyz. The audited `observation.root_orientation` is raw base-IMU wxyz, without an additional recorder heading transform. Here world means the IMU estimator frame; geographic north and a shared frame across IMU restarts are not established. Raw `teleop.body_quat_w` is a different SMPL/pelvis signal and cannot silently replace it.
+
+Gravity does not identify global yaw. The v2 target uses one heading frame anchored at the current observation:
+
+```text
+R_relative[k] = Rz(-yaw(current_root_quaternion)) @ R_world[k]
+R_world[k]    = Rz(yaw_anchor) @ R_relative[k]   # inference restoration
+```
+
+Past and future rotations in each sample share the same anchor. Rotation6D concatenates matrix columns `[R00,R10,R20,R01,R11,R21]`; its normalization bounds are fixed `[-1,1]`. At inference the current measured root quaternion supplies only the coordinate anchor. No future quaternion is an inference input.
+
+Current numerical state enters only the action expert's projection. It is not appended to image or text tokens. Visual FM/IC updates the visual branch; action FM/IC uses stop-gradient on visual conditioning. The quaternion anchor does not become a visual/text condition. Body velocity is calculated at deployment, not predicted by an extra29D head.
+
+## Time sampling and actual lookahead
+
+Data is30 FPS with stride2, so adjacent action samples are separated by `2/30 s`, not0.05s. For anchor `t`:
+
+| Content | Original-frame offsets |
 |---|---|
-| 历史动作 | `-32,-30,...,-2` |
-| 监督动作 | `0,2,...,30` |
-| 当前 / 未来图像 | `0 / 32` |
-| 当前 state | 仅 `0`，在批数据中重复16份 |
+| Historical actions | `-32,-30,...,-2` (16) |
+| Predicted/supervised actions | `0,2,...,78` (40) |
+| Execution segment | first16 source samples, offsets `0..30` |
+| Additional predicted lookahead | remaining24, offsets `32..78` |
+| Current/future image | `0 / 32` |
+| Proprioception | current anchor only |
 
-16个动作参考点覆盖1秒。不能把30 FPS连续16帧的0.5秒输出冒充同一方案。
-训练窗口不跨 episode，边界有显式 padding mask；历史不足的位置使用归一化零。
-训练末尾的 padding 不代表拥有完整部署未来轨迹。SONIC 离线桥接要求完整时间覆盖，拒绝补成虚假的未来窗口。
+The predictions span2.6s. Executing16 source intervals gives a nominal replan deadline of `16*2/30 = 1.0667s`; this is not16 low-level50Hz ticks. The visual target remains offset32, at the execution boundary. Windows never cross episodes; target padding and its loss mask remain explicit.
 
-图像为当前及未来 ego/chest，每路 resize224×224，按 ego左、chest右横拼224×448。
-视觉 source 为 `0.5*z_current + sqrt(0.75)*epsilon`，即当前 latent 的平方系数占25%。
-动作 source 为 `normalized_past + 0.5*epsilon`，全部41/47维加噪，不做额外方差归一化。
-视觉 FM/IC 总权重0.5，视觉 IC 权重1；动作 FM 权重1、动作 IC 权重0.5，两侧 IC 均为一步 L1。
+The source prior uses the16 normalized historical samples followed by24 repetitions of the last historical sample, then adds noise. At episode start with no history it uses normalized-zero history. This repetition only constructs the source prior. All40 clean targets are real recorded samples; all40 deployment references are model predictions. No extra future coverage is created by holding the last predicted output.
 
-## 准备与训练命令
+SONIC mode0 needs10 references at `0,0.1,...,0.9s`. Coverage must remain available through the full execution interval, including inference latency and declared jitter. A trajectory that covers the first window can still run out during execution. The bridge checks actual timestamps and execution interval and rejects missing lookahead; it does not pad or extrapolate references. See [SONIC_JOINT_REFERENCE.md](policies/SONIC_JOINT_REFERENCE.md).
 
-从仓库根目录运行。环境和基础资产按 [G1_WHOLEBODY_DELTA.md](G1_WHOLEBODY_DELTA.md#4-环境与外部模型)
-和 [MODEL_INITIALIZATION.md](MODEL_INITIALIZATION.md) 准备，使用独立 ImageWAM 环境。
-冻结 AE/Qwen，缓存纯 instruction，FLUX.2 视觉 DiT 与动作专家全量微调。
-共同的114个基础初始化张量可复用，41/47维动作输入/输出与 state 投影重新初始化。
-旧76D任务模型或优化器不会被静默部分加载。
-新的 joint checkpoint 将本任务的统计 SHA 和 instruction SHA 写入协议。
-同为41/47维也不能换成其他任务的统计或文本缓存继续加载。
+Current/future ego and chest images are independently resized to224×224 and joined ego-left/chest-right into224×448. Visual source is `0.5*z_current + sqrt(0.75)*epsilon`. Action source adds `0.5*epsilon` to all47 normalized dimensions without extra variance normalization. Visual FM/IC has total weight0.5 and IC weight1; action FM has weight1 and IC weight0.5. Both IC losses are one-step L1.
 
-以下演示47D；41D将 `REPRESENTATION=joint41`、`ORIENTATION=external`，输出目录也要另取名称。
-两种配置独立准备自己的统计。变量均需指向用户已准备的本地资产：
+## Prepare data, base initialization and training
+
+Run from the repository root, using the independent environment and local FLUX.2/AE/Qwen assets in [the environment guide](G1_WHOLEBODY_DELTA.md#4-环境与外部模型) and [MODEL_INITIALIZATION.md](MODEL_INITIALIZATION.md). This example explicitly uses measured demonstrations, not an original-reference dataset.
 
 ```bash
 export PYTHONPATH="$(pwd)/src:$(pwd)/packages/humanwam/src${PYTHONPATH:+:$PYTHONPATH}"
 export DATASET_DIR=/path/to/lerobot_dataset
-export WORK_DIR=/path/to/new_joint47_run
-export REPRESENTATION=joint47
-export ORIENTATION=predicted_rotation6d
+export WORK_DIR=/path/to/new_joint47_v2_run
 export FLUX2_SRC=/path/to/flux2
 export FLUX2_MODEL_PATH=/path/to/flux-2-klein-base-4b.safetensors
 export FLUX2_AE_MODEL_PATH=/path/to/ae.safetensors
 export QWEN3_MODEL_DIR=/path/to/Qwen3-4B
-export ACTION_INITIALIZER=/path/to/flux2_shared_partial_initializer.pt
+export SOURCE_CONTRACT="$(pwd)/configs/wholebody/source_contracts/g1_existing_measured_v1.json"
 
 python -m imagewam.datasets.wholebody_joint_reference \
   --dataset-dir "$DATASET_DIR" --output-dir "$WORK_DIR/inputs" \
-  --body-target wbc --orientation-target "$ORIENTATION" \
-  --action-horizon 16 --past-action-size 16 --action-stride 2
+  --recipe-version v2 --body-target measured \
+  --orientation-target predicted_rotation6d --source-contract "$SOURCE_CONTRACT" \
+  --action-horizon 40 --past-action-size 16 --execution-horizon 16 \
+  --action-stride 2 --future-image-offset 32
 
 python scripts/wholebody/cache_text.py \
   --dataset-dir "$DATASET_DIR" --cache-dir "$WORK_DIR/textcache" \
   --qwen-model "$QWEN3_MODEL_DIR" --flux2-src "$FLUX2_SRC"
 
+python scripts/flux2/preprocess_action_dit_flux2.py \
+  --model-config configs/wholebody/deltaflow_joint_reference_p25.yaml \
+  --flux2-src-path "$FLUX2_SRC" --flux2-model-path "$FLUX2_MODEL_PATH" \
+  --variant klein-base-4b --action-dim 47 --apply-alpha-scaling true \
+  --device cpu --output "$WORK_DIR/action_shared_flux2_4b.pt"
+
 python scripts/wholebody/build_config.py \
-  --representation "$REPRESENTATION" --horizon 16 \
+  --representation joint --horizon 40 --execution-horizon 16 \
   --dataset-dir "$DATASET_DIR" --stats-path "$WORK_DIR/inputs/dataset_stats.json" \
   --text-cache-dir "$WORK_DIR/textcache" --output-dir "$WORK_DIR/configs" \
   --flux2-src "$FLUX2_SRC" --flux2-model "$FLUX2_MODEL_PATH" \
   --ae-model "$FLUX2_AE_MODEL_PATH" --qwen-model "$QWEN3_MODEL_DIR" \
-  --action-initializer "$ACTION_INITIALIZER" \
+  --action-initializer "$WORK_DIR/action_shared_flux2_4b.pt" \
   --epochs 60 --batch-size 8 --accumulation 2 --num-processes 8
-```
 
-统计准备检查原始 metadata、Parquet、时间和字段，保存 SHA；不会修改源数据。
-配置生成在 CPU 上实例化真实 dataset/loader 并测量每轮步数，不进行模型训练。
-8卡、每卡8、累积2给出名义全局 batch128；总更新数、5% warmup 和保存间隔按实测 loader 推导。
-这组新的关节维度配置尚未完成8卡显存验证，不能把配置默认值当成已跑通的结果。
-峰值 LR1e-4、cosine至1e-6、WD0.01、BF16、seed42、ZeRO-1，不强制 FlashAttention。
-
-正式训练前先完成同配置五次 optimizer update。试跑不保存模型或优化器；正式训练重新从基础初始化开始：
-
-```bash
 accelerate launch --config_file scripts/accelerate_configs/accelerate_zero1_ds.yaml \
   --num_processes 8 scripts/wholebody/train.py \
   --config "$WORK_DIR/configs/smoke.yaml" --smoke
@@ -117,32 +112,18 @@ accelerate launch --config_file scripts/accelerate_configs/accelerate_zero1_ds.y
   --config "$WORK_DIR/configs/production.yaml"
 ```
 
-正式入口核对所有 rank 的五步检查、初始化、统计、维度与 schedule。输出目录必须是新目录，不能覆盖旧实验。
-每轮保存一次，保留最近4份权重和最新1份训练状态。需要其他轮数或 batch 时，重新生成完整配置和试跑。
+Preparation checks metadata, Parquet fields and timing, fits task-specific statistics on all episodes, and saves source hashes without changing original data or creating a validation split. Contract or dataset changes require fresh statistics and a fresh run directory. The builder constructs the real CPU loader to determine updates and schedule.
 
-## 推理与 SONIC 离线导出
+The initializer reuses shared FLUX.2 backbone tensors. Joint47 action input/output and state44 projections are newly initialized. Old motion76 task checkpoints and optimizers are not silently partially loaded. VAE and Qwen stay frozen; visual DiT, action expert and current-state projection train. Contract SHA, statistics, text cache, temporal recipe and orientation frame are checked on checkpoint loading.
 
-推理配置见 `configs/humanwam/imagewam-joint41.json` / `imagewam-joint47.json`。
-设置 `IMAGEWAM_PYTHON`、`IMAGEWAM_JOINT_MODEL_CONFIG`、`IMAGEWAM_JOINT_CHECKPOINT`、
-`IMAGEWAM_JOINT_TEXT_CACHE` 后，使用与原来相同的 `humanwam predict` / `serve` 接口。
-`imagewam-joint-train.json` 提供统一 launcher 的训练入口。
+The example's8 GPUs × batch8 × accumulation2 gives nominal global batch128. It is not a memory measurement for this new40-sample joint recipe. Default LR is1e-4,5% warmup, cosine to1e-6, WD0.01, BF16, seed42 and ZeRO-1; FlashAttention is not required. Complete five actual optimizer updates and rank checks before production. Smoke saves no model/optimizer; production starts again from the base initializer. Use a new output directory. Default retention is four recent weights and one latest training state. After batch/epoch changes, regenerate schedule and repeat the check.
 
-输入为当前 uint8 HWC `ego_rgb`、`chest_rgb`，物理量 `current_state[44]`，以及已按stride2采样的
-`past_actions[N,41/47]`。必须同时声明 `past_action_frame_offsets=[-2*N,...,-2]`，N最多16。
-episode起点可用空历史，但须显式给 `at_episode_start=true`。不接受未来 state、真实未来图像或预归一化历史。
-返回的是物理单位关节参考与单独的手反馈预测，不会下发电机。
+## Inference and verification boundary
 
-SONIC官方 v1.1 G1 encoder 使用46帧50Hz参考窗口。离线桥接对1秒稀疏预测做关节插值、姿态 SLERP，
-得到51帧50Hz参考，计算关节速度，核对29个关节的名字和顺序，再产生 v1 body packet。
-它不把41/47维塞进64D motion-token字段，也不把Inspire12塞进Dex3的14维字段。
+The separate `imagewam-joint47` config uses `IMAGEWAM_PYTHON`, `IMAGEWAM_JOINT_MODEL_CONFIG`, `IMAGEWAM_JOINT_CHECKPOINT` and `IMAGEWAM_JOINT_TEXT_CACHE`. Supply current uint8 HWC `ego_rgb`/`chest_rgb`, physical `current_state[44]`, and at most16 physical `past_actions[N,47]` with `past_action_frame_offsets=[-2*N,...,-2]`. Past rotations at this API boundary are **world-frame**6D; the backend transforms them to the current heading before normalization. Optional `past_root_orientation_valid[N]` identifies invalid recorded orientation rows. Do not pass past rotations left in an older anchor frame or pre-normalized actions.
 
-完整的 `split_model_prediction`、NPZ 字段与导出命令见
-[SONIC_JOINT_REFERENCE.md](policies/SONIC_JOINT_REFERENCE.md)。
-41D需要明确提供完整未来姿态，不能用当前躯干姿态或单位四元数静默替代。
-47D使用预测6D旋转做 Gram–Schmidt 转换，退化旋转、越界手值、NaN、归一化空间输出或不足时间覆盖都会拒绝导出。
+Also supply `current_root_quaternion_wxyz[4]` as the current measured IMU-world heading anchor, actual `observation_time_s` in the policy host's monotonic clock, and `timestamp_clock="monotonic"`. The timestamp is the observation capture time, not a fresh timestamp assigned after inference. Empty history requires `at_episode_start=true`. No future image/state is accepted. The backend returns restored-world rotations and both observation/inference-ready timestamps for the runtime checker.
 
-## 验证范围
+Inference returns40 physical samples, with16 designated for execution. It does not send motor commands. It does not predict root xyz, duration,29 additional physical velocities, or the feedback controller's output. The legacy joint41/external-root path remains an offline compatibility route and requires an actual future root trajectory; it cannot silently use current IMU or identity rotations. A v1 H16 or joint41 checkpoint cannot replace v2 joint47.
 
-验证覆盖原生 FM/IC、state 与视觉隔离、动作到视觉 stop-gradient、H16 推理形状、checkpoint schema 隔离，
-以及41/47数据映射与实际视频解码。SONIC packet 与固定版本官方 packer 字节一致，并通过官方 unpacker 往返检查。
-这些都是离线代码/数据检查。尚未运行新的41/47完整 FLUX.2 GPU训练、SONIC encoder/decoder闭环或真机执行。
+CPU checks establish software/data/protocol contracts only. They do not establish a complete new FLUX.2 GPU training run, SONIC encoder/decoder closed-loop equivalence or physical task success. Measured and WBC recipes remain explicitly experimental until their control chains are evaluated.

@@ -1,24 +1,31 @@
 # HumanWAM
 
-统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow、Fast-WAM、DiT4DiT 和 Psi-Zero 六个 policy 家族，共七个注册入口。ImageWAM 的 motion76 与 joint-reference 使用独立入口和动作schema。
+HumanWAM maintains six policy families through seven registered entries: GR00T N1.7 + SONIC,
+π₀.₅, ImageWAM Δ-flow, Fast-WAM, DiT4DiT and Psi-Zero. ImageWAM provides separate
+motion-token and joint-reference training modes with distinct action and checkpoint schemas.
 
-- [统一安装、代码结构与维护说明](docs/POLICY_MAINTENANCE.md)
-- [初始权重、下载与恢复说明](docs/MODEL_INITIALIZATION.md)
-- [实际运行验证结果](docs/policies/RUNTIME_VALIDATION_20261109.md)
+- [G1 training modes and reproducible commands](docs/TRAINING_MODES.md)
+- [Two-route CPU validation and limitations](docs/policies/TRAINING_ROUTES_VALIDATION_20261110.md)
+- [Installation, repository structure and maintenance](docs/POLICY_MAINTENANCE.md)
+- [Base weights, initialization and checkpoint loading](docs/MODEL_INITIALIZATION.md)
+- [Runtime validation record](docs/policies/RUNTIME_VALIDATION_20261109.md)
 - [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
 - [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
 - [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
-- [ImageWAM joint29＋Inspire12 新训练路径](docs/G1_JOINT_REFERENCE_DELTA.md)
-- [SONIC joint-reference 离线导出与协议](docs/policies/SONIC_JOINT_REFERENCE.md)
-- [Fast-WAM 原生 Gaussian FM](docs/policies/FASTWAM.md)
+- [ImageWAM joint47 v2: prediction, execution and reference labels](docs/G1_JOINT_REFERENCE_DELTA.md)
+- [SONIC joint-reference timing and protocol export](docs/policies/SONIC_JOINT_REFERENCE.md)
+- [Fast-WAM native Gaussian FM](docs/policies/FASTWAM.md)
 - [DiT4DiT](docs/policies/DIT4DIT.md)
 - [Psi-Zero / SONIC](docs/policies/PSI0.md)
 
-新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
-各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
-ImageWAM 新全身训练默认16步，下面继承的历史说明如出现40步，仅对应旧配置。
-Fast-WAM 已完成源码、配置、公开权重metadata和CPU接口核验，尚未进行GPU推理。
-joint-reference 是新增训练与离线导出路径，目前没有已训练checkpoint或真机效果结论。
+The orchestration package lives in `packages/humanwam`; upstream implementations are
+pinned git submodules with their original attribution and licenses. Policies use separate
+environments and their native action spaces. New motion-token training defaults to 16
+samples. Joint47 v2 uses 16 historical samples and predicts 40 samples, of which 16 source
+intervals form the execution segment and the remainder supplies controller lookahead.
+This is distinct from historical motion-token H40 checkpoints. Fast-WAM has source and
+CPU interface checks but no GPU inference validation here. The new joint mode has no
+trained checkpoint or measured real-robot success result.
 
 ```bash
 export HUMANWAM_ROOT="$PWD"
@@ -28,7 +35,7 @@ humanwam list
 humanwam doctor
 ```
 
-下面保留原 ImageWAM 安装、benchmark 和历史真机说明。
+The original ImageWAM installation, benchmark and historical robot guide follows.
 
 ---
 
@@ -66,14 +73,18 @@ field mapping, causal windows, per-dataset normalization, portable configuration
 builder, CPU tests and a mandatory five-update smoke stage. This is a
 motion-latent training interface, not a direct joint-command controller.
 
-The separate [joint-reference recipe](docs/G1_JOINT_REFERENCE_DELTA.md) predicts
-29 raw G1 joint targets plus 12 measured Inspire hand states, with an optional
-6D root-rotation target. It requires new task projections, statistics and training;
-existing motion76 checkpoints are not joint41/47 checkpoints. The
-[offline SONIC exporter](docs/policies/SONIC_JOINT_REFERENCE.md) validates joint
-order, future root orientation and time coverage, resamples to50Hz and writes
-NPZ/body-only protocol bytes. It does not connect to a robot. WBC motor-qtarget
-labels used as SONIC references define a new experimental control chain.
+The separate [joint47 v2 recipe](docs/G1_JOINT_REFERENCE_DELTA.md) predicts
+29 G1 joint positions,12 measured Inspire states and6D root/pelvis rotation.
+It uses16 history samples,40 predictions and16 execution intervals at2/30s,
+leaving24 actual predictions for SONIC lookahead. Root rotation is trained
+relative to the current IMU heading and restored to world coordinates at the
+deployment boundary. Numerical state stays in the action branch. The recipe
+requires new projections, statistics, a hashed source contract and training.
+Existing recordings support explicit measured/WBC experiments; they do not
+contain a verified original29D reference. See the [source audit](docs/policies/REFERENCE_LABEL_AUDIT_20261110.md).
+The [SONIC bridge](docs/policies/SONIC_JOINT_REFERENCE.md) checks joint order,
+full-execution lookahead, clocks, latency and stale plans. It computes physical
+joint velocities and produces offline protocol bytes without robot actuation.
 
 **Chair training/testing data:** use
 [OKayQi/wb_chair](https://huggingface.co/datasets/OKayQi/wb_chair), specifically

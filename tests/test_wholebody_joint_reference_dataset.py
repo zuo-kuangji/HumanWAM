@@ -13,6 +13,11 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from imagewam.datasets import wholebody_joint_reference as md
+from imagewam.joint_reference_contract import make_joint_recipe, source_contract_sha256, NORMALIZATION_V2
+from imagewam.joint_reference_rotation import (
+    heading_from_quaternion_wxyz, world_quaternion_to_heading_relative_rotation6d,
+    heading_relative_rotation6d_to_world_quaternion, quaternion_matrix,
+)
 
 
 def raw_columns(n=100, bias=0.0):
@@ -314,6 +319,128 @@ class JointReferenceDatasetTests(unittest.TestCase):
         with path.open("ab") as stream: stream.write(b"mutated")
         with self.assertRaisesRegex(ValueError, "Parquet changed"):
             self.dataset()
+
+
+def measured_source_contract():
+    path=Path(__file__).resolve().parents[1]/"configs/wholebody/source_contracts/g1_existing_measured_v1.json"
+    return json.loads(path.read_text())
+
+
+class JointV2NumericTests(unittest.TestCase):
+    def test_explicit_provenance_hash_and_no_direct_reference_masquerade(self):
+        contract=measured_source_contract()
+        with self.assertRaisesRegex(ValueError,"source_contract"):
+            md.map_numeric(raw_columns(),body_target="measured",recipe_version="v2")
+        self.assertEqual(make_joint_recipe(contract)["prediction_horizon"],40)
+        wrong=deepcopy(contract);wrong["body_target"]="direct_reference";wrong["label_semantics"]="direct_joint_reference"
+        with self.assertRaisesRegex(ValueError,"not direct reference"):
+            make_joint_recipe(wrong)
+        changed=deepcopy(contract);changed["provenance"]["revision"]+=" changed"
+        self.assertNotEqual(source_contract_sha256(contract),source_contract_sha256(changed))
+
+    def test_prediction_execution_and_true_history_have_independent_clocks(self):
+        timing=md.timing_configuration(40,16,2,32,recipe_version="v2")
+        self.assertEqual(timing["execution_horizon"],16)
+        self.assertEqual(timing["lookahead_tail_horizon"],24)
+        self.assertEqual(timing["future_action_offsets"],list(range(0,80,2)))
+        self.assertAlmostEqual(timing["future_action_span_seconds"],2.6)
+        self.assertEqual(timing["source_history_rule"],"history16_then_hold_last24")
+        window=md.window_indices(50,150,40,16,2,32,recipe_version="v2")
+        np.testing.assert_array_equal(window["past_action"],np.arange(18,50,2))
+        np.testing.assert_array_equal(window["action"],np.arange(50,130,2))
+        np.testing.assert_array_equal(window["image"],[50,82])
+        with self.assertRaises(ValueError):md.timing_configuration(32,16,2,32,recipe_version="v2")
+
+    def test_heading_conversion_roundtrips_and_removes_common_world_yaw(self):
+        angles=np.asarray([.6,.7,3.1,-2.9])
+        quat=np.stack((np.cos(angles/2),np.zeros(4),np.zeros(4),np.sin(angles/2)),axis=-1)
+        relative=world_quaternion_to_heading_relative_rotation6d(quat,quat[0])
+        np.testing.assert_allclose(relative[0],[1,0,0,0,1,0],atol=1e-6)
+        result=heading_relative_rotation6d_to_world_quaternion(relative,quat[0])
+        np.testing.assert_allclose(quaternion_matrix(result),quaternion_matrix(quat),atol=1e-6)
+        np.testing.assert_array_equal(relative,world_quaternion_to_heading_relative_rotation6d(-quat,-quat[0]))
+        with self.assertRaises(ValueError):heading_from_quaternion_wxyz(np.zeros(4))
+        with self.assertRaises(ValueError):heading_relative_rotation6d_to_world_quaternion(np.zeros((4,6)),quat[0])
+
+
+@unittest.skipUnless(importlib.util.find_spec("pyarrow"),"PyArrow required for immutable on-disk v2 checks")
+class JointV2DatasetTests(unittest.TestCase):
+    setUp=JointReferenceDatasetTests.setUp
+    tearDown=JointReferenceDatasetTests.tearDown
+    prepare=JointReferenceDatasetTests.prepare
+    dataset=JointReferenceDatasetTests.dataset
+
+    def write_fixture(self):
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        JointReferenceDatasetTests.write_fixture(self,length=150)
+        info=json.loads((self.root/"meta/info.json").read_text())
+        info["features"]["observation.root_orientation"]={"shape":[4],"dtype":"float64","names":["base_qw","base_qx","base_qy","base_qz"]}
+        info["features"]["action.original_joint_reference"]={"shape":[29],"dtype":"float32","names":list(md.BODY_JOINT_NAMES)}
+        (self.root/"meta/info.json").write_text(json.dumps(info))
+        for ep in [0,1]:
+            path=self.root/f"data/chunk-000/episode_{ep:06d}.parquet"
+            cols=pq.read_table(path).to_pydict();theta=np.arange(150)/50+.3
+            cols["observation.root_orientation"]=np.stack((np.cos(theta/2),np.zeros(150),np.zeros(150),np.sin(theta/2)),axis=-1).tolist()
+            cols["action.original_joint_reference"]=(np.asarray(cols["observation.state"])[:,md.BODY_INDICES]+.5).tolist()
+            pq.write_table(pa.Table.from_pydict(cols),path)
+        self.kwargs=dict(body_target="measured",orientation_target="predicted_rotation6d",action_horizon=40,
+                         past_action_size=16,recipe_version="v2",execution_horizon=16,
+                         source_contract=measured_source_contract())
+
+    def test_preparation_hashes_all_sources_and_keeps_raw_files_unchanged(self):
+        before={str(p):md.sha256(p) for p in self.root.rglob("*") if p.is_file()}
+        audit=self.prepare(**self.kwargs)
+        self.assertEqual(before,{str(p):md.sha256(p) for p in self.root.rglob("*") if p.is_file()})
+        stats=json.loads((self.output/"dataset_stats.json").read_text())
+        self.assertEqual(stats["normalization_strategy"],NORMALIZATION_V2)
+        self.assertEqual(stats["orientation_prediction_frame"],"current_heading_relative")
+        self.assertEqual(stats["action"][md.ACTION_KEY]["global_q01"][41:],[-1.]*6)
+        self.assertFalse(audit["source_provenance_deployment_ready"])
+        self.assertFalse(audit["original_sonic_reference_equivalence_verified"])
+        self.assertEqual(stats["joint_recipe"],make_joint_recipe(measured_source_contract()))
+
+    def test_real_history16_target40_current_heading_and_tail_masks(self):
+        self.prepare(**self.kwargs);dataset=self.dataset(**self.kwargs);row=dataset[50]
+        self.assertEqual(tuple(row["action"].shape),(40,47))
+        self.assertEqual(tuple(row["past_action"].shape),(16,47))
+        np.testing.assert_allclose(row["action"][0,41:],[1,0,0,0,1,0],atol=1e-6)
+        self.assertTrue(all(indices==[50,82] for _,indices in self.decoder_calls))
+        self.assertTrue(torch.equal(row["proprio"][0],row["proprio"][-1]))
+        self.assertFalse(row["action_is_pad"].any())
+        self.assertTrue(dataset[149]["action_is_pad"][1:].all())
+        self.assertTrue((dataset[0]["past_action"]==0).all())
+
+    def test_contract_mutation_or_wrong_target_fails_before_loading(self):
+        self.prepare(**self.kwargs)
+        wrong=deepcopy(self.kwargs);wrong["source_contract"]["provenance"]["revision"]+=" altered"
+        with self.assertRaisesRegex(ValueError,"source|contract|configuration"):
+            self.dataset(**wrong)
+
+    @unittest.skipUnless(importlib.util.find_spec("hydra"),"Hydra required for real instantiate regression")
+    def test_real_hydra_instantiation_accepts_nested_contract_without_convert_all(self):
+        from hydra.utils import instantiate
+        from omegaconf import OmegaConf
+        self.prepare(**self.kwargs)
+        cfg=OmegaConf.create({"_target_":"imagewam.datasets.wholebody_joint_reference.JointReferenceLeRobotDataset",
+            "dataset_dir":str(self.root),"stats_path":str(self.output/"dataset_stats.json"),
+            "qwen_text_cache_dir":str(self.cache),"qwen_context_len":4,"qwen_text_dim":8,**self.kwargs})
+        dataset=instantiate(cfg)
+        self.assertEqual(dataset.source_contract,measured_source_contract())
+        self.assertEqual(dataset.timing["prediction_horizon"],40)
+        self.assertEqual(dataset.timing["execution_horizon"],16)
+        self.assertEqual(len(dataset),300)
+
+    def test_direct_reference_reads_declared29_field_not_wbc_or_measured(self):
+        contract=measured_source_contract();contract.update(body_target="direct_reference",
+            label_semantics="direct_joint_reference",joint_position_key="action.original_joint_reference",
+            joint_position_indices=list(range(29)))
+        contract["provenance"]["synchronization_verified"]=True
+        kwargs=dict(self.kwargs,body_target="direct_reference",source_contract=contract)
+        self.prepare(**kwargs);dataset=self.dataset(**kwargs)
+        state,action=dataset.episodes[0][:2]
+        np.testing.assert_allclose(action[:,:29],state[:,:29]+.5,atol=1e-6)
+        self.assertNotIn("action.wbc",md.numeric_columns("direct_reference","predicted_rotation6d",recipe_version="v2",source_contract=contract))
 
 
 if __name__ == "__main__":

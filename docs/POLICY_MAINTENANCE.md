@@ -9,7 +9,7 @@ ImageWAM的motion76与joint-reference因动作语义和checkpoint不同，分别
 | `groot_n17` | `third_party/Isaac-GR00T` + `GR00T-WholeBodyControl` | 原生finetune + ZeroMQ PolicyServer | 原生SONIC78；独立NEW_EMBODIMENT配方可训feedback76/H16 |
 | `pi05` | `third_party/openpi` + 版本锁定A2A patch | OpenPI train + WebSocket服务 | 当前适配LIBERO7/H10，G1/76D需要单独模型架构与训练适配 |
 | `imagewam_delta` | `src/imagewam` + `scripts/wholebody` | 原生FM+IC训练 + 固定release/nativewholebody推理 | 新H16、旧H40显式选择，state不进视觉 |
-| `imagewam_joint_reference` | `src/imagewam` + 独立joint-reference配方 | 新joint41/47训练与离线参考导出 | G1 body29＋Inspire12，可预测root6D；不是motion64，不兼容旧76完整checkpoint |
+| `imagewam_joint_reference` | `src/imagewam` + 独立joint-reference配方 | joint47 v2训练、时钟与前瞻检查、SONIC v1包导出 | body29＋Inspire12＋相对heading旋转6D；历史16、预测40、执行16；不兼容motion76完整checkpoint |
 | `fastwam` | `third_party/FastWAM` | 原生Gaussian FM训练 + 原生infer_action及通用HTTP入口 | 官方LIBERO7/RoboTwin14、H32；未添加A2A/IC，未做GPU推理 |
 | `dit4dit` | `third_party/DiT4DiT` | 原生Cosmos train + WebSocket服务 | native单当前摄像头和checkpoint动作空间，不把第二相机当未来帧 |
 
@@ -90,7 +90,9 @@ ImageWAM与Fast-WAM提供通用JSON/NPZ HTTP预测入口。
 
 joint-reference导出只生成50Hz NPZ及可选SONIC v1 body bytes，不发布到网络。
 SONIC v1.1模式0要求offset0..45、至少46帧，16步连续30Hz不够；
-新H16 stride2目标可覆盖1秒，但不能把旧连续预测的timestamp乘2充当新训练。
+历史joint v1的H16/stride2目标只覆盖1秒，不能据此承诺执行完整16步后仍有0.9秒SONIC前瞻。
+当前joint47 v2用40点真实预测覆盖2.6秒，执行16个源采样间隔，另留24点前瞻；
+时间戳、推理延迟和50Hz网格由运行时检查，不能把旧连续预测的timestamp乘2充当新训练。
 未来root姿态缺失时拒绝，不复制当前IMU或单位旋转，Inspire12独立于官方Dex3手字段。
 
 ## 已有权重

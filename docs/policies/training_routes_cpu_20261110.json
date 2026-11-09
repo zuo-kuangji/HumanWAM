@@ -1,0 +1,85 @@
+{
+  "date": "2026-11-10",
+  "status": "CPU_CHECKS_PASSED",
+  "tests_passed": 295,
+  "tests_skipped": 0,
+  "python": "3.11.15 (main, May 10 2026, 19:28:18) [Clang 22.1.3 ]",
+  "checks": [
+    {
+      "name": "policy_runtime",
+      "passed": 146,
+      "skipped": 0,
+      "returncode": 0
+    },
+    {
+      "name": "source_and_rotation",
+      "passed": 14,
+      "skipped": 0,
+      "returncode": 0
+    },
+    {
+      "name": "motion_dataset",
+      "passed": 22,
+      "skipped": 0,
+      "returncode": 0
+    },
+    {
+      "name": "joint_dataset",
+      "passed": 22,
+      "skipped": 0,
+      "returncode": 0
+    },
+    {
+      "name": "native_fm_ic",
+      "passed": 64,
+      "skipped": 0,
+      "returncode": 0
+    },
+    {
+      "name": "training_cli",
+      "passed": 23,
+      "skipped": 0,
+      "returncode": 0
+    },
+    {
+      "name": "joint_v2_cli",
+      "passed": 4,
+      "skipped": 0,
+      "returncode": 0
+    }
+  ],
+  "tested_source_sha256": {
+    "src/imagewam/datasets/wholebody_joint_reference.py": "103da362cd2940032f77db6042abf36cd615715c9f61fa8bbfea80deb71d7e72",
+    "src/imagewam/joint_reference_contract.py": "b2a35dfa2f265d0d6535dc074ee86a43af8d9904dcee8f033b52ee4ccc9cc06d",
+    "src/imagewam/joint_reference_rotation.py": "d801d2b968f8ef37dcb6d9a85ec6347f9f3dce74d9c026b4fec1eb788b234aba",
+    "src/imagewam/wholebody_delta.py": "ab21a8a5a4834fe7a7b398cefbdbe3a4477769832c2a6ffc94baf97f1fa6b02b",
+    "src/imagewam/wholebody_joint_reference.py": "af2a7c4def217476569febc661a196efcf071af0ff8ef221788113cbc9893c62",
+    "packages/humanwam/src/humanwam/backends/imagewam_joint_reference.py": "8b5fb7f228c31b1c2e62f76d382377462064f75edb7294e8e2e5ac617aa7e795",
+    "packages/humanwam/src/humanwam/sonic_joint_reference.py": "730a7bbfe3e3e32ec31e45ece9715f12aa6204a74eda96f456d924fa5ec3fd73",
+    "packages/humanwam/src/humanwam/sonic_joint_runtime.py": "15ad84ce5bae748e52085af483de71ea8ed6d9cf203ef22c3627820ff3bc4fc5",
+    "scripts/wholebody/build_config.py": "eab02622f5ac03850c97227e712e4146bce3c250cea2c9aca7d8a0dca7c5cfc0",
+    "scripts/wholebody/check_two_routes.py": "cfbd25252be80d21c247e6b15051cf4ae4e434dd420f0885e8d13fcc2cddf0aa",
+    "scripts/wholebody/train.py": "9a43564ec7893fc834d11c712f9aa48122d7570e9216d62bee192e133eb5edf5"
+  },
+  "test_source_sha256": {
+    "packages/humanwam/tests/test_joint_v2_backend.py": "4a32c9e8db6616fa75d2858e225c22b5fbaa3a20edbb90039d6f7920861a032e",
+    "packages/humanwam/tests/test_sonic_joint_runtime.py": "6f601b1b2085f9f8748df77d4064312b4f8c10728cc7384c19e4fe6385af8d53",
+    "tests/test_joint_reference_contract.py": "849288e74c7614d2ccc8899de7fc5b7b9ee5d2ac3684afe29aa1c9fc93d2675e",
+    "tests/test_wholebody_delta.py": "dabda8ce757fbb6dccbea2b806f00c2774cb538aabd434f576f9cadf276330fc",
+    "tests/test_wholebody_joint_reference_dataset.py": "7bfc3c10182f2021f66556bbc242ce5e67d3b35bad3b13e271715edf719e322d",
+    "tests/test_wholebody_joint_v2_cli.py": "2e88ff6de88aa62ba11197efab3a2c5fd7aa35aacc7b3d959d101fb90e3f15f5"
+  },
+  "scope": {
+    "cuda_visible_devices": "",
+    "full_flux_model_loaded": false,
+    "optimizer_updates": 0,
+    "robot_actuation_performed": false,
+    "source_datasets_modified": false
+  },
+  "lightweight_checks": {
+    "passed": 185,
+    "skipped": 2,
+    "subtests_passed": 145,
+    "skip_reason": "Native Torch-dependent checks unavailable in the lightweight local environment; both ran in native CPU checks."
+  }
+}

@@ -7,7 +7,7 @@
 |---|---|---|---|
 | GR00T N1.7 | `nvidia/GR00T-N1.7-3B`，按目标 embodiment 新建训练 recipe | 完整 HF checkpoint、processor、该 checkpoint 的 modality 与归一化统计 | 基础权重 revision `2fc962b973bccdd5d8ce4f67cc63b264d6886495`。基础模型不含 `UNITREE_G1_SONIC`，不能改标签后直接当 SONIC 模型 |
 | π₀.₅ | OpenPI `gs://openpi-assets/checkpoints/pi05_base/params` | 任务 checkpoint 的 `params/` 与 `assets/`，匹配原生 config | GCS 路径没有本仓库核实的不可变权重 SHA。固定 OpenPI 源码与 A2A patch，下载后另存文件校验清单 |
-| ImageWAM Δ-flow | FLUX.2 klein-base-4B、FLUX.2-dev AE、Qwen3-4B，生成基础模型派生的动作共享初始化 | 任务 MoT 权重、model config、统计、文本缓存，以及 factory 所需基础文件 | motion76与joint41/47分别初始化和训练。新 recipe 默认 H16，历史 H40 权重仍按 H40 使用 |
+| ImageWAM Δ-flow | FLUX.2 klein-base-4B、FLUX.2-dev AE、Qwen3-4B，生成基础模型派生的动作共享初始化 | 任务 MoT 权重、model config、统计、文本缓存，以及 factory 所需基础文件 | motion76默认预测16；joint47 v2历史16、预测40含前瞻尾、执行16。历史motion H40和joint v1必须使用各自协议 |
 | Fast-WAM | Wan2.2-TI2V-5B video DiT、原始VAE/T5及Wan tokenizer，生成动作共享backbone初始化 | 官方任务完整MoT`.pt`＋对应统计，另需VAE/T5/tokenizer | 官方HF revision `8eaceeb24c3cc92ff2a9c9a9d266a4941b836705`；LIBERO A7/S8/H32、RoboTwin A14/S14/H32，原生Gaussian FM |
 | DiT4DiT | Cosmos-Predict2.5-2B，原生 recipe 构造动作专家 | 任务 `.pt`、上级 run 目录的 `config.yaml` 与 `dataset_statistics.json`，另需 Cosmos pipeline | 官方 LIBERO checkpoint 为 A8 / state16 / H8。Cosmos 是 gated 模型，当前账号访问核验为 HTTP403 |
 | Ψ₀ / Psi Zero | 官方 human-video VLM，再用 SONIC VLM＋action expert 初始化微调 | 完整 run 目录、指定 step 的 safetensors、统计和 CLIP 缓存 | 公开完整 SONIC run 实际为 A80 / raw state45 / H30，不能套用本项目 76D 或旧 43D state |
@@ -78,14 +78,17 @@ python scripts/flux2/preprocess_action_dit_flux2.py \
 部署保留本任务 MoT checkpoint、原配置、统计和文本缓存，按原 factory 加载。新格式 `wholebody_inspire76_p25_flux2_v1` 与历史实验专用格式分别处理，不能只换 YAML 就互换 checkpoint。
 
 新增[关节参考配方](G1_JOINT_REFERENCE_DELTA.md)为独立的`imagewam_joint_reference`入口。
-41D目标是body29＋Inspire12，47D额外预测root rotation6D；不能把完整76D任务checkpoint
-直接当41/47D模型。仅复用兼容的FLUX.2基础派生114个共享张量，新建对应动作输入、输出
+主路线joint47 v2目标是body29＋Inspire12＋相对当前IMU heading的root rotation6D，
+历史16、预测40（包含24点前瞻尾）、执行16个源采样间隔。41D外部姿态与世界系47D仅保留legacy v1兼容。
+不能把完整76D任务checkpoint直接当41/47D模型。仅复用兼容的FLUX.2基础派生114个共享张量，新建对应动作输入、输出
 及state投影，重新拟合该任务统计，并在初始化记录中列明新层与共享层。上面的76D命令
 是旧motion配方示例，新路径应使用其独立配置，不能只改输出维度后省略训练。
 新增路径尚无训练结果。部署输出经[SONIC离线桥接](policies/SONIC_JOINT_REFERENCE.md)
 显式处理未来root姿态、采样时间和`body_target_source`，导出文件不等于已验证控制链。
-47D训练还需审计root姿态标签有效性，录制器在姿态缺失时写入的identity fallback
-不能直接充当真实未来姿态监督，不能仅凭单位范数判断标签可靠。
+v2必须提供显式source contract，将示范实测关节、decoder电机目标与真正上游运动参考分别记录。
+当前录制数据可用的实测关节和IMU姿态来源见[来源审计](policies/REFERENCE_LABEL_AUDIT_20261110.md)。
+选择teleop姿态来源时，录制器的identity fallback仍按其有效性标志屏蔽；
+采用实测IMU时以对应契约检查有效性，不冒用teleop的SMPL帧号规则。
 
 ## 4. DiT4DiT
 

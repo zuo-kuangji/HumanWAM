@@ -259,7 +259,7 @@ def build_joint_reference(
     *, joint_positions, joint_names, joint_order, root_quaternions_wxyz,
     relative_timestamps, inspire_hand_states, normalized, joint_units,
     action_semantics, root_orientation_source, frame_index_start, body_target_source,
-    joint_velocities=None,
+    joint_velocities=None, output_timestamps=None,
 ):
     """Validate and resample an explicit future-reference sequence, without I/O.
 
@@ -306,6 +306,15 @@ def build_joint_reference(
             or frame_index_start > np.iinfo(np.int64).max - count):
         raise ValueError("frame_index_start must be a nonnegative int64-safe integer")
     target = times[0] + np.arange(count, dtype=np.float64) / CONTROL_HZ
+    if output_timestamps is not None:
+        target = _times(output_timestamps)
+        if (len(target) < REQUIRED_FRAMES or len(target) > 100_000
+                or not np.allclose(np.diff(target), 1.0 / CONTROL_HZ, rtol=0, atol=1e-9)
+                or target[0] < times[0] - 1e-10 or target[-1] > times[-1] + 1e-10):
+            raise ValueError("Explicit output_timestamps must be covered dense50Hz ticks with at least46 frames")
+        count = len(target)
+        if frame_index_start > np.iinfo(np.int64).max - count:
+            raise ValueError("Explicit output timestamps overflow int64 frame indices")
     # Handle only numerical boundary noise; no semantic extrapolation occurs.
     if target[-1] > times[-1] + 1e-10:
         raise ValueError("Resampling would extrapolate beyond the supplied future reference")
@@ -336,6 +345,7 @@ def build_joint_reference(
         "hand_semantics": "measured_inspire_left6_right6_state_0_1_separate_from_body_wire",
         "native_mode0_offsets": list(MODE0_OFFSETS), "coverage": coverage,
         "frame_index_start": frame_index_start, "first_reference_relative_time": float(times[0]),
+        "explicit_output_clock_grid": output_timestamps is not None,
         "future_padding": False, "root_substitution": False,
         "transport_started": False, "robot_execution_validated": False,
     }

@@ -2,13 +2,16 @@
 
 统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow、Fast-WAM、DiT4DiT 和 Psi-Zero 六个 policy 家族，共七个注册入口。ImageWAM 的 motion76 与 joint-reference 使用独立入口和动作schema。
 
+- [两种G1训练方式、初始化与完整复现命令](docs/TRAINING_MODES.md)
+- [两条路线的295项CPU验证及验证范围](docs/policies/TRAINING_ROUTES_VALIDATION_20261110.md)
+
 - [统一安装、代码结构与维护说明](docs/POLICY_MAINTENANCE.md)
 - [初始权重、下载与恢复说明](docs/MODEL_INITIALIZATION.md)
 - [实际运行验证结果](docs/policies/RUNTIME_VALIDATION_20261109.md)
 - [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
 - [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
 - [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
-- [ImageWAM joint29＋Inspire12 新训练路径](docs/G1_JOINT_REFERENCE_DELTA.md)
+- [ImageWAM joint47 v2：预测40、执行16与真实参考来源](docs/G1_JOINT_REFERENCE_DELTA.md)
 - [SONIC joint-reference 离线导出与协议](docs/policies/SONIC_JOINT_REFERENCE.md)
 - [Fast-WAM 原生 Gaussian FM](docs/policies/FASTWAM.md)
 - [DiT4DiT](docs/policies/DIT4DIT.md)
@@ -16,7 +19,8 @@
 
 新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
 各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
-ImageWAM 新全身训练默认16步，下面继承的历史说明如出现40步，仅对应旧配置。
+ImageWAM motion-token新训练默认16步；joint47 v2历史16、总预测40、执行16。
+下文继承的旧motion-token40步配置与joint47的40点lookahead不是同一配方。
 Fast-WAM 已完成源码、配置、公开权重metadata和CPU接口核验，尚未进行GPU推理。
 joint-reference 是新增训练与离线导出路径，目前没有已训练checkpoint或真机效果结论。
 
@@ -42,11 +46,13 @@ humanwam doctor
 stop-gradient，以及配置生成、CPU检查和五步试跑。76D输出不是76个关节角，
 真机执行仍需匹配的 motion decoder 和安全控制链。
 
-独立的[关节参考训练路径](docs/G1_JOINT_REFERENCE_DELTA.md)预测G1 body29＋双手各6D实测状态，
-可额外预测root rotation6D。它需要新的41/47维投影、统计和训练，不能套用旧motion76完整权重。
-[SONIC离线导出器](docs/policies/SONIC_JOINT_REFERENCE.md)检查关节顺序、真实未来root姿态与时间覆盖，
-重采样到50Hz，只写NPZ与body协议bytes，不连接机器人。
-将WBC电机qtarget当作SONIC参考是新的实验控制链，尚未验证与原始运动参考等价。
+独立的[关节参考训练路径joint47 v2](docs/G1_JOINT_REFERENCE_DELTA.md)预测body29＋实测Inspire12＋
+root/pelvis rotation6D，历史16点、总预测40点、执行16个源采样间隔，间隔2/30秒。
+其余24点是真实模型预测lookahead。姿态相对当前IMU heading训练，部署前恢复world，
+state只进入动作分支。它需要新的投影、统计、带SHA的来源contract和训练，不套用旧motion76完整权重。
+现有记录支持显式measured或WBC标签实验，尚无可核验的完整原始29D参考，见[来源审计](docs/policies/REFERENCE_LABEL_AUDIT_20261110.md)。
+[SONIC桥接](docs/policies/SONIC_JOINT_REFERENCE.md)检查完整执行段lookahead、时钟、延迟和过期计划，
+从关节轨迹计算物理速度，只生成离线数据/协议，不启动机器人。
 
 **Chair 训练/测试数据：**使用
 [OKayQi/wb_chair](https://huggingface.co/datasets/OKayQi/wb_chair) 中的

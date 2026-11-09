@@ -5,6 +5,7 @@ Run with Accelerate/DeepSpeed ZeRO-1, not plain Python. The smoke starts from
 the base and saves no model/optimizer checkpoint. Production requires its
 matching smoke receipts and starts independently from the base again.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -54,30 +55,113 @@ def config_spec(cfg):
     model, c = cfg["model"], cfg["wholebody_contract"]
     representation = c.get("representation", "motion76")
     if representation == "motion76":
-        return {"action_dim": 76, "model_target": MODEL_TARGET, "dataset_target": DATASET_TARGET,
-                "stats_schema": STATS_SCHEMA, "normalization": NORMALIZATION}
+        return {
+            "action_dim": 76,
+            "model_target": MODEL_TARGET,
+            "dataset_target": DATASET_TARGET,
+            "stats_schema": STATS_SCHEMA,
+            "normalization": NORMALIZATION,
+        }
     require(representation in ("joint41", "joint47"), "Unknown action representation")
     dim = int(representation[5:])
     body = model.get("body_target")
     orientation = "external" if dim == 41 else "predicted_rotation6d"
-    require(body in ("wbc", "measured") and model.get("orientation_target") == orientation,
-            "Joint body/orientation semantics mismatch")
-    require(model.get("action_stride") == c.get("action_stride") == 2
-            and model.get("reference_fps") == 30 and model["expected_action_horizon"] == 16,
-            "Joint reference requires H16/stride2 at30FPS")
-    require(model.get("state_only_schema_id") == f"wholebody.joint_reference{dim}.{body}29.state44.p25.v1",
-            "Joint model schema mismatch")
-    ds = cfg["data"]["train"]
-    require(ds.get("body_target") == body and ds.get("orientation_target") == orientation
-            and ds.get("action_stride") == 2 and ds.get("future_image_offset", 32) == 32,
-            "Dataset/model reference labels or timing differ")
-    label = "wbc29" if body == "wbc" else "measured29"
-    suffix = "external-orientation" if dim == 41 else "quatwxyz-rotation6d-columns"
-    return {"action_dim": dim,
+    if model.get("recipe_version") == "v2":
+        from imagewam.joint_reference_contract import (
+            NORMALIZATION_V2,
+            expected_schema,
+            make_joint_recipe,
+        )
+        from omegaconf import OmegaConf
+
+        def plain(value):
+            return (
+                OmegaConf.to_container(value, resolve=True)
+                if OmegaConf.is_config(value)
+                else value
+            )
+
+        recipe = make_joint_recipe(
+            plain(model.get("source_contract")), orientation_target=orientation
+        )
+        require(
+            dim == 47
+            and model.get("orientation_target") == orientation
+            and plain(model.get("joint_recipe"))
+            == plain(c.get("joint_recipe"))
+            == recipe,
+            "Joint v2 uses a task-bound47D heading-relative recipe",
+        )
+        require(
+            model.get("source_contract_sha256")
+            == recipe["reference_source_contract_sha256"],
+            "Joint v2 source provenance digest differs",
+        )
+        require(
+            model.get("expected_action_horizon") == c.get("action_horizon") == 40
+            and model.get("past_action_horizon") == c.get("past_action_horizon") == 16
+            and model.get("execution_horizon") == c.get("execution_horizon") == 16
+            and model.get("reference_fps") == 30
+            and model.get("action_stride") == c.get("action_stride") == 2,
+            "Joint v2 requires prediction40/history16/execution16 and genuine24-point lookahead",
+        )
+        ds = cfg["data"]["train"]
+        require(
+            ds.get("recipe_version") == "v2"
+            and ds.get("body_target") == body
+            and ds.get("orientation_target") == orientation
+            and ds.get("execution_horizon") == 16
+            and ds.get("action_stride") == 2
+            and ds.get("future_image_offset") == model.get("future_image_offset") == 32
+            and plain(ds.get("source_contract")) == recipe["reference_source_contract"],
+            "Joint v2 dataset/model sources or time axes differ",
+        )
+        require(
+            model.get("state_only_schema_id")
+            == f"wholebody.joint_reference47.{body}29.state44.p25.v2",
+            "Joint v2 model schema mismatch",
+        )
+        return {
+            "action_dim": 47,
             "model_target": "imagewam.wholebody_joint_reference.create_imagewam_flux2_wholebody_joint_reference",
             "dataset_target": "imagewam.datasets.wholebody_joint_reference.JointReferenceLeRobotDataset",
-            "stats_schema": f"wholebody-state44-joint{dim}-{label}-measured-inspire12-{suffix}-v1",
-            "normalization": "fit_joint_reference_body29_orientation6d_q01q99_fixed_inspire_hands"}
+            "stats_schema": expected_schema(body, orientation, "v2"),
+            "normalization": NORMALIZATION_V2,
+            "recipe_version": "v2",
+            "joint_recipe": recipe,
+        }
+    require(
+        body in ("wbc", "measured") and model.get("orientation_target") == orientation,
+        "Joint body/orientation semantics mismatch",
+    )
+    require(
+        model.get("action_stride") == c.get("action_stride") == 2
+        and model.get("reference_fps") == 30
+        and model["expected_action_horizon"] == 16,
+        "Joint reference requires H16/stride2 at30FPS",
+    )
+    require(
+        model.get("state_only_schema_id")
+        == f"wholebody.joint_reference{dim}.{body}29.state44.p25.v1",
+        "Joint model schema mismatch",
+    )
+    ds = cfg["data"]["train"]
+    require(
+        ds.get("body_target") == body
+        and ds.get("orientation_target") == orientation
+        and ds.get("action_stride") == 2
+        and ds.get("future_image_offset", 32) == 32,
+        "Dataset/model reference labels or timing differ",
+    )
+    label = "wbc29" if body == "wbc" else "measured29"
+    suffix = "external-orientation" if dim == 41 else "quatwxyz-rotation6d-columns"
+    return {
+        "action_dim": dim,
+        "model_target": "imagewam.wholebody_joint_reference.create_imagewam_flux2_wholebody_joint_reference",
+        "dataset_target": "imagewam.datasets.wholebody_joint_reference.JointReferenceLeRobotDataset",
+        "stats_schema": f"wholebody-state44-joint{dim}-{label}-measured-inspire12-{suffix}-v1",
+        "normalization": "fit_joint_reference_body29_orientation6d_q01q99_fixed_inspire_hands",
+    }
 
 
 def validate_config(cfg, *, smoke):
@@ -85,95 +169,230 @@ def validate_config(cfg, *, smoke):
     c, model, data = cfg["wholebody_contract"], cfg["model"], cfg["data"]
     spec = config_spec(cfg)
     dim = spec["action_dim"]
-    require(cfg["resume"] is None and not model.get("parent_checkpoint")
-            and model.get("additional_training_epochs") is None, "This entry is fresh-base training, not task-checkpoint continuation")
-    require(model["_target_"] == spec["model_target"] and data["train"]["_target_"] == spec["dataset_target"],
-            "Use the dedicated whole-body model and dataset")
-    require(c["fresh_base"] is True and c["zero_stage"] == 1 and int(c["world_size"]) > 0,
-            "Fresh-base ZeRO-1 distribution contract missing")
-    require(cfg["learning_rate"] == 1e-4 and cfg["weight_decay"] == 0.01
-            and cfg["mixed_precision"] == "bf16" and cfg["seed"] == 42,
-            "The published fresh full-finetuning recipe uses LR1e-4, WD0.01, BF16 and seed42")
-    require(data["val"] is None and cfg["eval_every"] == 0
-            and data["train"]["train_split_mode"] == "all_episodes", "This recipe has no held-out validation split")
-    require(not model["flux2_lora_config"]["enabled"] and not model["load_text_encoder"]
-            and not model["pack_proprio_after_text"], "Full DiT finetuning uses cached pure text, without state tokens")
+    require(
+        cfg["resume"] is None
+        and not model.get("parent_checkpoint")
+        and model.get("additional_training_epochs") is None,
+        "This entry is fresh-base training, not task-checkpoint continuation",
+    )
+    require(
+        model["_target_"] == spec["model_target"]
+        and data["train"]["_target_"] == spec["dataset_target"],
+        "Use the dedicated whole-body model and dataset",
+    )
+    require(
+        c["fresh_base"] is True and c["zero_stage"] == 1 and int(c["world_size"]) > 0,
+        "Fresh-base ZeRO-1 distribution contract missing",
+    )
+    require(
+        cfg["learning_rate"] == 1e-4
+        and cfg["weight_decay"] == 0.01
+        and cfg["mixed_precision"] == "bf16"
+        and cfg["seed"] == 42,
+        "The published fresh full-finetuning recipe uses LR1e-4, WD0.01, BF16 and seed42",
+    )
+    require(
+        data["val"] is None
+        and cfg["eval_every"] == 0
+        and data["train"]["train_split_mode"] == "all_episodes",
+        "This recipe has no held-out validation split",
+    )
+    require(
+        not model["flux2_lora_config"]["enabled"]
+        and not model["load_text_encoder"]
+        and not model["pack_proprio_after_text"],
+        "Full DiT finetuning uses cached pure text, without state tokens",
+    )
     horizon = model["expected_action_horizon"]
-    require(type(horizon) is int and horizon in (16, 40), "Expected horizon16 or explicit legacy40")
-    require(c.get("action_horizon", horizon) == c.get("past_action_horizon", horizon) == horizon,
-            "Resolved window contract differs from the model horizon")
-    require(model["action_state_dim"] == model["proprio_dim"] == 44
-            and model["expected_action_dim"] == model["action_dit_config"]["action_dim"] == dim,
-            "Expected current state44 and the selected action dimension")
+    require(
+        type(horizon) is int and horizon in (16, 40),
+        "Expected horizon16 or explicit legacy40",
+    )
+    history = 16 if spec.get("recipe_version") == "v2" else horizon
+    require(
+        c.get("action_horizon", horizon) == horizon
+        and c.get("past_action_horizon", history) == history,
+        "Resolved window contract differs from the model horizon",
+    )
+    require(
+        model["action_state_dim"] == model["proprio_dim"] == 44
+        and model["expected_action_dim"]
+        == model["action_dit_config"]["action_dim"]
+        == dim,
+        "Expected current state44 and the selected action dimension",
+    )
     ds = data["train"]
-    require(ds["action_horizon"] == ds["past_action_size"] == horizon
-            and ds["qwen_context_len"] == 128 and ds["qwen_text_dim"] == 7680,
-            "Dataset history/horizon/text dimensions changed")
+    require(
+        ds["action_horizon"] == horizon
+        and ds["past_action_size"] == history
+        and ds["qwen_context_len"] == 128
+        and ds["qwen_text_dim"] == 7680,
+        "Dataset history/horizon/text dimensions changed",
+    )
     if "EVALUATION" in cfg:
-        require(cfg["EVALUATION"]["action_horizon"] == horizon, "Evaluation horizon differs from training")
+        require(
+            cfg["EVALUATION"]["action_horizon"] == horizon,
+            "Evaluation horizon differs from training",
+        )
     context = model["flux2_action_image_context"]
-    require(context["mode"] == "noise_idm" and context["include_future_tokens"] is True
-            and context["knowledge_insulation"] is True and context["reuse_image_fm_workspace"] is False,
-            "Action conditioning must use insulated visual workspaces")
+    require(
+        context["mode"] == "noise_idm"
+        and context["include_future_tokens"] is True
+        and context["knowledge_insulation"] is True
+        and context["reuse_image_fm_workspace"] is False,
+        "Action conditioning must use insulated visual workspaces",
+    )
     loss, image = model["loss"], model["loss"]["image_i2i"]
     action = loss["action_a2a"]
-    require(loss["lambda_video"] == 0.5 and loss["lambda_action"] == 1.0
-            and action["enabled"] and action["fm_weight"] == 1.0 and action["ic_weight"] == 0.5
-            and action["ic_steps"] == 1 and action["ic_loss"] == "l1"
-            and action["source_noise_std"] == 0.5 and list(action["source_noise_dim_mask"]) == [True] * dim
-            and not action["aura"]["enabled"], "Action source/FM/IC or the full-dimension noise mask changed")
-    require(image["enabled"] and image["source_mode"] == "gaussian" and image["variance_normalize"]
-            and math.isclose(image["current_residual_scale"], 1 / math.sqrt(3), rel_tol=1e-12)
-            and image["ic_weight"] == 1.0 and image["ic_steps"] == 1 and image["ic_loss"] == "l1",
-            "Visual source must be 0.5current + sqrt0.75noise with native visual FM/IC")
+    require(
+        loss["lambda_video"] == 0.5
+        and loss["lambda_action"] == 1.0
+        and action["enabled"]
+        and action["fm_weight"] == 1.0
+        and action["ic_weight"] == 0.5
+        and action["ic_steps"] == 1
+        and action["ic_loss"] == "l1"
+        and action["source_noise_std"] == 0.5
+        and list(action["source_noise_dim_mask"]) == [True] * dim
+        and not action["aura"]["enabled"],
+        "Action source/FM/IC or the full-dimension noise mask changed",
+    )
+    require(
+        image["enabled"]
+        and image["source_mode"] == "gaussian"
+        and image["variance_normalize"]
+        and math.isclose(
+            image["current_residual_scale"], 1 / math.sqrt(3), rel_tol=1e-12
+        )
+        and image["ic_weight"] == 1.0
+        and image["ic_steps"] == 1
+        and image["ic_loss"] == "l1",
+        "Visual source must be 0.5current + sqrt0.75noise with native visual FM/IC",
+    )
     measurement = c["measured_loader"]
-    require(measurement["world_size"] == c["world_size"] and measurement["microbatch"] == cfg["batch_size"]
-            and measurement["gradient_accumulation"] == cfg["gradient_accumulation_steps"], "Loader distribution changed after config generation")
-    updates = math.ceil(measurement["per_rank_microbatches"] / cfg["gradient_accumulation_steps"])
+    require(
+        measurement["world_size"] == c["world_size"]
+        and measurement["microbatch"] == cfg["batch_size"]
+        and measurement["gradient_accumulation"] == cfg["gradient_accumulation_steps"],
+        "Loader distribution changed after config generation",
+    )
+    updates = math.ceil(
+        measurement["per_rank_microbatches"] / cfg["gradient_accumulation_steps"]
+    )
     total = updates * cfg["num_epochs"]
-    require(total >= 5 and c["updates_per_epoch"] == updates and cfg["lr_scheduler_total_steps"] == total
-            and cfg["warmup_steps"] == max(1, int(total * .05)), "Rebuild config after changing dataset/epochs/batch/world")
-    require(cfg["keep_latest_weights"] == 4 and cfg["keep_latest_state_only"] is True
-            and not cfg["save_steps"], "Retain four weights and one training state")
-    require(cfg["max_steps"] == (5 if smoke else total)
-            and cfg["save_every"] == (0 if smoke else updates)
-            and cfg["save_at_end"] is (not smoke), "Smoke/production stopping or saving configuration mismatch")
+    require(
+        total >= 5
+        and c["updates_per_epoch"] == updates
+        and cfg["lr_scheduler_total_steps"] == total
+        and cfg["warmup_steps"] == max(1, int(total * 0.05)),
+        "Rebuild config after changing dataset/epochs/batch/world",
+    )
+    require(
+        cfg["keep_latest_weights"] == 4
+        and cfg["keep_latest_state_only"] is True
+        and not cfg["save_steps"],
+        "Retain four weights and one training state",
+    )
+    require(
+        cfg["max_steps"] == (5 if smoke else total)
+        and cfg["save_every"] == (0 if smoke else updates)
+        and cfg["save_at_end"] is (not smoke),
+        "Smoke/production stopping or saving configuration mismatch",
+    )
     expected_output = c["smoke_output_dir"] if smoke else c["production_output_dir"]
-    require(Path(cfg["output_dir"]).resolve() == Path(expected_output).resolve(), "Wrong smoke/production output directory")
+    require(
+        Path(cfg["output_dir"]).resolve() == Path(expected_output).resolve(),
+        "Wrong smoke/production output directory",
+    )
     stats_path = Path(ds["stats_path"])
-    require(sha256(stats_path) == c["statistics_sha256"], "Statistics changed after config generation")
+    require(
+        sha256(stats_path) == c["statistics_sha256"],
+        "Statistics changed after config generation",
+    )
     stats = json.loads(stats_path.read_text())
-    require(stats.get("schema") == spec["stats_schema"] and stats.get("normalization_strategy") == spec["normalization"]
-            and stats.get("train_frames") == measurement["dataset_frames"]
-            and stats.get("action_dim") == dim and stats.get("proprio_dim") == 44,
-            "Statistics schema/dimensions/count do not match this dataset")
+    require(
+        stats.get("schema") == spec["stats_schema"]
+        and stats.get("normalization_strategy") == spec["normalization"]
+        and stats.get("train_frames") == measurement["dataset_frames"]
+        and stats.get("action_dim") == dim
+        and stats.get("proprio_dim") == 44,
+        "Statistics schema/dimensions/count do not match this dataset",
+    )
     if dim != 76:
-        require(stats.get("body_target") == model["body_target"]
-                and stats.get("orientation_target") == model["orientation_target"]
-                and stats.get("fps") == 30 and stats.get("action_stride") == 2
-                and stats.get("action_horizon") == stats.get("past_action_size") == 16
-                and stats.get("future_image_offset") == 32,
-                "Joint statistics reference metadata changed")
+        require(
+            stats.get("body_target") == model["body_target"]
+            and stats.get("orientation_target") == model["orientation_target"]
+            and stats.get("fps") == 30
+            and stats.get("action_stride") == 2
+            and stats.get("action_horizon") == horizon
+            and stats.get("past_action_size") == history
+            and stats.get("future_image_offset") == 32,
+            "Joint statistics reference metadata changed",
+        )
+        if spec.get("recipe_version") == "v2":
+            require(
+                stats.get("joint_recipe") == spec["joint_recipe"]
+                and stats.get("reference_source_contract")
+                == spec["joint_recipe"]["reference_source_contract"]
+                and stats.get("reference_source_contract_sha256")
+                == spec["joint_recipe"]["reference_source_contract_sha256"]
+                and stats.get("execution_horizon") == 16
+                and stats.get("orientation_prediction_frame")
+                == "current_heading_relative"
+                and stats.get("orientation_anchor_source_key")
+                == "observation.root_orientation",
+                "Joint v2 heading/source/statistics contract changed",
+            )
         instruction = stats.get("instruction")
-        require(isinstance(instruction, str) and bool(instruction.strip())
-                and model.get("statistics_sha256") == c["statistics_sha256"]
-                and model.get("instruction_sha256") == hashlib.sha256(instruction.encode()).hexdigest(),
-                "Joint checkpoint task/statistics identities differ from this training configuration")
-    if dim == 47:
-        require(stats.get("orientation_validity_rule") == "smpl_frame_index>0_and_stream_mode_in_1_4"
-                and stats.get("orientation_validity_source_keys") == ["teleop.smpl_frame_index", "teleop.stream_mode"]
-                and stats.get("orientation_invalid_policy") == "mask_only_last6_future_and_zero_last6_normalized_future_history"
-                and stats.get("orientation_statistics_use_valid_rows_only") is True
-                and stats.get("orientation_validity_rejects_missing_flags") is True
-                and stats.get("orientation_age_threshold_applied") is False,
-                "Joint47 statistics have no matching orientation validity policy")
-        valid, invalid = stats.get("orientation_statistics_valid_frames"), stats.get("orientation_statistics_invalid_frames")
-        require(type(valid) is int and type(invalid) is int and valid > 0 and invalid >= 0
-                and valid + invalid == stats["train_frames"], "Joint47 orientation validity counts changed")
-    require(stats.get("train_split_mode") == "all_episodes" and stats.get("heldout_episode_ids") == []
-            and stats.get("hand_target_time_offset") == 0, "Statistics contain a held-out split or shifted hand labels")
-    require(sha256(model["action_dit_pretrained_path"]) == model["action_initializer_sha256"], "Action initializer changed")
-    return {"updates_per_epoch": updates, "total_updates": total, "warmup_updates": cfg["warmup_steps"]}
+        require(
+            isinstance(instruction, str)
+            and bool(instruction.strip())
+            and model.get("statistics_sha256") == c["statistics_sha256"]
+            and model.get("instruction_sha256")
+            == hashlib.sha256(instruction.encode()).hexdigest(),
+            "Joint checkpoint task/statistics identities differ from this training configuration",
+        )
+    if dim == 47 and spec.get("recipe_version") != "v2":
+        require(
+            stats.get("orientation_validity_rule")
+            == "smpl_frame_index>0_and_stream_mode_in_1_4"
+            and stats.get("orientation_validity_source_keys")
+            == ["teleop.smpl_frame_index", "teleop.stream_mode"]
+            and stats.get("orientation_invalid_policy")
+            == "mask_only_last6_future_and_zero_last6_normalized_future_history"
+            and stats.get("orientation_statistics_use_valid_rows_only") is True
+            and stats.get("orientation_validity_rejects_missing_flags") is True
+            and stats.get("orientation_age_threshold_applied") is False,
+            "Joint47 statistics have no matching orientation validity policy",
+        )
+        valid, invalid = (
+            stats.get("orientation_statistics_valid_frames"),
+            stats.get("orientation_statistics_invalid_frames"),
+        )
+        require(
+            type(valid) is int
+            and type(invalid) is int
+            and valid > 0
+            and invalid >= 0
+            and valid + invalid == stats["train_frames"],
+            "Joint47 orientation validity counts changed",
+        )
+    require(
+        stats.get("train_split_mode") == "all_episodes"
+        and stats.get("heldout_episode_ids") == []
+        and stats.get("hand_target_time_offset") == 0,
+        "Statistics contain a held-out split or shifted hand labels",
+    )
+    require(
+        sha256(model["action_dit_pretrained_path"])
+        == model["action_initializer_sha256"],
+        "Action initializer changed",
+    )
+    return {
+        "updates_per_epoch": updates,
+        "total_updates": total,
+        "warmup_updates": cfg["warmup_steps"],
+    }
 
 
 def require_completed_smoke(cfg):

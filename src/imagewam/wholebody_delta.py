@@ -438,10 +438,16 @@ def _adopt_state_only_delta(model, *, action_state_dim=44, expected_action_dim=7
     model.state_only_init_seed = int(state_only_init_seed)
     if route_metadata is not None:
         require(route_class is not StateOnlyDeltaImageWAM
-                and set(route_metadata) == {"statistics_sha256", "instruction_sha256"},
+                and set(route_metadata) in ({"statistics_sha256", "instruction_sha256"},
+                                           {"statistics_sha256", "instruction_sha256", "joint_recipe"}),
                 "Only explicit joint routes use the independent dataset identity metadata")
         model.joint_statistics_sha256 = route_metadata["statistics_sha256"]
         model.joint_instruction_sha256 = route_metadata["instruction_sha256"]
+        if "joint_recipe" in route_metadata:
+            import copy
+            from imagewam.joint_reference_contract import source_contract_sha256, plain_value
+            model.joint_recipe = copy.deepcopy(plain_value(route_metadata["joint_recipe"]))
+            model.joint_recipe_sha256 = source_contract_sha256(model.joint_recipe)
     model._state_only_owner = object()
     model.action_expert._state_only_owner = model._state_only_owner
     hidden = int(model.action_expert.hidden_dim)

@@ -818,6 +818,105 @@ class Joint47NativeAdapterTests(Joint41NativeAdapterTests):
         self.assertTrue(torch.equal(pred.grad[0,2],torch.zeros(47)))
 
 
+def make_joint_model_v2(*, source_contract=None):
+    import json
+    # This file deliberately stubs the native imagewam package. Load the pure
+    # contract by its actual path instead of relying on that stub's __path__.
+    name="imagewam.joint_reference_contract"
+    if name not in sys.modules:
+        spec=importlib.util.spec_from_file_location(name,HERE.parent/"src/imagewam/joint_reference_contract.py")
+        module=importlib.util.module_from_spec(spec);sys.modules[name]=module;spec.loader.exec_module(module)
+    make_joint_recipe=sys.modules[name].make_joint_recipe
+    if source_contract is None:
+        source_contract=json.loads((HERE.parent/"configs/wholebody/source_contracts/g1_existing_measured_v1.json").read_text())
+    return adapter._adopt_state_only_delta(make_base(47),expected_action_dim=47,expected_action_horizon=40,
+        state_only_schema_id=joint_adapter.schema_id(47,"measured","v2"),
+        route_metadata={"statistics_sha256":"a"*64,"instruction_sha256":"b"*64,
+                        "joint_recipe":make_joint_recipe(source_contract)},
+        route_class=joint_adapter.JointReferenceDeltaImageWAM)
+
+
+class Joint47LookaheadV2Tests(unittest.TestCase):
+    def setUp(self):
+        torch.manual_seed(42);torch.set_num_threads(1)
+        self.model=make_joint_model_v2()
+        self.sample=sample(40,47)
+        self.sample["past_action"]=self.sample["past_action"][:,:16].clone()
+        self.sample["past_joint_orientation_is_pad"]=torch.zeros(1,16,dtype=torch.bool)
+        self.sample["past_action_is_pad"]=torch.zeros(1,16,dtype=torch.bool)
+
+    invalid_pose_sample=Joint47NativeAdapterTests.invalid_pose_sample
+    test_three_native_losses_with_state_only_and_stop_gradient=WholeBodyAdapterTests.test_native_three_losses_backward_independently_and_scope_is_not_live_at_yield
+    test_action_FM_and_IC_do_not_update_visual=WholeBodyAdapterTests.test_action_fm_and_ic_gradients_do_not_enter_visual_branch
+    test_invalid_orientation_only_has_zero_gradients=Joint47NativeAdapterTests.test_real_native_fm_and_ic_ignore_only_invalid_orientation_outputs
+    test_visual_inputs_invariant_to_numeric_current_and_future_state=WholeBodyAdapterTests.test_visual_inputs_are_exactly_invariant_to_current_and_future_state
+
+    def test_real_history_is_not_a_future_trajectory_and_only_expands_as_source(self):
+        source=self.model._expanded_history(self.sample["past_action"])
+        self.assertEqual(tuple(source.shape),(1,40,47))
+        self.assertTrue(torch.equal(source[:,:16],self.sample["past_action"]))
+        self.assertTrue(torch.equal(source[:,16:],self.sample["past_action"][:,-1:].expand(1,24,47)))
+        before=self.sample["past_action"].clone()
+        self.model.build_inputs_flux2(self.sample)
+        self.assertTrue(torch.equal(before,self.sample["past_action"]))
+        for length in (32,40):
+            with self.assertRaisesRegex(ValueError,"16 real"):
+                self.model._expanded_history(torch.zeros(1,length,47))
+
+    def test_native_sampler_outputs40_but_declares_execution16(self):
+        output=self.model.infer_action(prompt=None,input_image=torch.rand(1,3,224,448),
+            context=self.sample["text_hidden_states"],context_mask=self.sample["text_attention_mask"],
+            action_init=self.sample["past_action"],proprio=torch.zeros(1,44),seed=73,rand_device="cpu")
+        self.assertEqual(tuple(output["action"].shape),(40,47))
+        self.assertEqual(output["execution_horizon"],16)
+        self.assertEqual(output["lookahead_tail_horizon"],24)
+        self.assertEqual(output["orientation_prediction_frame"],"current_heading_relative")
+
+    def test_protocol_pins_relative_heading_and_exact_source_provenance(self):
+        protocol=self.model.state_only_protocol()
+        self.assertEqual(protocol["prediction_horizon"],40)
+        self.assertEqual(protocol["execution_horizon"],16)
+        self.assertEqual(protocol["future_image_offset"],32)
+        self.assertEqual(protocol["future_action_frame_offsets"],list(range(0,80,2)))
+        self.assertEqual(protocol["past_action_frame_offsets"],list(range(-32,0,2)))
+        self.assertEqual(protocol["orientation_prediction_frame"],"current_heading_relative")
+        self.assertEqual(protocol["reference_source_contract"]["label_semantics"],"reference_from_demonstration")
+        self.assertFalse(protocol["source_provenance_deployment_ready"])
+        self.model.joint_recipe["execution_horizon"]=40
+        with self.assertRaisesRegex(ValueError,"immutable|recipe"):
+            self.model.validate_state_only_route()
+
+    def test_checkpoint_rejects_legacy_joint_and_motion_and_changed_provenance(self):
+        import json
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/"joint_v2.pt";self.model.save_checkpoint(path,step=5)
+            make_joint_model_v2().load_checkpoint(path)
+            contract=json.loads((HERE.parent/"configs/wholebody/source_contracts/g1_existing_measured_v1.json").read_text())
+            contract["provenance"]["revision"]+=" alternative"
+            for target in [make_joint_model(47),make_model(40),make_joint_model_v2(source_contract=contract)]:
+                before={k:v.clone() for k,v in target.mot.state_dict().items()}
+                with self.assertRaises(ValueError):target.load_checkpoint(path)
+                for key,value in before.items():self.assertTrue(torch.equal(value,target.mot.state_dict()[key]))
+
+    @unittest.skipUnless(importlib.util.find_spec("hydra"),"Hydra required for native factory regression")
+    def test_real_hydra_factory_receives_nested_contract_and_recipe_without_gpu(self):
+        from hydra.utils import instantiate
+        from omegaconf import OmegaConf
+        helper=sys.modules["imagewam.joint_reference_contract"]
+        contract=self.model.joint_recipe["reference_source_contract"]
+        cfg=OmegaConf.create({"_target_":joint_adapter.__name__+".create_imagewam_flux2_wholebody_joint_reference",
+            "action_initializer_sha256":"c"*64,"statistics_sha256":"a"*64,"instruction_sha256":"b"*64,
+            "body_target":"measured","orientation_target":"predicted_rotation6d","expected_action_dim":47,
+            "expected_action_horizon":40,"recipe_version":"v2","source_contract":contract,
+            "source_contract_sha256":helper.source_contract_sha256(contract),
+            "joint_recipe":helper.make_joint_recipe(contract)})
+        with mock.patch.object(joint_adapter,"_create_state_only_flux2",side_effect=lambda **kw:kw) as create:
+            result=instantiate(cfg)
+        self.assertEqual(result["route_metadata"]["joint_recipe"],helper.make_joint_recipe(contract))
+        self.assertEqual(result["expected_action_horizon"],40)
+        create.assert_called_once()
+
+
 class FreshFactoryTests(unittest.TestCase):
     def test_parent_or_continuation_arguments_are_always_rejected(self):
         runtime = ModuleType("imagewam.runtime")

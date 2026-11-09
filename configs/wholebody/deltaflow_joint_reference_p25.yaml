@@ -1,4 +1,4 @@
-# Resolved by build_config.py --representation joint41 or joint47; do not launch this template.
+# Legacy joint v1 template; new joint training uses deltaflow_joint_reference_v2_p25.yaml.
 # H16 at30FPS/stride2 spans1s, for the separate SONIC v1 joint-reference bridge.
 # joint41 requires an explicit external future root trajectory; joint47 predicts rotation6D.
 # The numerical state is action-only. It is never appended to text/image tokens.

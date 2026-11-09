@@ -4,6 +4,19 @@
 开始全量微调视觉 DiT 和动作专家，冻结 VAE，使用预计算的 Qwen3 文本特征。
 这是 **motion-latent policy**，不是直接回归全身电机目标的76关节控制器。
 
+HumanWAM现维护两条独立全身路线。本文只说明`motion_token`（兼容名`motion76`）；
+新关节路线`joint`（兼容名`joint47`）见[G1_JOINT_REFERENCE_DELTA.md](G1_JOINT_REFERENCE_DELTA.md)。
+
+| 路线 | 输出语义 | 历史/总预测/执行 | 参考采样 |
+|---|---|---|---|
+| `motion_token` | SONIC64＋实测Inspire12 | 新配方16/16/16；旧40步需显式配置 | 本文连续30FPS |
+| `joint` v2 | body29＋实测Inspire12＋heading-relative root6D | 16/40/16，另24点真实预测lookahead | 30FPS stride2，即2/30秒 |
+
+joint v2的40个预测不是旧motion模型的40步，也不能把其余24点用末预测保持补出来。
+两条路线的统计、schema和完整checkpoint不互换，初始化可共享匹配的FLUX.2基础层。
+新关节配方还要求显式label来源contract。实际`action.wbc`、实测state和原始reference的区别见
+[录制器来源审计](policies/REFERENCE_LABEL_AUDIT_20261110.md)。
+
 代码分工：
 
 | 文件 | 作用 |
@@ -88,7 +101,7 @@ state44 = concat([body29, left_hand6, right_hand6, projected_gravity3])
 
 ## 2. 每个训练样本怎么构造
 
-新训练默认 history 与 horizon 都是16。只有明确复现旧模型时才设置
+本文motion-token新训练默认history与horizon都是16。只有明确复现旧motion模型时才设置
 `--horizon 40`。数据、训练、推理与 checkpoint 的 horizon 必须一致，不能把旧40步
 权重当作16步模型直接加载。每一帧 `t` 都可以作为 anchor，窗口不跨 episode：
 
