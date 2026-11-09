@@ -1,12 +1,15 @@
 # HumanWAM
 
-统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow 和 DiT4DiT 四类 policy。
+统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow 、DiT4DiT 和 Psi-Zero 五类 policy。
 
 - [统一安装、代码结构与维护说明](docs/POLICY_MAINTENANCE.md)
+- [初始权重、下载与恢复说明](docs/MODEL_INITIALIZATION.md)
+- [实际运行验证结果](docs/policies/RUNTIME_VALIDATION_20261109.md)
 - [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
 - [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
 - [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
 - [DiT4DiT](docs/policies/DIT4DIT.md)
+- [Psi-Zero / SONIC](docs/policies/PSI0.md)
 
 新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
 各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
@@ -48,7 +51,7 @@ stop-gradient，以及配置生成、CPU检查和五步试跑。76D输出不是7
 [insert flower](https://huggingface.co/ZUO66/imagewam-r1lite-insert-flower) 最终20轮推理权重
 附有各自配置和归一化统计，不包含 optimizer，也不声称已验证真机成功率。
 
-**ImageWAM: Do World Action Models Really Need Video Generation, or Just Image Editing?** 的官方代码仓库。
+以下保留上游 **ImageWAM: Do World Action Models Really Need Video Generation, or Just Image Editing?** 的使用说明。HumanWAM 由 [zuo-kuangji](https://github.com/zuo-kuangji) 独立维护，保留上游来源与许可证。
 
 [English](./README.md) | [中文](./README_zh.md)
 

@@ -38,6 +38,19 @@
           "sha256": "7dfe9e743f49f5b84414a12653b6d8c8e05bfca5d06120f2b95728fa43b68f77"
         }
       ]
+    },
+    {
+      "name": "psi0",
+      "path": "third_party/Psi0",
+      "url": "https://github.com/physical-superintelligence-lab/Psi0.git",
+      "commit": "cda3fdfafe47cb6fa75400d013de1bd36e3cea05",
+      "patches": [],
+      "sonic_controller": {
+        "path": "third_party/GR00T-WholeBodyControl",
+        "url": "https://github.com/physical-superintelligence-lab/GR00T-WholeBodyControl.git",
+        "commit": "d40376994ff094787591ab76a691c50b8e131786",
+        "required_for": "native PSI robot controller; optional for offline policy inference"
+      }
     }
   ],
   "imagewam": {

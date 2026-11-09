@@ -88,3 +88,29 @@ boundary, units, shape/schema mismatches, checkpoint companions, camera
 semantics, native command construction, and preservation of a path containing
 spaces. They are not GPU numerical, checkpoint loading or robot rollout tests.
 No trained weights or task-success claim is included in this integration.
+
+### Actual release metadata and GPU prerequisites
+
+The official public `mondo-robotics/dit4dit-model` LIBERO checkpoint at
+revision `46237aebd3df427fcfb6a8ddc5ba5a3ab7b04a44` declares action8,
+state16 and horizon8. Its `config.yaml` omits `datasets.vla_data.image_size`;
+the adapter preserves the supplied current-image resolution when that key
+is absent, matching native inference. It resizes only when a checkpoint
+explicitly records `image_size`. A small copy of this public config is kept
+as a regression fixture; no model weight is included.
+
+That checkpoint is 21.28GB. Native model construction also loads the
+21.23GB `nvidia/Cosmos-Predict2.5-2B` pipeline at revision
+`diffusers/base/post-trained`; the unmodified path therefore needs about
+42.51GB of downloads. The published config's `/path/to/Cosmos-Predict2.5-2B`
+must be relocated in a private runtime copy to the real local backbone.
+The existing account received HTTP403 for this gated backbone during the
+2026-11-09 access check; terms/access were not changed and no large model
+downloads were started. Actual GPU inference for DiT4DiT remains unverified.
+
+The existing GR00T `diffusers0.35.1` does not provide
+`Cosmos2_5_PredictBasePipeline`. Use a separate DiT4DiT environment with its
+pinned diffusers commit `3996788b602eaae4da41a1d45726b62e662b73cf`, rather
+than replacing GR00T's dependency. The inference path additionally needs the
+normal PyTorch/torchvision, transformers, accelerate, OmegaConf, NumPy and
+Pillow dependencies declared upstream; full training requirements are broader.

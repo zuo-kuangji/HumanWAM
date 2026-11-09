@@ -77,7 +77,8 @@ raise SystemExit(main(['list']))
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(
-            set(json.loads(result.stdout)), {"groot_n17", "pi05", "imagewam_delta", "dit4dit"}
+            set(json.loads(result.stdout)),
+            {"groot_n17", "pi05", "imagewam_delta", "dit4dit", "psi0"},
         )
 
     def test_config_rejects_unresolved_environment_at_any_depth(self):

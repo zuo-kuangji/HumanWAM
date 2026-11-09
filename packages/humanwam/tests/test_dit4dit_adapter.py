@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
+import yaml
 
 from humanwam.backends import dit4dit as module
 from humanwam.backends import dit4dit_commands as commands
@@ -94,6 +95,24 @@ class ContractTests(unittest.TestCase):
         (self.checkpoint.parents[1] / "dataset_statistics.json").unlink()
         with self.assertRaises(FileNotFoundError):
             module.DiT4DiTPolicy(self.config, model_factory=lambda path: self.backend)
+
+    def test_published_libero_profile_without_image_size_preserves_rgb_resolution(self):
+        metadata = yaml.safe_load(
+            (Path(__file__).parent / "fixtures/dit4dit_libero_public_config.yaml").read_text()
+        )
+        self.backend.config = metadata
+        self.backend.predict_action = lambda *, examples: self._capture_libero(examples)
+        policy = module.DiT4DiTPolicy(self.config, model_factory=lambda path: self.backend)
+        self.assertEqual((policy.action_dim, policy.state_dim, policy.horizon), (8, 16, 8))
+        self.assertIsNone(policy.image_size)
+        obs = dict(self.obs, state_normalized=np.zeros(16))
+        result = policy.predict(obs)
+        self.assertEqual(np.asarray(result["actions"]).shape, (8, 8))
+        self.assertEqual(self.backend.seen[0]["image"][0].size, (640, 480))
+
+    def _capture_libero(self, examples):
+        self.backend.seen = examples
+        return {"normalized_actions": np.zeros((1, 8, 8), dtype=np.float32)}
 
     def test_native_commands_do_not_use_shell_or_change_working_directory(self):
         root = Path(self.tmp.name) / "upstream"

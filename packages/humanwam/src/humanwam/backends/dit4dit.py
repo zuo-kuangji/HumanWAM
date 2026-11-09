@@ -74,10 +74,15 @@ class DiT4DiTPolicy:
         ):
             if name in config and int(config[name]) != actual:
                 raise ValueError(f"Configured {name} differs from the checkpoint ({actual})")
-        self.image_size = tuple(
-            int(x) for x in _value(self.model.config, "datasets", "vla_data", "image_size")
+        data = _value(self.model.config, "datasets", "vla_data")
+        image_size = (
+            data.get("image_size") if isinstance(data, dict) else getattr(data, "image_size", None)
         )
-        if len(self.image_size) != 2 or min(self.image_size) < 1:
+        # The official LIBERO release omits image_size. Native predict_action
+        # preserves the current RGB resolution in this case; do not invent a
+        # training resolution or reject an otherwise valid published config.
+        self.image_size = None if image_size is None else tuple(int(x) for x in image_size)
+        if self.image_size is not None and (len(self.image_size) != 2 or min(self.image_size) < 1):
             raise ValueError("Checkpoint image_size must contain height,width")
 
     def reset(self):
@@ -100,18 +105,17 @@ class DiT4DiTPolicy:
                     "NPZ images must be [1,H,W,3]; extra images mean future frames upstream"
                 )
             images = [images[0]]
-        if isinstance(images, np.ndarray):
-            if images.ndim != 4 or images.shape[0] != 1:
-                raise ValueError("Provide exactly one current RGB image in an array [1,H,W,3]")
-        elif not isinstance(images, (list, tuple)) or len(images) != 1:
+        if not isinstance(images, (list, tuple)) or len(images) != 1:
             raise ValueError(
                 "Provide exactly one current RGB image; extra images mean future frames upstream"
             )
         image = np.asarray(images[0])
         if image.dtype != np.uint8 or image.ndim != 3 or image.shape[2] != 3:
             raise ValueError("The current image must be uint8 HWC RGB")
-        height, width = self.image_size
-        image = Image.fromarray(image).resize((width, height))
+        image = Image.fromarray(image)
+        if self.image_size is not None:
+            height, width = self.image_size
+            image = image.resize((width, height))
         prompt = observation.get("prompt")
         if not isinstance(prompt, str) or not prompt.strip():
             raise ValueError("Provide a nonempty prompt for DiT4DiT")

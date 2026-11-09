@@ -1,9 +1,10 @@
 # HumanWAM policy 维护
 
-按4个独立模型家族维护，Gaussian、A2A、不同任务权重是家族内配置。
+按5个独立模型家族维护，Gaussian、A2A、不同任务权重是家族内配置。
 
 | Backend | 原生源码 | 训练和推理入口 | 当前边界 |
 |---|---|---|---|
+| `psi0` | `third_party/Psi0`及其PSI SONIC fork | 原生训练、RTC WebSocket与离线chunk | checkpoint拥有归一化和horizon，不自动当作feedback76 |
 | `groot_n17` | `third_party/Isaac-GR00T` + `GR00T-WholeBodyControl` | 原生finetune + ZeroMQ PolicyServer | 原生SONIC78；独立NEW_EMBODIMENT配方可训feedback76/H16 |
 | `pi05` | `third_party/openpi` + 版本锁定A2A patch | OpenPI train + WebSocket服务 | 当前适配LIBERO7/H10，G1/76D需要单独模型架构与训练适配 |
 | `imagewam_delta` | `src/imagewam` + `scripts/wholebody` | 原生FM+IC训练 + 固定release/nativewholebody推理 | 新H16、旧H40显式选择，state不进视觉 |
@@ -22,10 +23,12 @@ backends.lock.json      上游URL、精确commit和patch SHA256
 docs/policies/          每类policy的原生依赖、数据、部署约定
 ```
 
+初始化权重与恢复方式见[模型初始化说明](MODEL_INITIALIZATION.md)，实际检查边界见[运行验证](policies/RUNTIME_VALIDATION_20261109.md)。
+
 ## 安装和检查
 
 ```bash
-git clone --branch feat/unified-policies-sonic-20261109 https://github.com/zuo-kuangji/HumanWAM.git
+git clone --branch main https://github.com/zuo-kuangji/HumanWAM.git
 cd HumanWAM
 export HUMANWAM_ROOT="$PWD"
 python3 scripts/humanwam/bootstrap.py

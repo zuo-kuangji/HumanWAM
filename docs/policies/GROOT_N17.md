@@ -84,6 +84,43 @@ experiments read-only and does not replace a validated legacy deployment.
 
 ## Verification
 
+### Existing local backbone and offline loading
+
+The actual N1.7 GPU check exposed a transformers4.57.3 tokenizer metadata
+lookup even with downloaded files and offline flags. Use a separate view to
+point exactly the two native `model_name` fields at the existing local asset:
+
+```bash
+python scripts/humanwam/prepare_gr00t_offline.py \
+  --checkpoint /path/to/GR00T-N1.7-3B-snapshot \
+  --backbone /path/to/Cosmos-Reason2-2B-snapshot \
+  --output /path/to/new-gr00t-offline-view
+```
+
+The HumanWAM package must be installed in the chosen runtime. The output must
+be fresh and outside both caches. The helper creates a local alias under
+`assets/nvidia/Cosmos-Reason2-2B`, copies only `config.json` and the native
+processor config with those locator fields rewritten, and symlinks the
+original weights, statistics and remaining files. Its JSON receipt records
+both metadata SHA256 values and exact rewritten field paths. It performs no
+downloads, weight conversion, parameter initialization or cache modification.
+
+Set the policy's `model_path` to the new view. The resulting real GPU test
+still loads the original trained weights and retains native strict checks;
+the helper is not a test flag that skips model weights. The requested
+embodiment must still exist in that checkpoint's processor metadata.
+
+For local checkpoints, the adapter reads `processor_config.json` (or the native
+`processor/processor_config.json` fallback) before importing or allocating the
+model. The requested tag must exist in `processor_kwargs.modality_configs`.
+Native aliases such as `REAL_G1` are resolved to their exact pinned enum values;
+an absent `UNITREE_G1_SONIC` tag raises an error and never falls back to an EEF
+profile. The generic N1.7 base can therefore be tested on a supported EEF
+embodiment, but that is not evidence of a SONIC-trained policy.
+HF repository identifiers are left to native loading without a metadata
+network request. Checkpoints without local processor metadata also continue
+to the native loader, which owns the remaining processor validation.
+
 `packages/humanwam/tests/test_groot_adapter.py` exercises native construction,
 observation and info round-trip, native wire method forwarding, rejected
 horizon/hand-width conflicts, and command construction against synthetic

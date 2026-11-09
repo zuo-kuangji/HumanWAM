@@ -10,3 +10,6 @@
 [submodule "third_party/DiT4DiT"]
 	path = third_party/DiT4DiT
 	url = https://github.com/Mondo-Robotics/DiT4DiT.git
+[submodule "third_party/Psi0"]
+	path = third_party/Psi0
+	url = https://github.com/physical-superintelligence-lab/Psi0.git

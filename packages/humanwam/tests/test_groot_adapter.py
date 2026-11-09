@@ -1,5 +1,6 @@
 """CPU boundary tests. These do not claim GPU inference or robot validation."""
 
+import json
 import sys
 import tempfile
 import unittest
@@ -123,6 +124,63 @@ class GrootTests(unittest.TestCase):
         self.assertIn("--model-path", serve["argv"])
         self.assertIn("127.0.0.1", serve["argv"])
         self.assertNotIn("http", str(serve))
+
+    def test_missing_local_sonic_tag_rejected_before_heavy_import(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "processor_config.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "processor_kwargs": {
+                            "modality_configs": {
+                                "real_g1_relative_eef_relative_joints": {
+                                    "action": {"delta_indices": list(range(40))}
+                                }
+                            }
+                        }
+                    }
+                )
+            )
+            with patch.object(
+                adapter.importlib,
+                "import_module",
+                side_effect=AssertionError("No model import allowed"),
+            ):
+                with self.assertRaisesRegex(ValueError, "does not contain requested embodiment"):
+                    adapter.build_policy(dict(model_path=folder, embodiment_tag="UNITREE_G1_SONIC"))
+
+    def test_supported_local_alias_keeps_original_requested_tag(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "processor/processor_config.json"
+            path.parent.mkdir()
+            path.write_text(
+                json.dumps(
+                    {
+                        "processor_kwargs": {
+                            "modality_configs": {
+                                "real_g1_relative_eef_relative_joints": {
+                                    "action": {"delta_indices": list(range(40))}
+                                }
+                            }
+                        }
+                    }
+                )
+            )
+            policy = adapter.build_policy(dict(model_path=folder, embodiment_tag="REAL_G1"))
+            self.assertEqual(policy.native.kwargs["embodiment_tag"], "REAL_G1")
+            self.assertEqual(
+                policy.checkpoint_metadata["embodiment_tag"], "real_g1_relative_eef_relative_joints"
+            )
+            self.assertEqual(policy.checkpoint_metadata["processor_config"], str(path.resolve()))
+
+    def test_no_local_metadata_does_not_fetch_or_relabel(self):
+        self.assertIsNone(
+            adapter.validate_local_checkpoint(
+                dict(model_path="nvidia/GR00T-N1.7-3B", embodiment_tag="UNITREE_G1_SONIC")
+            )
+        )
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertIsNone(adapter.validate_local_checkpoint(dict(model_path=folder)))
 
 
 if __name__ == "__main__":

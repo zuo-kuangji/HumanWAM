@@ -43,5 +43,5 @@ def bootstrap(only=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--only", nargs="+", choices=["groot_n17", "sonic", "pi05", "dit4dit"])
+    parser.add_argument("--only", nargs="+", choices=["groot_n17", "sonic", "pi05", "dit4dit", "psi0"])
     bootstrap(parser.parse_args().only)

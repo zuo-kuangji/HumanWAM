@@ -1,12 +1,15 @@
 # HumanWAM
 
-统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow 和 DiT4DiT 四类 policy。
+统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow 、DiT4DiT 和 Psi-Zero 五类 policy。
 
 - [统一安装、代码结构与维护说明](docs/POLICY_MAINTENANCE.md)
+- [初始权重、下载与恢复说明](docs/MODEL_INITIALIZATION.md)
+- [实际运行验证结果](docs/policies/RUNTIME_VALIDATION_20261109.md)
 - [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
 - [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
 - [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
 - [DiT4DiT](docs/policies/DIT4DIT.md)
+- [Psi-Zero / SONIC](docs/policies/PSI0.md)
 
 新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
 各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
@@ -26,7 +29,7 @@ humanwam doctor
 
 # ImageWAM
 
-Official codebase for **ImageWAM: Do World Action Models Really Need Video Generation, or Just Image Editing?**
+The following section retains the upstream guide for **ImageWAM: Do World Action Models Really Need Video Generation, or Just Image Editing?** HumanWAM is independently maintained by [zuo-kuangji](https://github.com/zuo-kuangji); upstream attribution and licenses are preserved.
 
 [English](./README.md) | [中文](./README_zh.md) 
 

@@ -17,6 +17,15 @@ class Backend:
 
 
 BACKENDS = {
+    "psi0": Backend(
+        "Psi-Zero + SONIC",
+        "humanwam.backends.psi0",
+        "humanwam.backends.psi0_commands",
+        "third_party/Psi0",
+        "one current RGB + explicit raw state layout + instruction",
+        "checkpoint-owned SONIC actions and normalization; not feedback76 by default",
+        "Psi0 Python3.11/Torch2.7 environment; dedicated PSI SONIC fork",
+    ),
     "groot_n17": Backend(
         "GR00T N1.7 + SONIC",
         "humanwam.backends.groot",

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "backend": "psi0",
+  "source_dir": "${HUMANWAM_ROOT}/third_party/Psi0",
+  "python": "${PSI0_PYTHON}",
+  "options": {
+    "native_args_file": "${PSI0_NATIVE_ARGS}",
+    "native_config": "finetune_sonic_psi0_config",
+    "num_processes": 8
+  }
+}
