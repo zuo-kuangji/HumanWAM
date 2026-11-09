@@ -50,12 +50,44 @@ def expected_microbatches(loader_length, accumulation, optimizer_updates):
     return complete_epochs * loader_length + min(remaining_updates * accumulation, loader_length)
 
 
+def config_spec(cfg):
+    model, c = cfg["model"], cfg["wholebody_contract"]
+    representation = c.get("representation", "motion76")
+    if representation == "motion76":
+        return {"action_dim": 76, "model_target": MODEL_TARGET, "dataset_target": DATASET_TARGET,
+                "stats_schema": STATS_SCHEMA, "normalization": NORMALIZATION}
+    require(representation in ("joint41", "joint47"), "Unknown action representation")
+    dim = int(representation[5:])
+    body = model.get("body_target")
+    orientation = "external" if dim == 41 else "predicted_rotation6d"
+    require(body in ("wbc", "measured") and model.get("orientation_target") == orientation,
+            "Joint body/orientation semantics mismatch")
+    require(model.get("action_stride") == c.get("action_stride") == 2
+            and model.get("reference_fps") == 30 and model["expected_action_horizon"] == 16,
+            "Joint reference requires H16/stride2 at30FPS")
+    require(model.get("state_only_schema_id") == f"wholebody.joint_reference{dim}.{body}29.state44.p25.v1",
+            "Joint model schema mismatch")
+    ds = cfg["data"]["train"]
+    require(ds.get("body_target") == body and ds.get("orientation_target") == orientation
+            and ds.get("action_stride") == 2 and ds.get("future_image_offset", 32) == 32,
+            "Dataset/model reference labels or timing differ")
+    label = "wbc29" if body == "wbc" else "measured29"
+    suffix = "external-orientation" if dim == 41 else "quatwxyz-rotation6d-columns"
+    return {"action_dim": dim,
+            "model_target": "imagewam.wholebody_joint_reference.create_imagewam_flux2_wholebody_joint_reference",
+            "dataset_target": "imagewam.datasets.wholebody_joint_reference.JointReferenceLeRobotDataset",
+            "stats_schema": f"wholebody-state44-joint{dim}-{label}-measured-inspire12-{suffix}-v1",
+            "normalization": "fit_joint_reference_body29_orientation6d_q01q99_fixed_inspire_hands"}
+
+
 def validate_config(cfg, *, smoke):
     """Check the resolved, fresh-run method before constructing a CUDA model."""
     c, model, data = cfg["wholebody_contract"], cfg["model"], cfg["data"]
+    spec = config_spec(cfg)
+    dim = spec["action_dim"]
     require(cfg["resume"] is None and not model.get("parent_checkpoint")
             and model.get("additional_training_epochs") is None, "This entry is fresh-base training, not task-checkpoint continuation")
-    require(model["_target_"] == MODEL_TARGET and data["train"]["_target_"] == DATASET_TARGET,
+    require(model["_target_"] == spec["model_target"] and data["train"]["_target_"] == spec["dataset_target"],
             "Use the dedicated whole-body model and dataset")
     require(c["fresh_base"] is True and c["zero_stage"] == 1 and int(c["world_size"]) > 0,
             "Fresh-base ZeRO-1 distribution contract missing")
@@ -71,8 +103,8 @@ def validate_config(cfg, *, smoke):
     require(c.get("action_horizon", horizon) == c.get("past_action_horizon", horizon) == horizon,
             "Resolved window contract differs from the model horizon")
     require(model["action_state_dim"] == model["proprio_dim"] == 44
-            and model["expected_action_dim"] == model["action_dit_config"]["action_dim"] == 76,
-            "Expected current state44 and action76")
+            and model["expected_action_dim"] == model["action_dit_config"]["action_dim"] == dim,
+            "Expected current state44 and the selected action dimension")
     ds = data["train"]
     require(ds["action_horizon"] == ds["past_action_size"] == horizon
             and ds["qwen_context_len"] == 128 and ds["qwen_text_dim"] == 7680,
@@ -88,8 +120,8 @@ def validate_config(cfg, *, smoke):
     require(loss["lambda_video"] == 0.5 and loss["lambda_action"] == 1.0
             and action["enabled"] and action["fm_weight"] == 1.0 and action["ic_weight"] == 0.5
             and action["ic_steps"] == 1 and action["ic_loss"] == "l1"
-            and action["source_noise_std"] == 0.5 and list(action["source_noise_dim_mask"]) == [True] * 76
-            and not action["aura"]["enabled"], "Action source/FM/IC or all-76 noise mask changed")
+            and action["source_noise_std"] == 0.5 and list(action["source_noise_dim_mask"]) == [True] * dim
+            and not action["aura"]["enabled"], "Action source/FM/IC or the full-dimension noise mask changed")
     require(image["enabled"] and image["source_mode"] == "gaussian" and image["variance_normalize"]
             and math.isclose(image["current_residual_scale"], 1 / math.sqrt(3), rel_tol=1e-12)
             and image["ic_weight"] == 1.0 and image["ic_steps"] == 1 and image["ic_loss"] == "l1",
@@ -111,10 +143,33 @@ def validate_config(cfg, *, smoke):
     stats_path = Path(ds["stats_path"])
     require(sha256(stats_path) == c["statistics_sha256"], "Statistics changed after config generation")
     stats = json.loads(stats_path.read_text())
-    require(stats.get("schema") == STATS_SCHEMA and stats.get("normalization_strategy") == NORMALIZATION
+    require(stats.get("schema") == spec["stats_schema"] and stats.get("normalization_strategy") == spec["normalization"]
             and stats.get("train_frames") == measurement["dataset_frames"]
-            and stats.get("action_dim") == 76 and stats.get("proprio_dim") == 44,
+            and stats.get("action_dim") == dim and stats.get("proprio_dim") == 44,
             "Statistics schema/dimensions/count do not match this dataset")
+    if dim != 76:
+        require(stats.get("body_target") == model["body_target"]
+                and stats.get("orientation_target") == model["orientation_target"]
+                and stats.get("fps") == 30 and stats.get("action_stride") == 2
+                and stats.get("action_horizon") == stats.get("past_action_size") == 16
+                and stats.get("future_image_offset") == 32,
+                "Joint statistics reference metadata changed")
+        instruction = stats.get("instruction")
+        require(isinstance(instruction, str) and bool(instruction.strip())
+                and model.get("statistics_sha256") == c["statistics_sha256"]
+                and model.get("instruction_sha256") == hashlib.sha256(instruction.encode()).hexdigest(),
+                "Joint checkpoint task/statistics identities differ from this training configuration")
+    if dim == 47:
+        require(stats.get("orientation_validity_rule") == "smpl_frame_index>0_and_stream_mode_in_1_4"
+                and stats.get("orientation_validity_source_keys") == ["teleop.smpl_frame_index", "teleop.stream_mode"]
+                and stats.get("orientation_invalid_policy") == "mask_only_last6_future_and_zero_last6_normalized_future_history"
+                and stats.get("orientation_statistics_use_valid_rows_only") is True
+                and stats.get("orientation_validity_rejects_missing_flags") is True
+                and stats.get("orientation_age_threshold_applied") is False,
+                "Joint47 statistics have no matching orientation validity policy")
+        valid, invalid = stats.get("orientation_statistics_valid_frames"), stats.get("orientation_statistics_invalid_frames")
+        require(type(valid) is int and type(invalid) is int and valid > 0 and invalid >= 0
+                and valid + invalid == stats["train_frames"], "Joint47 orientation validity counts changed")
     require(stats.get("train_split_mode") == "all_episodes" and stats.get("heldout_episode_ids") == []
             and stats.get("hand_target_time_offset") == 0, "Statistics contain a held-out split or shifted hand labels")
     require(sha256(model["action_dit_pretrained_path"]) == model["action_initializer_sha256"], "Action initializer changed")
@@ -127,7 +182,8 @@ def require_completed_smoke(cfg):
     root = Path(c["smoke_output_dir"])
     for rank in range(int(c["world_size"])):
         report = json.loads((root / f"smoke_rank_{rank}.json").read_text())
-        require(report.get("action_horizon", 40) == cfg["model"]["expected_action_horizon"],
+        require(report.get("action_horizon", 40) == cfg["model"]["expected_action_horizon"]
+                and report.get("action_dim", 76) == cfg["model"]["expected_action_dim"],
                 "Smoke prediction horizon differs from production; run a matching smoke")
         require(report.get("status") == "FIVE_UPDATES_VERIFIED" and report.get("actual_optimizer_updates") == 5
                 and report.get("skipped_updates") == 0 and report.get("world_size") == c["world_size"]
@@ -163,7 +219,7 @@ def initializer_audit(model, cfg):
     require(audit.get("status") == "shared_layers_loaded_exactly_new_projections_recorded"
             and audit.get("source_format") == "flux2_shared_partial_initializer_v1"
             and audit.get("source_action_dim") is None and audit.get("retained_tensor_count") == 114
-            and audit.get("target_action_dim") == 76 and audit.get("current_state_dim") == 44,
+            and audit.get("target_action_dim") == cfg.model.expected_action_dim and audit.get("current_state_dim") == 44,
             "Only the base-derived 114-key shared initializer is supported by this fresh recipe")
     require(Path(audit["source"]).resolve() == Path(cfg.model.action_dit_pretrained_path).resolve()
             and audit.get("source_sha256") == cfg.model.action_initializer_sha256, "Factory loaded a different initializer")
@@ -216,7 +272,7 @@ def install_training_contract(*, smoke):
         require(model.proprio_encoder is None and model.proprio_dim is None and not hasattr(model, "pose_head"), "State/C-Pred entered the visual branch")
         require(protocol["visual_state_route"] == protocol["text_state_route"] == "none"
                 and protocol["action_to_visual_gradients"] is False and protocol["knowledge_insulation"] is True
-                and protocol["action_dim"] == 76 and protocol["current_state_dim"] == 44
+                and protocol["action_dim"] == int(cfg.model.expected_action_dim) and protocol["current_state_dim"] == 44
                 and protocol["action_horizon"] == int(cfg.model.expected_action_horizon), "Current-state/stop-gradient protocol changed")
         require(model.training_objective_count() == 3 and model.text_encoder is None
                 and all(not p.requires_grad for p in model.vae.parameters()), "Use frozen VAE, cached Qwen and the three native objective events")
@@ -290,11 +346,11 @@ def install_smoke_hooks():
     original_action = ImageWAM._apply_action_a2a_source_noise
     def checked_action(self, source, *args, **kwargs):
         value = original_action(self, source, *args, **kwargs)
-        require(tuple(source.shape[1:]) == (self.expected_action_horizon, 76) and tuple(self.action_a2a_source_noise_dim_mask) == (True,) * 76,
+        require(tuple(source.shape[1:]) == (self.expected_action_horizon, self.expected_action_dim) and tuple(self.action_a2a_source_noise_dim_mask) == (True,) * self.expected_action_dim,
                 "Wrong action-history shape/noise mask")
         residual = value.float() - source.float()
         require(bool(torch.isfinite(value).all()) and .35 < residual.std(unbiased=False).item() < .65
-                and .30 < residual[..., 64:].std(unbiased=False).item() < .70, "Expected0.5 Gaussian noise on all action dimensions, including hands")
+                and .30 < residual[..., (64 if self.expected_action_dim == 76 else 29):(76 if self.expected_action_dim == 76 else 41)].std(unbiased=False).item() < .70, "Expected0.5 Gaussian noise on all action dimensions, including hands")
         evidence["action_source_checks"] += 1
         return value
     ImageWAM._apply_action_a2a_source_noise = checked_action
@@ -335,7 +391,7 @@ def install_smoke_hooks():
         sample = default_collate([self.train_dataset[0]])
         horizon = int(self.cfg.model.expected_action_horizon)
         require(tuple(sample["video"].shape) == (1, 3, 2, 224, 448)
-                and tuple(sample["action"].shape) == tuple(sample["past_action"].shape) == (1, horizon, 76)
+                and tuple(sample["action"].shape) == tuple(sample["past_action"].shape) == (1, horizon, int(self.cfg.model.expected_action_dim))
                 and tuple(sample["proprio"].shape) == (1, horizon, 44)
                 and tuple(sample["text_hidden_states"].shape) == (1, 128, 7680), "Actual sample schema differs")
         require(torch.equal(sample["proprio"], sample["proprio"][:, :1].expand_as(sample["proprio"])), "Dataset supplied future state instead of repeated current state")
@@ -387,6 +443,7 @@ def install_smoke_hooks():
         require(len(set(hashes)) == 1, "Action-side state encoder differs across ranks")
         evidence.update(status="FIVE_UPDATES_VERIFIED", rank=self.accelerator.process_index,
             action_horizon=int(self.cfg.model.expected_action_horizon),
+            action_dim=int(self.cfg.model.expected_action_dim),
             actual_optimizer_updates=engine.global_steps, skipped_updates=engine.skipped_steps,
             world_size=self.accelerator.num_processes, microbatch=self.batch_size, accumulation=self.gradient_accumulation_steps,
             consumed_microbatches=micros,

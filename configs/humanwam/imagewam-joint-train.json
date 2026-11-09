@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "backend": "imagewam_joint_reference",
+  "python": "${IMAGEWAM_PYTHON}",
+  "options": {
+    "native_config": "${IMAGEWAM_JOINT_NATIVE_CONFIG}",
+    "num_processes": 8
+  }
+}

@@ -1,12 +1,14 @@
-# 五种 policy 的基础权重、初始化与部署
+# 六个 policy 家族的基础权重、初始化与部署
 
 本仓库提供代码、原生入口和配置，不附带模型权重。下面的下载命令供操作者执行，本次整理没有启动大模型下载。每种 policy 使用独立环境，先按 [维护说明](POLICY_MAINTENANCE.md) 准备固定版本源码。示例中 `MODEL_ROOT` 是自行指定的绝对路径。
+六个家族共七个注册入口，ImageWAM motion76与joint41/47分别维护。新增Fast-WAM未做GPU推理，joint-reference尚无已训练权重。
 
 | Policy | 从基础模型开始训练 | 已训练模型的部署材料 | 固定来源与限制 |
 |---|---|---|---|
 | GR00T N1.7 | `nvidia/GR00T-N1.7-3B`，按目标 embodiment 新建训练 recipe | 完整 HF checkpoint、processor、该 checkpoint 的 modality 与归一化统计 | 基础权重 revision `2fc962b973bccdd5d8ce4f67cc63b264d6886495`。基础模型不含 `UNITREE_G1_SONIC`，不能改标签后直接当 SONIC 模型 |
 | π₀.₅ | OpenPI `gs://openpi-assets/checkpoints/pi05_base/params` | 任务 checkpoint 的 `params/` 与 `assets/`，匹配原生 config | GCS 路径没有本仓库核实的不可变权重 SHA。固定 OpenPI 源码与 A2A patch，下载后另存文件校验清单 |
-| ImageWAM Δ-flow | FLUX.2 klein-base-4B、FLUX.2-dev AE、Qwen3-4B，生成基础模型派生的动作共享初始化 | 任务 MoT 权重、model config、统计、文本缓存，以及 factory 所需基础文件 | 基础动作初始化不是已训练的 LIBERO 或真机任务权重。新 recipe 默认 H16，历史 H40 权重仍按 H40 使用 |
+| ImageWAM Δ-flow | FLUX.2 klein-base-4B、FLUX.2-dev AE、Qwen3-4B，生成基础模型派生的动作共享初始化 | 任务 MoT 权重、model config、统计、文本缓存，以及 factory 所需基础文件 | motion76与joint41/47分别初始化和训练。新 recipe 默认 H16，历史 H40 权重仍按 H40 使用 |
+| Fast-WAM | Wan2.2-TI2V-5B video DiT、原始VAE/T5及Wan tokenizer，生成动作共享backbone初始化 | 官方任务完整MoT`.pt`＋对应统计，另需VAE/T5/tokenizer | 官方HF revision `8eaceeb24c3cc92ff2a9c9a9d266a4941b836705`；LIBERO A7/S8/H32、RoboTwin A14/S14/H32，原生Gaussian FM |
 | DiT4DiT | Cosmos-Predict2.5-2B，原生 recipe 构造动作专家 | 任务 `.pt`、上级 run 目录的 `config.yaml` 与 `dataset_statistics.json`，另需 Cosmos pipeline | 官方 LIBERO checkpoint 为 A8 / state16 / H8。Cosmos 是 gated 模型，当前账号访问核验为 HTTP403 |
 | Ψ₀ / Psi Zero | 官方 human-video VLM，再用 SONIC VLM＋action expert 初始化微调 | 完整 run 目录、指定 step 的 safetensors、统计和 CLIP 缓存 | 公开完整 SONIC run 实际为 A80 / raw state45 / H30，不能套用本项目 76D 或旧 43D state |
 
@@ -75,6 +77,16 @@ python scripts/flux2/preprocess_action_dit_flux2.py \
 
 部署保留本任务 MoT checkpoint、原配置、统计和文本缓存，按原 factory 加载。新格式 `wholebody_inspire76_p25_flux2_v1` 与历史实验专用格式分别处理，不能只换 YAML 就互换 checkpoint。
 
+新增[关节参考配方](G1_JOINT_REFERENCE_DELTA.md)为独立的`imagewam_joint_reference`入口。
+41D目标是body29＋Inspire12，47D额外预测root rotation6D；不能把完整76D任务checkpoint
+直接当41/47D模型。仅复用兼容的FLUX.2基础派生114个共享张量，新建对应动作输入、输出
+及state投影，重新拟合该任务统计，并在初始化记录中列明新层与共享层。上面的76D命令
+是旧motion配方示例，新路径应使用其独立配置，不能只改输出维度后省略训练。
+新增路径尚无训练结果。部署输出经[SONIC离线桥接](policies/SONIC_JOINT_REFERENCE.md)
+显式处理未来root姿态、采样时间和`body_target_source`，导出文件不等于已验证控制链。
+47D训练还需审计root姿态标签有效性，录制器在姿态缺失时写入的identity fallback
+不能直接充当真实未来姿态监督，不能仅凭单位范数判断标签可靠。
+
 ## 4. DiT4DiT
 
 官方 [DiT4DiT](https://github.com/Mondo-Robotics/DiT4DiT) 固定 commit `66a6f3a12e2c8740157c1e478795952c040d31dd`。基础 [Cosmos-Predict2.5-2B](https://huggingface.co/nvidia/Cosmos-Predict2.5-2B) 的 `diffusers/base/post-trained` 已解析为下列固定 SHA，任务模型来自 [mondo-robotics/dit4dit-model](https://huggingface.co/mondo-robotics/dit4dit-model)。
@@ -107,6 +119,45 @@ hf download USC-PSI-Lab/psi-model --revision 74d7abaa61b51dfe4e95f539a83738c276c
 原生加载还用 `Qwen/Qwen3-VL-2B-Instruct` 的 AutoConfig/AutoProcessor，新 instruction 的 CLIP cache miss 也需要其原生文本编码器资产。分别准备原生所需缓存并记录版本，不可用 Qwen3-4B 或其他 policy 的 tokenizer 替代。原生部署入口为 `python -m psi.deploy.serve_psi0_sonic --policy psi --rtc --run-dir RUN --ckpt-step 40000`，详见 [Ψ₀ 文档](policies/PSI0.md) 与 [官方 SONIC 说明](https://github.com/physical-superintelligence-lab/Psi0/blob/cda3fdfafe47cb6fa75400d013de1bd36e3cea05/examples/psi0_for_sonic.md)。
 
 Ψ₀ 的 SONIC 子模块使用其 [专用 WBC fork](https://github.com/physical-superintelligence-lab/GR00T-WholeBodyControl) 的 `d40376994ff094787591ab76a691c50b8e131786`，不能替换为本项目顶部 NVLabs WBC 后宣称等价。本次仅验证公开 metadata、adapter 与 native API/CLI 依赖边界，没有加载 Ψ₀ 大权重或执行机器人。
+
+## 6. Fast-WAM
+
+官方源码 [FastWAM](https://github.com/yuantianyuan01/FastWAM)固定commit
+`7faa71108368fbb3b6885649f112af607427a2d4`。任务权重来自
+[yuanty/fastwam](https://huggingface.co/yuanty/fastwam)，固定revision
+`8eaceeb24c3cc92ff2a9c9a9d266a4941b836705`，本入口保留官方Gaussian FM，未混入历史A2A、IC或sparse-joint修改。
+
+| 官方任务profile | 配对权重和统计 | 维度 |
+|---|---|---|
+| LIBERO | `libero_uncond_2cam224.pt` / `libero_uncond_2cam224_dataset_stats.json` | A7 / state8 / H32 |
+| RoboTwin | `robotwin_uncond_3cam_384.pt` / `robotwin_uncond_3cam_384_dataset_stats.json` | A14 / state14 / H32 |
+
+两个任务权重各约12.04GB，不包含VAE和T5。保持原生目录层级，以下载命令中的
+`FASTWAM_MODEL_CACHE`作为`DIFFSYNTH_MODEL_BASE_PATH`。以下仅准备LIBERO部署材料，
+RoboTwin应成对更换任务权重与统计，不能按相同horizon混用。
+
+```bash
+export FASTWAM_MODEL_CACHE="$MODEL_ROOT/fastwam-native-assets"
+hf download yuanty/fastwam libero_uncond_2cam224.pt libero_uncond_2cam224_dataset_stats.json --revision 8eaceeb24c3cc92ff2a9c9a9d266a4941b836705 --local-dir "$MODEL_ROOT/fastwam-release"
+hf download Wan-AI/Wan2.2-TI2V-5B Wan2.2_VAE.pth models_t5_umt5-xxl-enc-bf16.pth --revision 921dbaf3f1674a56f47e83fb80a34bac8a8f203e --local-dir "$FASTWAM_MODEL_CACHE/Wan-AI/Wan2.2-TI2V-5B"
+hf download Wan-AI/Wan2.1-T2V-1.3B --include 'google/umt5-xxl/*' --revision 37ec512624d61f7aa208f7ea8140a131f93afc9a --local-dir "$FASTWAM_MODEL_CACHE/Wan-AI/Wan2.1-T2V-1.3B"
+```
+
+上述[Wan2.2](https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B)与
+[Wan2.1 tokenizer](https://huggingface.co/Wan-AI/Wan2.1-T2V-1.3B)均已核验metadata。
+VAE约2.82GB，T5约11.36GB。此入口使用`redirect_common_files=false`的原始资产，
+不依赖当前返回HTTP401的默认DiffSynth转换仓库。adapter禁止自动下载，缺本地资产即报错。
+
+部署完整任务`.pt`时，原生工厂跳过video/action DiT初始化，因此不额外要求基础DiT分片
+和ActionDiT initializer。新训练则还需Wan2.2的`diffusion_pytorch_model*.safetensors`
+分片，以及原生`scripts/preprocess_action_dit_backbone.py`生成的基础派生动作backbone。
+该initializer不是训练过的LIBERO策略，定制动作维度必须显式设置，不能依赖脚本默认7D。
+任务文本缓存由`scripts/precompute_text_embeds.py`生成，训练入口为Hydra `scripts/train.py`。
+
+精确文件SHA、原生缓存目录、配置及命令见[Fast-WAM文档](policies/FASTWAM.md)。
+任务checkpoint、统计、相机布局与sigma-shift必须配对；这一入口不生成G1/H2动作，
+原生state会进入视觉text context，与本项目ImageWAM的state仅进动作分支变体不同。
+已完成公开metadata、小统计和CPU契约检查，尚未下载大权重、进行GPU forward或训练。
 
 ## 许可证与发布材料
 

@@ -11,6 +11,8 @@ NTU已有八卡训练保持运行；GPU推理使用G1服务器空闲的RTX4090�
 | GR00T N1.7 | 官方真实两分片checkpoint、固定7aa源码、新wrapper、三处权重与safetensors逐值核对、原生ZeroMQ往返 | 9组动作均为有限float32 [1,40,D]；get_action／get_modality_config／reset通过；使用基座实际支持的G1相对EEF profile |
 | DiT4DiT | 官方LIBERO配置与统计、原生入口、CPU接口及发布配置回归 | 修复发布配置缺少image_size时的加载问题；没有实际GPU推理，见下文权限与环境条件 |
 | Psi-Zero | 官方完整run的真实metadata、原生API、CPU接口回归 | 确认action80／raw state45／H30／ckpt40000，修复state43会丢失neck状态的配置；尚未加载11.22GB实际权重 |
+| Fast-WAM | 官方固定源码、发布权重metadata和小统计、真实Hydra compose、原生API签名、CPU边界 | LIBERO A7/state8/H32与RoboTwin A14/state14/H32；未下载大权重或运行GPU推理 |
+| ImageWAM joint41/47 | 新数据映射、原生FM/IC、H16、stop-gradient、state隔离、checkpoint绑定、SONIC v1离线桥 | 未训练关节模型，未运行SONIC encoder/decoder闭环或真机 |
 
 ## 实际发现并处理的问题
 
@@ -56,7 +58,28 @@ NTU现有ImageWAM环境无法导入原生Psi服务器所需的fastapi等依赖�
 
 ## 代码检查
 
-五个backend的轻量测试、原生CLI参数检查、原生ZeroMQ序列化与错误边界检查均保留。
+原有五个policy家族的轻量测试、原生CLI参数检查、原生ZeroMQ序列化与错误边界检查均保留。
 ImageWAM原生H16／legacyH40的65项CPU测试已通过。
 新增实际发布metadata fixture用于防止把伪造的小型fixture当作真实checkpoint配置。
 所有临时预测服务在验证后关闭，现有模型、数据和训练作业没有被覆盖。
+
+## Fast-WAM 与关节路线增量检查
+
+当前为6个policy家族、7个注册入口，ImageWAM的motion76与joint41/47分开注册。
+轻量package的111项CPU测试通过，含SONIC桥接29项和Fast-WAM的Hydra追加参数绕过输出目录保护的回归检查。
+无上游checkout的CI会跳过依赖其源码的检查，实际固定Fast-WAM checkout上的Hydra与API检查已单独通过。
+
+G1独立CPU环境的最终检查为原生模型55项、训练CLI23项、joint dataset14项，
+另有未改动的旧dataset22项，共114项通过。设置`CUDA_VISIBLE_DEVICES=''`，确认CUDA不可见，
+没有构造完整FLUX.2大模型；原生训练/损失测试通过AST提取真实代码配合小型模块执行。
+它们覆盖41/47的FM与IC、无效姿态后6维零梯度而前41维仍训练、state不进入视觉、
+动作梯度隔离、H16形状、114共享初始化，以及不同schema/任务统计/instruction的checkpoint拒绝。
+这不能代替完整模型的GPU显存、吞吐或任务表现验证。
+
+真实靠垫数据78条、65,963帧完成41/47重新统计与RGB解码检查，原文件SHA保持不变。
+47D姿态按记录器有效性标记识别出63,765帧有效、2,198帧无效；无效姿态只影响6维监督，
+不删除身体/手部标签或episode。缺少有效性策略的早期47D统计不再被接受。
+
+SONIC桥接完成官方packer逐字节比对和官方unpacker往返，
+H16/stride2的一秒参考可重采样为51帧50Hz；连续30FPS的H16覆盖不足会拒绝。
+Inspire12单独导出，不复用Dex3命令字段。测试不发送网络消息，也没有启动机器人执行。

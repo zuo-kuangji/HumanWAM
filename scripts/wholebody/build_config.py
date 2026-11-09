@@ -34,12 +34,41 @@ def sha256(path):
     return digest.hexdigest()
 
 
-def validate_statistics(stats):
-    require(stats.get("schema") == STATS_SCHEMA, "Statistics use a different whole-body schema")
-    require(stats.get("normalization_strategy") == NORMALIZATION,
+JOINT_MODEL_TARGET = "imagewam.wholebody_joint_reference.create_imagewam_flux2_wholebody_joint_reference"
+JOINT_DATASET_TARGET = "imagewam.datasets.wholebody_joint_reference.JointReferenceLeRobotDataset"
+JOINT_NORMALIZATION = "fit_joint_reference_body29_orientation6d_q01q99_fixed_inspire_hands"
+
+
+def recipe_spec(stats, representation="motion76"):
+    if representation == "motion76":
+        return {"action_dim": 76, "model_target": MODEL_TARGET, "dataset_target": DATASET_TARGET,
+                "stats_schema": STATS_SCHEMA, "normalization": NORMALIZATION, "action_stride": 1}
+    require(representation in ("joint41", "joint47"), "Unknown action representation")
+    dim = int(representation[5:])
+    orientation = "external" if dim == 41 else "predicted_rotation6d"
+    body = stats.get("body_target")
+    require(body in ("wbc", "measured") and stats.get("orientation_target") == orientation,
+            "Joint statistics body/orientation labels differ from the requested representation")
+    label = "wbc29" if body == "wbc" else "measured29"
+    suffix = "external-orientation" if dim == 41 else "quatwxyz-rotation6d-columns"
+    schema = f"wholebody-state44-joint{dim}-{label}-measured-inspire12-{suffix}-v1"
+    require(stats.get("fps") == 30 and stats.get("action_stride") == 2,
+            "Joint H16 uses stride2 at30FPS, spanning1s")
+    require(stats.get("action_horizon") == stats.get("past_action_size") == 16
+            and stats.get("future_image_offset") == 32,
+            "Joint statistics must be prepared for H16/history16 and future image offset32")
+    return {"action_dim": dim, "model_target": JOINT_MODEL_TARGET, "dataset_target": JOINT_DATASET_TARGET,
+            "stats_schema": schema, "normalization": JOINT_NORMALIZATION, "action_stride": 2,
+            "body_target": body, "orientation_target": orientation}
+
+
+def validate_statistics(stats, spec=None):
+    spec = spec or recipe_spec(stats)
+    require(stats.get("schema") == spec["stats_schema"], "Statistics use a different whole-body schema")
+    require(stats.get("normalization_strategy") == spec["normalization"],
             "Fit this dataset's own motion/body/gravity statistics; do not reuse a task's statistics")
-    require(stats.get("action_dim") == 76 and stats.get("proprio_dim") == 44,
-            "Expected action76 and current state44 statistics")
+    require(stats.get("action_dim") == spec["action_dim"] and stats.get("proprio_dim") == 44,
+            "Expected the selected action dimension and current state44 statistics")
     require(stats.get("train_split_mode") == "all_episodes"
             and stats.get("heldout_episode_ids") == [], "This recipe trains on all episodes, without a held-out split")
     episodes = stats.get("train_episode_ids", [])
@@ -47,6 +76,20 @@ def validate_statistics(stats):
     require(isinstance(stats.get("train_frames"), int) and stats["train_frames"] > 0,
             "Statistics must declare a positive training frame count")
     require(stats.get("hand_target_time_offset") == 0, "Measured Inspire hand labels must use the same target row")
+    if spec["action_dim"] == 47:
+        require(stats.get("orientation_validity_rule") == "smpl_frame_index>0_and_stream_mode_in_1_4"
+                and stats.get("orientation_validity_source_keys") == ["teleop.smpl_frame_index", "teleop.stream_mode"]
+                and stats.get("orientation_invalid_policy") == "mask_only_last6_future_and_zero_last6_normalized_future_history"
+                and stats.get("orientation_statistics_use_valid_rows_only") is True
+                and stats.get("orientation_validity_rejects_missing_flags") is True
+                and stats.get("orientation_age_threshold_applied") is False,
+                "Joint47 statistics must explicitly reject recorder fallback and mask invalid orientation labels")
+        valid, invalid = stats.get("orientation_statistics_valid_frames"), stats.get("orientation_statistics_invalid_frames")
+        require(type(valid) is int and type(invalid) is int and valid > 0 and invalid >= 0
+                and valid + invalid == stats["train_frames"], "Joint47 orientation validity counts differ from this collection")
+    if spec["action_dim"] != 76:
+        require(isinstance(stats.get("instruction"), str) and stats["instruction"].strip(),
+                "Joint statistics need their own nonempty recorded instruction")
     return stats["train_frames"]
 
 
@@ -85,6 +128,7 @@ def argument_parser():
     for flag in ("dataset-dir", "stats-path", "text-cache-dir", "output-dir", "flux2-src",
                  "flux2-model", "ae-model", "qwen-model", "action-initializer"):
         parser.add_argument("--" + flag, type=Path, required=True)
+    parser.add_argument("--representation", choices=("motion76", "joint41", "joint47"), default="motion76")
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--accumulation", type=int, default=2)
@@ -109,14 +153,33 @@ def build(args, *, measure_loader=measure_native_loader):
     require(not root.exists(), "Refusing an existing output directory; choose a new independent run")
     require(not root.is_relative_to(paths["dataset_dir"]), "Do not write run outputs inside the source dataset")
     stats = json.loads(paths["stats_path"].read_text())
-    frames = validate_statistics(stats)
-    template = Path(__file__).resolve().parents[2] / "configs/wholebody/deltaflow76_p25.yaml"
+    representation = getattr(args, "representation", "motion76")
+    spec = recipe_spec(stats, representation)
+    frames = validate_statistics(stats, spec)
+    template_name = "deltaflow76_p25.yaml" if representation == "motion76" else "deltaflow_joint_reference_p25.yaml"
+    template = Path(__file__).resolve().parents[2] / "configs/wholebody" / template_name
     cfg = OmegaConf.load(template)
+    dim, stride = spec["action_dim"], spec["action_stride"]
+    cfg.model._target_ = spec["model_target"]
+    cfg.data.train._target_ = spec["dataset_target"]
+    cfg.model.expected_action_dim = cfg.model.action_dit_config.action_dim = dim
+    if representation != "motion76":
+        cfg.data.train.body_target = cfg.model.body_target = spec["body_target"]
+        cfg.data.train.orientation_target = cfg.model.orientation_target = spec["orientation_target"]
+        cfg.data.train.action_stride = cfg.model.action_stride = stride
+        cfg.data.train.future_image_offset = 32
+        cfg.model.reference_fps = 30
+        cfg.model.statistics_sha256 = sha256(paths["stats_path"])
+        cfg.model.instruction_sha256 = hashlib.sha256(stats["instruction"].encode()).hexdigest()
+        cfg.model.state_only_schema_id = f"wholebody.joint_reference{dim}.{spec['body_target']}29.state44.p25.v1"
+        cfg.wandb.name = f"deltaflow-joint{dim}-p25"
+        cfg.wandb.group = f"wholebody-joint{dim}-state44"
     cfg.batch_size = args.batch_size
     cfg.gradient_accumulation_steps = args.accumulation
     cfg.num_epochs = args.epochs
     horizon = getattr(args, "horizon", 16)
     require(type(horizon) is int and horizon in (16, 40), "Horizon must be16 or explicit legacy40")
+    require(representation == "motion76" or horizon == 16, "Joint reference recipes require H16")
     cfg.data.train.action_horizon = cfg.data.train.past_action_size = horizon
     cfg.model.expected_action_horizon = horizon
     cfg.EVALUATION = {"action_horizon": horizon, "num_inference_steps": 1}
@@ -128,11 +191,12 @@ def build(args, *, measure_loader=measure_native_loader):
                       ("action_dit_pretrained_path", "action_initializer")):
         cfg.model[key] = str(paths[name])
     cfg.model.action_initializer_sha256 = sha256(paths["action_initializer"])
-    cfg.model.loss.action_a2a.source_noise_dim_mask = [True] * 76
+    cfg.model.loss.action_a2a.source_noise_dim_mask = [True] * dim
     cfg.wholebody_contract = {"world_size": args.num_processes, "zero_stage": 1,
         "action_horizon": horizon, "past_action_horizon": horizon,
-        "statistics_sha256": sha256(paths["stats_path"]), "stats_schema": STATS_SCHEMA,
-        "normalization_strategy": NORMALIZATION, "smoke_output_dir": str(root / "smoke"),
+        "statistics_sha256": sha256(paths["stats_path"]), "stats_schema": spec["stats_schema"],
+        "representation": representation, "action_dim": dim, "action_stride": stride,
+        "normalization_strategy": spec["normalization"], "smoke_output_dir": str(root / "smoke"),
         "production_output_dir": str(root / "production"), "fresh_base": True}
     measurement = measure_loader(cfg)
     require(measurement["dataset_frames"] == frames, "Measured dataset length disagrees with its fitted statistics")
@@ -159,8 +223,9 @@ def build(args, *, measure_loader=measure_native_loader):
             OmegaConf.save(OmegaConf.create(payload), stream, resolve=True)
     receipt = {"status": "CONFIGS_BUILT_NO_TRAINING", "epochs": args.epochs,
         "action_horizon": horizon, "past_action_horizon": horizon,
-        "future_image_offset": horizon, "future_action_offsets": [0, horizon - 1],
-        "past_action_offsets": [-horizon, -1],
+        "representation": representation, "action_dim": dim, "action_stride": stride,
+        "future_image_offset": horizon * stride, "future_action_offsets": [0, (horizon - 1) * stride],
+        "past_action_offsets": [-horizon * stride, -stride],
         "actual_native_loader": measurement, **schedule,
         "nominal_global_batch": args.batch_size * args.accumulation * args.num_processes,
         "production_config": str(config_paths[0]), "smoke_config": str(config_paths[1]),
@@ -173,7 +238,7 @@ def build(args, *, measure_loader=measure_native_loader):
         "cosine_min_lr": 1e-6, "validation_enabled": False,
         "visual_state_route": "none", "text_state_route": "none", "action_to_visual_gradients": False,
         "visual_source": "0.5 * z_current + sqrt(0.75) * epsilon",
-        "action_source": "normalized_past_action76 + 0.5 * epsilon_all76",
+        "action_source": f"normalized_past_action{dim} + 0.5 * epsilon_all{dim}",
         "checkpoint_retention": "latest four weight snapshots and latest one training state"}
     with (root / "build_receipt.json").open("x") as stream:
         json.dump(receipt, stream, indent=2, allow_nan=False)

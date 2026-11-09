@@ -111,6 +111,12 @@ spec = importlib.util.spec_from_file_location("wholebody_adapter_test_target", H
 adapter = importlib.util.module_from_spec(spec)
 sys.modules[spec.name] = adapter
 spec.loader.exec_module(adapter)
+joint_spec = importlib.util.spec_from_file_location(
+    "wholebody_joint_reference_test_target", HERE.parent / "src/imagewam/wholebody_joint_reference.py")
+joint_adapter = importlib.util.module_from_spec(joint_spec)
+sys.modules[joint_spec.name] = joint_adapter
+with mock.patch.dict(sys.modules, {"imagewam.wholebody_delta": adapter}):
+    joint_spec.loader.exec_module(joint_adapter)
 
 
 class PairModulation(nn.Module):
@@ -123,11 +129,11 @@ class PairModulation(nn.Module):
 
 
 class TinyHead(nn.Module):
-    def __init__(self):
+    def __init__(self, action_dim=76):
         super().__init__()
         self.norm_final = nn.LayerNorm(8, elementwise_affine=False, eps=1e-6)
         self.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(8, 16, bias=False))
-        self.linear = nn.Linear(8, 76, bias=False)
+        self.linear = nn.Linear(8, action_dim, bias=False)
 
     def forward(self, tokens, vec):
         shift, scale = self.adaLN_modulation(vec).chunk(2, dim=-1)
@@ -176,22 +182,22 @@ class TinyMoT(nn.Module):
         return self.action_block(action_tokens + video_kv_cache["double"][0]["k"][:, None])
 
 
-def make_base():
+def make_base(action_dim=76):
     action = ActionDiTFlux2.__new__(ActionDiTFlux2)
     nn.Module.__init__(action)
-    action.action_dim, action.hidden_dim, action.max_action_horizon = 76, 8, 64
-    action.action_encoder = nn.Linear(76, 8)
+    action.action_dim, action.hidden_dim, action.max_action_horizon = action_dim, 8, 64
+    action.action_encoder = nn.Linear(action_dim, 8)
     action.time_in = nn.Linear(256, 8)
     action.double_stream_modulation_img = nn.Linear(8, 8)
     action.single_stream_modulation = PairModulation()
-    action.head = TinyHead()
+    action.head = TinyHead(action_dim)
     video = TinyVideo()
     mot = TinyMoT(video, action)
     model = ImageWAM(video, action, mot, nn.Linear(2, 2), text_dim=128, proprio_dim=None,
         device="cpu", torch_dtype=torch.float32, stack="flux2", pack_proprio_after_text=False,
         loss_lambda_video=.5, loss_lambda_action=1.,
         action_a2a={"enabled": True, "fm_weight": 1., "ic_weight": .5, "ic_steps": 1, "ic_loss": "l1",
-                    "source_noise_std": .5, "source_noise_dim_mask": [True] * 76},
+                    "source_noise_std": .5, "source_noise_dim_mask": [True] * action_dim},
         image_i2i={"enabled": True, "source_mode": "gaussian", "current_residual_scale": adapter.IMAGE_RESIDUAL_SCALE,
                    "variance_normalize": True, "ic_weight": 1., "ic_steps": 1, "ic_loss": "l1"},
         flux2_action_image_context={"mode": "noise_idm", "include_future_tokens": True,
@@ -213,15 +219,21 @@ def make_model(horizon=40):
     return adapter.adopt_state_only_delta(make_base(), expected_action_horizon=horizon)
 
 
-def sample(horizon=40):
-    return {"target_latent": torch.randn(1, 392, 128), "target_img_ids": torch.zeros(1, 392, 4),
+def sample(horizon=40, action_dim=76):
+    result = {"target_latent": torch.randn(1, 392, 128), "target_img_ids": torch.zeros(1, 392, 4),
             "ref_image_latents": torch.randn(1, 392, 128), "ref_img_ids": torch.zeros(1, 392, 4),
             "text_hidden_states": torch.randn(1, 4, 128), "text_attention_mask": torch.ones(1, 4, dtype=torch.bool),
-            "action": torch.randn(1, horizon, 76), "past_action": torch.randn(1, horizon, 76),
+            "action": torch.randn(1, horizon, action_dim), "past_action": torch.randn(1, horizon, action_dim),
             "action_is_pad": torch.zeros(1, horizon, dtype=torch.bool),
-            "action_dim_is_pad": torch.zeros(1, 76, dtype=torch.bool),
+            "action_dim_is_pad": torch.zeros(1, action_dim, dtype=torch.bool),
             "proprio": torch.randn(1, horizon, 44), "proprio_dim_is_pad": torch.zeros(1, 44, dtype=torch.bool),
             "proprio_is_pad": torch.zeros(1, horizon, dtype=torch.bool)}
+    if action_dim == 47:
+        # Synthetic pose observations in this fixture are all explicitly valid.
+        # Recorder fallback rows need their own per-time-step orientation masks.
+        result["joint_orientation_is_pad"] = torch.zeros(1, horizon, dtype=torch.bool)
+        result["past_joint_orientation_is_pad"] = torch.zeros(1, horizon, dtype=torch.bool)
+    return result
 
 
 def has_grad(module):
@@ -398,29 +410,29 @@ class WholeBodyAdapterTests(unittest.TestCase):
             self.model.validate_state_only_route()
         self.model.image_i2i_current_residual_scale = adapter.IMAGE_RESIDUAL_SCALE
         self.model.action_expert.action_dim = 78
-        with self.assertRaisesRegex(ValueError, 'action76'):
+        with self.assertRaisesRegex(ValueError, 'dimensions|action76'):
             self.model.validate_state_only_route()
 
 
 
 class TinyPartialAction(nn.Module):
     """120-key fixture: exactly114 shared base tensors plus six new projections."""
-    def __init__(self):
+    def __init__(self, action_dim=76):
         super().__init__()
-        self.action_dim, self.action_state_dim = 76, 44
-        self.action_encoder = nn.Linear(76, 2)
+        self.action_dim, self.action_state_dim = action_dim, 44
+        self.action_encoder = nn.Linear(action_dim, 2)
         self.state_encoder = nn.Linear(44, 2)
         self.head = nn.Module()
-        self.head.linear = nn.Linear(2, 76, bias=False)
+        self.head.linear = nn.Linear(2, action_dim, bias=False)
         self.head.adaLN_modulation = nn.Sequential(nn.SiLU(), nn.Linear(2, 4, bias=False))
         self.time_in = nn.ParameterDict({
             f"p{index:03d}": nn.Parameter(torch.randn(2, 2)) for index in range(114)
         })
 
 
-def initializer_fixture():
-    expert = TinyPartialAction()
-    model = SimpleNamespace(action_expert=expert, state_only_init_seed=42)
+def initializer_fixture(action_dim=76):
+    expert = TinyPartialAction(action_dim)
+    model = SimpleNamespace(action_expert=expert, expected_action_dim=action_dim, state_only_init_seed=42)
     state = {key: torch.full_like(value, index / 113)
              for index, (key, value) in enumerate(expert.state_dict().items())
              if key not in adapter.PARTIAL_NEW_ACTION_KEYS}
@@ -559,6 +571,251 @@ class H16AdapterTests(unittest.TestCase):
     def test_training_window_mismatch_fails_before_visual_loss(self):
         with self.assertRaisesRegex(ValueError,"configured"):
             self.model.build_inputs_flux2(sample(40))
+
+
+def make_joint_model(action_dim=41, body_target="wbc", *,
+                     statistics_sha256="a"*64, instruction_sha256="b"*64):
+    return adapter._adopt_state_only_delta(
+        make_base(action_dim), expected_action_dim=action_dim, expected_action_horizon=16,
+        state_only_schema_id=joint_adapter.schema_id(action_dim, body_target),
+        route_metadata={"statistics_sha256":statistics_sha256,"instruction_sha256":instruction_sha256},
+        route_class=joint_adapter.JointReferenceDeltaImageWAM)
+
+
+class Joint41NativeAdapterTests(unittest.TestCase):
+    """Actual native losses and sampler on CPU fixtures, not pretrained/GPU proof."""
+    action_dim = 41
+
+    def setUp(self):
+        torch.manual_seed(42)
+        torch.set_num_threads(1)
+        self.model = make_joint_model(self.action_dim)
+        self.sample = sample(16, action_dim=self.action_dim)
+
+    test_real_native_noise_formulas = WholeBodyAdapterTests.test_real_native_noise_formulas
+    test_visual_inputs_are_exactly_invariant_to_current_and_future_state = WholeBodyAdapterTests.test_visual_inputs_are_exactly_invariant_to_current_and_future_state
+    test_native_three_losses_backward_independently_and_scope_is_not_live_at_yield = WholeBodyAdapterTests.test_native_three_losses_backward_independently_and_scope_is_not_live_at_yield
+    test_action_fm_and_ic_gradients_do_not_enter_visual_branch = WholeBodyAdapterTests.test_action_fm_and_ic_gradients_do_not_enter_visual_branch
+    test_state_schema_padding_and_missing_measurement_fail_closed = WholeBodyAdapterTests.test_state_schema_padding_and_missing_measurement_fail_closed
+
+    def inference_inputs(self):
+        return dict(prompt=None, input_image=torch.rand(1, 3, 224, 448),
+            context=self.sample["text_hidden_states"], context_mask=self.sample["text_attention_mask"],
+            action_init=self.sample["past_action"], seed=73, rand_device="cpu")
+
+    def test_native_h16_sampler_uses_current_state_only_and_exact_action_dim(self):
+        inputs = self.inference_inputs()
+        first = self.model.infer_action(**inputs, proprio=torch.zeros(1, 44))
+        visual = self.model.mot.caches[-1].clone()
+        text = self.model.video_expert.records[-1]["text"].clone()
+        second = self.model.infer_action(**inputs, proprio=torch.ones(1, 44))
+        self.assertEqual(tuple(first["action"].shape), (16, self.action_dim))
+        self.assertTrue(torch.isfinite(first["action"]).all())
+        self.assertFalse(torch.allclose(first["action"], second["action"]))
+        self.assertTrue(torch.equal(visual, self.model.mot.caches[-1]))
+        self.assertTrue(torch.equal(text, self.model.video_expert.records[-1]["text"]))
+        self.assertEqual(second["state_only_action_dim"], self.action_dim)
+        self.assertGreaterEqual(second["state_only_action_condition_calls"], 1)
+        self.assertIsNone(adapter._CURRENT_ACTION_STATE.get())
+        for changes in [dict(action_horizon=40), dict(action_init=torch.zeros(1,16,76)),
+                        dict(action_init=torch.zeros(1,40,self.action_dim))]:
+            with self.subTest(changes=list(changes)), self.assertRaises(ValueError):
+                self.model.infer_action(**dict(inputs, **changes), proprio=torch.ones(1,44))
+
+    def test_future_measured_state_is_ignored_and_current_measurement_is_detached(self):
+        changed = copy.deepcopy(self.sample)
+        changed["proprio"][:, 1:] = float("nan")
+        changed["proprio"].requires_grad_()
+        iterator = self.model.iter_training_losses(changed)
+        for _ in range(3):
+            loss, _ = next(iterator)
+            self.assertTrue(torch.isfinite(loss))
+            loss.backward()
+            self.assertIsNone(changed["proprio"].grad)
+        iterator.close()
+        self.assertTrue(has_grad(self.model.action_expert.state_encoder))
+        self.assertIsNone(adapter._CURRENT_ACTION_STATE.get())
+
+    def test_protocol_identifies_joint_labels_orientation_and_timebase(self):
+        protocol = self.model.state_only_protocol()
+        self.assertEqual(protocol["action_dim"], self.action_dim)
+        self.assertEqual(protocol["schema_id"], joint_adapter.schema_id(self.action_dim, "wbc"))
+        self.assertEqual(protocol["statistics_sha256"], "a"*64)
+        self.assertEqual(protocol["instruction_sha256"], "b"*64)
+        self.assertEqual(protocol["format"], f"wholebody_joint_reference{self.action_dim}_p25_flux2_v1")
+        self.assertEqual(protocol["hand_target_offsets"], [0, 30])
+        self.assertEqual(protocol["future_action_frame_offsets"], list(range(0,32,2)))
+        self.assertEqual(protocol["past_action_frame_offsets"], list(range(-32,0,2)))
+        self.assertEqual(protocol["future_image_offset"], 32)
+        self.assertEqual(protocol["sonic_input_protocol"], "v1_joint_reference_not_v4_motion_token")
+        self.assertEqual(protocol["visual_state_route"], "none")
+        self.assertEqual(protocol["text_state_route"], "none")
+        self.assertFalse(protocol["action_to_visual_gradients"])
+        self.assertEqual(protocol["root_orientation_source"],
+            "external_required" if self.action_dim == 41 else "predicted_teleop_body_quat_w")
+
+    def test_shared_initializer_preserves_new_joint_projections_and_records_dimensions(self):
+        model, payload = initializer_fixture(self.action_dim)
+        before = {key: value.clone() for key,value in model.action_expert.state_dict().items()}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "action_base_init.pt"
+            torch.save(payload,path)
+            audit = adapter.load_compatible_action_initializer(
+                model,path,expected_sha256=adapter.file_sha256(path))
+        for key,value in payload["state_dict"].items():
+            self.assertTrue(adapter._byte_equal(model.action_expert.state_dict()[key],value),key)
+        for key in adapter.PARTIAL_NEW_ACTION_KEYS:
+            self.assertTrue(adapter._byte_equal(model.action_expert.state_dict()[key],before[key]),key)
+        self.assertEqual(audit["target_action_dim"],self.action_dim)
+        self.assertEqual(audit["retained_tensor_count"],114)
+        self.assertEqual(audit["new_parameter_shapes"]["action_encoder.weight"],[2,self.action_dim])
+        self.assertEqual(audit["new_parameter_shapes"]["head.linear.weight"],[self.action_dim,2])
+        self.assertFalse(audit["source_is_task_trained"])
+        self.assertFalse(audit["optimizer_loaded"])
+
+    def test_task_statistics_and_instruction_hashes_are_mandatory(self):
+        for changes in ({"statistics_sha256":None}, {"instruction_sha256":None},
+                        {"statistics_sha256":"a"*63}, {"instruction_sha256":"g"*64}):
+            with self.subTest(changes=changes), self.assertRaisesRegex(ValueError,"SHA256|statistics|instruction|metadata"):
+                make_joint_model(self.action_dim, **changes)
+        with self.assertRaisesRegex(ValueError,"SHA256|statistics|instruction|metadata"):
+            adapter._adopt_state_only_delta(make_base(self.action_dim), expected_action_dim=self.action_dim,
+                expected_action_horizon=16, state_only_schema_id=joint_adapter.schema_id(self.action_dim,"wbc"),
+                route_class=joint_adapter.JointReferenceDeltaImageWAM)
+
+    def test_joint_factory_validates_task_hashes_before_constructing_backbone(self):
+        with mock.patch.object(joint_adapter,"_create_state_only_flux2") as create:
+            for changes in ({"statistics_sha256":None}, {"instruction_sha256":"wrong"}):
+                kwargs = {"statistics_sha256":"a"*64,"instruction_sha256":"b"*64,**changes}
+                with self.subTest(changes=changes), self.assertRaisesRegex(ValueError,"SHA256"):
+                    joint_adapter.create_imagewam_flux2_wholebody_joint_reference(
+                        action_initializer_sha256="c"*64, expected_action_dim=self.action_dim,
+                        orientation_target="external" if self.action_dim==41 else "predicted_rotation6d",
+                        **kwargs)
+            create.assert_not_called()
+
+    def test_checkpoint_roundtrip_and_cross_schema_rejection_precedes_parameter_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "joint.pt"
+            self.model.save_checkpoint(path, step=9)
+            same = make_joint_model(self.action_dim)
+            payload = same.load_checkpoint(path)
+            self.assertEqual(payload["step"], 9)
+            for key, value in self.model.mot.state_dict().items():
+                self.assertTrue(torch.equal(value, same.mot.state_dict()[key]), key)
+            others = [make_joint_model(self.action_dim, "measured"),
+                      make_joint_model(47 if self.action_dim == 41 else 41), make_model(16),
+                      make_joint_model(self.action_dim, statistics_sha256="c"*64),
+                      make_joint_model(self.action_dim, instruction_sha256="d"*64)]
+            for target in others:
+                before = {key:value.clone() for key,value in target.mot.state_dict().items()}
+                with self.subTest(schema=target.state_only_schema_id), self.assertRaisesRegex(ValueError, "schema|protocol"):
+                    target.load_checkpoint(path)
+                self.assertTrue(all(torch.equal(value,target.mot.state_dict()[key]) for key,value in before.items()))
+            legacy = make_model(16)
+            legacy.save_checkpoint(path, step=10)
+            with self.assertRaisesRegex(ValueError, "schema|protocol"):
+                self.model.load_checkpoint(path)
+
+    def test_legacy_public_adoption_and_factory_cannot_masquerade_as_joint(self):
+        base = make_base(self.action_dim)
+        with self.assertRaisesRegex(ValueError, "action76"):
+            adapter.adopt_state_only_delta(base, expected_action_dim=self.action_dim,
+                state_only_schema_id=joint_adapter.schema_id(self.action_dim,"wbc"))
+        self.assertIs(type(base), ImageWAM)
+        with self.assertRaisesRegex(ValueError, "action76"):
+            adapter.create_imagewam_flux2_wholebody_delta(action_initializer_sha256="a"*64,
+                expected_action_dim=self.action_dim,
+                state_only_schema_id=joint_adapter.schema_id(self.action_dim,"wbc"))
+        self.model.mot.fail_action = True
+        with self.assertRaisesRegex(RuntimeError, "fixture action failure"):
+            self.model.infer_action(**self.inference_inputs(), proprio=torch.zeros(1,44))
+        self.assertIsNone(adapter._CURRENT_ACTION_STATE.get())
+
+
+class Joint47NativeAdapterTests(Joint41NativeAdapterTests):
+    action_dim = 47
+
+    def invalid_pose_sample(self):
+        result = copy.deepcopy(self.sample)
+        result["joint_orientation_is_pad"][:, [2,7]] = True
+        result["past_joint_orientation_is_pad"][:, [1,9]] = True
+        result["action"][:, [2,7], 41:] = 0
+        result["past_action"][:, [1,9], 41:] = 0
+        return result
+
+    def test_orientation_validity_is_required_and_invalid_targets_history_are_zero(self):
+        for field in ("joint_orientation_is_pad","past_joint_orientation_is_pad"):
+            bad = copy.deepcopy(self.sample)
+            bad.pop(field)
+            with self.subTest(missing=field), self.assertRaisesRegex(ValueError,"mask|orientation|valid"):
+                self.model.build_inputs_flux2(bad)
+        for field,mask in (("action","joint_orientation_is_pad"),
+                           ("past_action","past_joint_orientation_is_pad")):
+            bad = self.invalid_pose_sample()
+            index = int(torch.where(bad[mask][0])[0][0])
+            bad[field][0,index,41] = 1
+            with self.subTest(nonzero=field), self.assertRaisesRegex(ValueError,"zero|invalid"):
+                self.model.build_inputs_flux2(bad)
+        bad = self.invalid_pose_sample()
+        inputs = self.model.build_inputs_flux2(bad)
+        self.assertEqual(tuple(inputs["action_dim_is_pad"].shape),(1,16,47))
+        self.assertFalse(inputs["action_dim_is_pad"][:,:,:41].any())
+        self.assertTrue(inputs["action_dim_is_pad"][0,2,41:].all())
+        self.assertFalse(inputs["action_dim_is_pad"][0,3,41:].any())
+        self.assertEqual(tuple(bad["action_dim_is_pad"].shape),(1,47))
+
+    def test_real_native_fm_and_ic_ignore_only_invalid_orientation_outputs(self):
+        bad = self.invalid_pose_sample()
+        for name in ("fm","ic"):
+            self.model.zero_grad(set_to_none=True)
+            method = "_compute_action_loss_per_sample" if name=="fm" else "_compute_action_ic_loss_per_sample"
+            original = getattr(self.model,method)
+            captured = {}
+            def capture(model,*args,_original=original,_captured=captured,**kwargs):
+                pred = kwargs["pred_action"]
+                pred.retain_grad()
+                loss = _original(*args,**kwargs)
+                _captured.update(pred=pred,loss=loss.mean(),mask=kwargs["action_dim_is_pad"])
+                return loss
+            setattr(self.model,method,MethodType(capture,self.model))
+            try:
+                if name=="fm":
+                    self.model._training_loss_flux2(bad,include_action_ic=False)
+                else:
+                    self.model._training_loss_flux2_action_ic(bad)
+                self.assertTrue(torch.isfinite(captured["loss"]))
+                captured["loss"].backward()
+                gradient = captured["pred"].grad
+                self.assertTrue(torch.equal(gradient[0,[2,7],41:],torch.zeros(2,6)))
+                self.assertGreater(float(gradient[0,[2,7],:41].abs().sum()),0.)
+                self.assertGreater(float(gradient[0,3,41:].abs().sum()),0.)
+                self.assertTrue(has_grad(self.model.action_expert.state_encoder))
+                self.assertFalse(has_grad(self.model.video_expert))
+                self.assertIsNone(adapter._CURRENT_ACTION_STATE.get())
+            finally:
+                setattr(self.model,method,original)
+
+    def test_mask_reduction_averages_valid_dimensions_then_tokens(self):
+        # A global sum/count reduction would differ because token0 has41 valid
+        # dimensions and token1 has47. Padded token2 must contribute nothing.
+        pred = torch.ones(1,3,47,requires_grad=True)
+        with torch.no_grad():
+            pred[0,0,:41] = 2
+            pred[0,0,41:] = 1000
+            pred[0,2] = 3000
+        target = torch.zeros_like(pred)
+        dim_pad = torch.zeros(1,3,47,dtype=torch.bool)
+        dim_pad[0,0,41:] = True
+        time_pad = torch.tensor([[False,False,True]])
+        fm = self.model._compute_action_loss_per_sample(pred,target,time_pad,dim_pad)
+        ic = self.model._compute_action_ic_loss_per_sample(pred,target,time_pad,dim_pad)
+        self.assertEqual(tuple(fm.shape),(1,))
+        self.assertAlmostEqual(float(fm.detach()),2.5)
+        self.assertAlmostEqual(float(ic.detach()),1.5)
+        (fm+ic).sum().backward()
+        self.assertTrue(torch.equal(pred.grad[0,0,41:],torch.zeros(6)))
+        self.assertTrue(torch.equal(pred.grad[0,2],torch.zeros(47)))
 
 
 class FreshFactoryTests(unittest.TestCase):

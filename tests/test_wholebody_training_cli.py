@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import importlib.util
 import json
 import math
@@ -33,6 +34,29 @@ def valid_stats():
             "action_dim": 76, "proprio_dim": 44, "train_split_mode": "all_episodes",
             "heldout_episode_ids": [], "train_episode_ids": [0, 1, 2], "train_frames": 93064,
             "hand_target_time_offset": 0}
+
+
+def valid_joint_stats(dim=41, body_target="wbc"):
+    orientation = "external" if dim == 41 else "predicted_rotation6d"
+    label = "wbc29" if body_target == "wbc" else "measured29"
+    suffix = "external-orientation" if dim == 41 else "quatwxyz-rotation6d-columns"
+    result = valid_stats()
+    result.update(schema=f"wholebody-state44-joint{dim}-{label}-measured-inspire12-{suffix}-v1",
+        normalization_strategy=builder.JOINT_NORMALIZATION, action_dim=dim,
+        instruction="fixture task",
+        body_target=body_target, orientation_target=orientation, fps=30, action_stride=2,
+        action_horizon=16, past_action_size=16, future_image_offset=32,
+        body_target_time_offset=0, orientation_condition_in_model_input=False)
+    if dim == 47:
+        result.update(orientation_validity_rule="smpl_frame_index>0_and_stream_mode_in_1_4",
+            orientation_validity_source_keys=["teleop.smpl_frame_index", "teleop.stream_mode"],
+            orientation_invalid_policy="mask_only_last6_future_and_zero_last6_normalized_future_history",
+            orientation_statistics_use_valid_rows_only=True,
+            orientation_statistics_valid_frames=90000, orientation_statistics_invalid_frames=3064,
+            orientation_validity_rejects_missing_flags=True, orientation_age_threshold_applied=False,
+            rotation6d_order=["R00", "R10", "R20", "R01", "R11", "R21"],
+            orientation_input_order="wxyz", orientation_source_key="teleop.body_quat_w")
+    return result
 
 
 def fixture_config(root):
@@ -68,6 +92,29 @@ def fixture_config(root):
             "measured_loader": {"world_size": 8, "microbatch": 8, "gradient_accumulation": 2,
                 "per_rank_microbatches": 1455, "dataset_frames": 93064}},
     }
+
+
+def fixture_joint_config(root, dim=41, body_target="wbc"):
+    cfg = fixture_config(root)
+    orientation = "external" if dim == 41 else "predicted_rotation6d"
+    stats_path = Path(cfg["data"]["train"]["stats_path"])
+    stats_path.write_text(json.dumps(valid_joint_stats(dim, body_target)))
+    cfg["model"].update(_target_=builder.JOINT_MODEL_TARGET, expected_action_dim=dim,
+        expected_action_horizon=16, body_target=body_target, orientation_target=orientation,
+        action_stride=2, reference_fps=30,
+        state_only_schema_id=f"wholebody.joint_reference{dim}.{body_target}29.state44.p25.v1")
+    cfg["model"].update(statistics_sha256=builder.sha256(stats_path),
+        instruction_sha256=hashlib.sha256("fixture task".encode()).hexdigest())
+    cfg["model"]["action_dit_config"]["action_dim"] = dim
+    cfg["model"]["loss"]["action_a2a"]["source_noise_dim_mask"] = [True] * dim
+    cfg["data"]["train"].update(_target_=builder.JOINT_DATASET_TARGET, action_horizon=16,
+        past_action_size=16, action_stride=2, future_image_offset=32,
+        body_target=body_target, orientation_target=orientation)
+    cfg["wholebody_contract"].update(representation=f"joint{dim}", action_dim=dim,
+        action_stride=2, action_horizon=16, past_action_horizon=16,
+        statistics_sha256=builder.sha256(stats_path))
+    cfg["EVALUATION"] = {"action_horizon": 16, "num_inference_steps": 1}
+    return cfg
 
 
 class ScheduleTests(unittest.TestCase):
@@ -208,6 +255,88 @@ class ContractTests(unittest.TestCase):
             self.assertNotIn("93064", text)
 
 
+class JointContractTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def test_joint41_joint47_and_explicit_measured_ablation_validate(self):
+        for dim in (41, 47):
+            for body in ("wbc", "measured"):
+                with self.subTest(dim=dim, body=body):
+                    cfg = fixture_joint_config(self.root, dim, body)
+                    self.assertEqual(trainer.validate_config(cfg, smoke=False)["total_updates"], 43680)
+                    stats = valid_joint_stats(dim, body)
+                    spec = builder.recipe_spec(stats, f"joint{dim}")
+                    self.assertEqual(builder.validate_statistics(stats, spec), 93064)
+
+    def test_joint_wrong_schema_timing_dimension_and_noise_are_rejected(self):
+        mutations = (
+            lambda c: c["model"].update(state_only_schema_id="wholebody.state44.action76.legacy"),
+            lambda c: c["model"].update(expected_action_horizon=40),
+            lambda c: c["model"].update(action_stride=1),
+            lambda c: c["model"].update(reference_fps=50),
+            lambda c: c["model"].update(statistics_sha256="0" * 64),
+            lambda c: c["model"].update(instruction_sha256="0" * 64),
+            lambda c: c["model"].update(orientation_target="external"),
+            lambda c: c["model"]["action_dit_config"].update(action_dim=76),
+            lambda c: c["data"]["train"].update(body_target="measured"),
+            lambda c: c["data"]["train"].update(past_action_size=40),
+            lambda c: c["data"]["train"].update(future_image_offset=16),
+            lambda c: c["model"]["loss"]["action_a2a"].update(source_noise_dim_mask=[True] * 76),
+            lambda c: c["model"]["loss"]["action_a2a"]["source_noise_dim_mask"].__setitem__(29, False),
+            lambda c: c["model"]["loss"]["action_a2a"].update(source_noise_std=0.0),
+        )
+        for i, mutate in enumerate(mutations):
+            with self.subTest(case=i):
+                cfg = fixture_joint_config(self.root, 47)
+                mutate(cfg)
+                with self.assertRaises(RuntimeError): trainer.validate_config(cfg, smoke=False)
+
+    def test_joint_statistics_timing_and_orientation_validity_must_be_pinned(self):
+        changes = [("action_horizon", 40), ("past_action_size", 40), ("future_image_offset", 16),
+                   ("fps", 50), ("action_stride", 1), ("action_dim", 76), ("schema", builder.STATS_SCHEMA),
+                   ("instruction", "a different task")]
+        for dim in (41, 47):
+            for key, value in changes:
+                with self.subTest(dim=dim, key=key):
+                    cfg = fixture_joint_config(self.root, dim)
+                    path = Path(cfg["data"]["train"]["stats_path"])
+                    stats = valid_joint_stats(dim); stats[key] = value
+                    path.write_text(json.dumps(stats))
+                    cfg["wholebody_contract"]["statistics_sha256"] = builder.sha256(path)
+                    cfg["model"]["statistics_sha256"] = builder.sha256(path)
+                    with self.assertRaises(RuntimeError): trainer.validate_config(cfg, smoke=False)
+        cfg = fixture_joint_config(self.root, 47)
+        path = Path(cfg["data"]["train"]["stats_path"])
+        stats = valid_joint_stats(47)
+        del stats["orientation_validity_rule"]
+        path.write_text(json.dumps(stats))
+        cfg["wholebody_contract"]["statistics_sha256"] = builder.sha256(path)
+        cfg["model"]["statistics_sha256"] = builder.sha256(path)
+        with self.assertRaises(RuntimeError): trainer.validate_config(cfg, smoke=False)
+
+    def test_joint_smoke_gate_rejects_report_from_different_action_dimension(self):
+        cfg = fixture_joint_config(self.root, 47)
+        smoke = self.root / "smoke"
+        smoke.mkdir()
+        report = {"status": "FIVE_UPDATES_VERIFIED", "actual_optimizer_updates": 5,
+            "skipped_updates": 0, "world_size": 8, "microbatch": 8, "accumulation": 2,
+            "statistics_sha256": cfg["wholebody_contract"]["statistics_sha256"],
+            "action_initializer_sha256": cfg["model"]["action_initializer_sha256"],
+            "schedule_total_updates": 43680, "action_dim": 47, "action_horizon": 16}
+        for rank in range(8):
+            (smoke / f"smoke_rank_{rank}.json").write_text(json.dumps(report))
+        trainer.require_completed_smoke(cfg)
+        report["action_dim"] = 41
+        (smoke / "smoke_rank_7.json").write_text(json.dumps(report))
+        with self.assertRaisesRegex(RuntimeError, "horizon"):
+            trainer.require_completed_smoke(cfg)
+
+
 @unittest.skipUnless(importlib.util.find_spec("omegaconf"), "Full config integration needs the repository's OmegaConf dependency")
 class ConfigBuildTests(unittest.TestCase):
     def test_complete_resolved_yaml_and_reject_overwrite(self):
@@ -249,6 +378,67 @@ class ConfigBuildTests(unittest.TestCase):
             self.assertFalse((root / "newrun/smoke").exists())
             with self.assertRaises(ValueError):
                 builder.build(args, measure_loader=measured)
+
+    def test_complete_joint_yaml_routes_all_dimensions_sources_and_stride(self):
+        from omegaconf import OmegaConf
+        for dim, body in ((41, "wbc"), (47, "wbc"), (41, "measured"), (47, "measured")):
+            with self.subTest(dim=dim, body=body), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                for name in ("dataset", "textcache", "fluxsrc", "qwen"): (root / name).mkdir()
+                for name in ("flux.safetensors", "ae.safetensors", "init.pt"):
+                    (root / name).write_bytes(b"testasset")
+                stats = valid_joint_stats(dim, body)
+                stats.update(train_frames=567, train_episode_ids=[0, 1])
+                if dim == 47:
+                    stats.update(orientation_statistics_valid_frames=560, orientation_statistics_invalid_frames=7)
+                (root / "stats.json").write_text(json.dumps(stats))
+                args = SimpleNamespace(dataset_dir=root / "dataset", stats_path=root / "stats.json",
+                    text_cache_dir=root / "textcache", output_dir=root / "newrun", flux2_src=root / "fluxsrc",
+                    flux2_model=root / "flux.safetensors", ae_model=root / "ae.safetensors", qwen_model=root / "qwen",
+                    action_initializer=root / "init.pt", representation=f"joint{dim}", horizon=16,
+                    epochs=7, batch_size=3, accumulation=2, num_processes=4)
+                def measured(cfg):
+                    self.assertEqual(cfg.model._target_, builder.JOINT_MODEL_TARGET)
+                    self.assertEqual(cfg.data.train._target_, builder.JOINT_DATASET_TARGET)
+                    self.assertEqual(cfg.model.expected_action_dim, dim)
+                    self.assertEqual(cfg.model.action_dit_config.action_dim, dim)
+                    self.assertEqual(cfg.model.body_target, body)
+                    self.assertEqual(list(cfg.model.loss.action_a2a.source_noise_dim_mask), [True] * dim)
+                    return {"dataset_frames": 567, "raw_loader_batches": 189, "per_rank_microbatches": 48,
+                            "world_size": 4, "microbatch": 3, "gradient_accumulation": 2,
+                            "dataloader_drop_last": False, "source": "mock native loader measurement; no iteration"}
+                receipt = builder.build(args, measure_loader=measured)
+                self.assertEqual((receipt["action_dim"], receipt["action_stride"], receipt["future_image_offset"]), (dim, 2, 32))
+                self.assertEqual(receipt["future_action_offsets"], [0, 30])
+                self.assertEqual(receipt["past_action_offsets"], [-32, -2])
+                production = OmegaConf.load(root / "newrun/production.yaml")
+                smoke = OmegaConf.load(root / "newrun/smoke.yaml")
+                trainer.validate_config(production, smoke=False)
+                trainer.validate_config(smoke, smoke=True)
+                self.assertEqual(production.model.state_only_schema_id,
+                                 f"wholebody.joint_reference{dim}.{body}29.state44.p25.v1")
+                self.assertEqual(production.model.statistics_sha256, builder.sha256(root / "stats.json"))
+                self.assertEqual(production.model.instruction_sha256, hashlib.sha256(stats["instruction"].encode()).hexdigest())
+                self.assertEqual(production.data.train.action_stride, 2)
+                self.assertEqual(production.model.reference_fps, 30)
+                self.assertEqual(smoke.lr_scheduler_total_steps, production.lr_scheduler_total_steps)
+                self.assertFalse((root / "newrun/production").exists())
+                self.assertFalse((root / "newrun/smoke").exists())
+
+    def test_joint_recipe_rejects_legacy_horizon_wrong_statistics_and_missing_validity(self):
+        for dim in (41, 47):
+            for key, value in [("schema", builder.STATS_SCHEMA), ("action_dim", 76),
+                    ("action_horizon", 40), ("past_action_size", 40), ("future_image_offset", 16),
+                    ("fps", 50), ("action_stride", 1), ("instruction", "")]:
+                with self.subTest(dim=dim, key=key), self.assertRaises(ValueError):
+                    stats = valid_joint_stats(dim)
+                    stats[key] = value
+                    spec = builder.recipe_spec(stats, f"joint{dim}")
+                    builder.validate_statistics(stats, spec)
+        stats = valid_joint_stats(47)
+        del stats["orientation_validity_rule"]
+        with self.assertRaises(ValueError):
+            builder.validate_statistics(stats, builder.recipe_spec(stats, "joint47"))
 
 
 @unittest.skipUnless(all(importlib.util.find_spec(name) for name in ("torch", "omegaconf", "hydra", "accelerate")),

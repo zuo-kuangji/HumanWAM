@@ -13,3 +13,6 @@
 [submodule "third_party/Psi0"]
 	path = third_party/Psi0
 	url = https://github.com/physical-superintelligence-lab/Psi0.git
+[submodule "third_party/FastWAM"]
+	path = third_party/FastWAM
+	url = https://github.com/yuantianyuan01/FastWAM.git

@@ -1,6 +1,6 @@
 # HumanWAM
 
-统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow 、DiT4DiT 和 Psi-Zero 五类 policy。
+统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow、Fast-WAM、DiT4DiT 和 Psi-Zero 六个 policy 家族，共七个注册入口。ImageWAM 的 motion76 与 joint-reference 使用独立入口和动作schema。
 
 - [统一安装、代码结构与维护说明](docs/POLICY_MAINTENANCE.md)
 - [初始权重、下载与恢复说明](docs/MODEL_INITIALIZATION.md)
@@ -8,12 +8,17 @@
 - [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
 - [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
 - [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
+- [ImageWAM joint29＋Inspire12 新训练路径](docs/G1_JOINT_REFERENCE_DELTA.md)
+- [SONIC joint-reference 离线导出与协议](docs/policies/SONIC_JOINT_REFERENCE.md)
+- [Fast-WAM 原生 Gaussian FM](docs/policies/FASTWAM.md)
 - [DiT4DiT](docs/policies/DIT4DIT.md)
 - [Psi-Zero / SONIC](docs/policies/PSI0.md)
 
 新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
 各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
 ImageWAM 新全身训练默认16步，下面继承的历史说明如出现40步，仅对应旧配置。
+Fast-WAM 已完成源码、配置、公开权重metadata和CPU接口核验，尚未进行GPU推理。
+joint-reference 是新增训练与离线导出路径，目前没有已训练checkpoint或真机效果结论。
 
 ```bash
 export HUMANWAM_ROOT="$PWD"
@@ -33,9 +38,15 @@ humanwam doctor
 
 [全身训练与数据处理说明](docs/G1_WHOLEBODY_DELTA.md)提供 FLUX.2 4B 的
 **64D motion latent＋双手各6D实测状态**训练入口，完整说明数据字段、当前 state
-仅进动作分支、40步历史/目标窗口、任务独立归一化、视觉/动作 FM＋IC 与
+仅进动作分支、新16步历史/目标窗口及显式旧40步配置、任务独立归一化、视觉/动作 FM＋IC 与
 stop-gradient，以及配置生成、CPU检查和五步试跑。76D输出不是76个关节角，
 真机执行仍需匹配的 motion decoder 和安全控制链。
+
+独立的[关节参考训练路径](docs/G1_JOINT_REFERENCE_DELTA.md)预测G1 body29＋双手各6D实测状态，
+可额外预测root rotation6D。它需要新的41/47维投影、统计和训练，不能套用旧motion76完整权重。
+[SONIC离线导出器](docs/policies/SONIC_JOINT_REFERENCE.md)检查关节顺序、真实未来root姿态与时间覆盖，
+重采样到50Hz，只写NPZ与body协议bytes，不连接机器人。
+将WBC电机qtarget当作SONIC参考是新的实验控制链，尚未验证与原始运动参考等价。
 
 **Chair 训练/测试数据：**使用
 [OKayQi/wb_chair](https://huggingface.co/datasets/OKayQi/wb_chair) 中的
