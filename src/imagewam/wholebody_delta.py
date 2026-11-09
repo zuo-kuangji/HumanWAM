@@ -383,6 +383,20 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         payload = {"checkpoint_format": self.state_only_protocol()["format"], "state_only_delta": self.state_only_protocol(),
                    "mot": self.mot.state_dict(), "step": step, "torch_dtype": str(self.torch_dtype),
                    "initialization_audit": self.compatible_action_initialization_audit}
+        if hasattr(self, "training_augmentation_config"):
+            from imagewam.augmentation_config import augmentation_sha256, normalize_augmentation
+            config = normalize_augmentation(self.training_augmentation_config)
+            payload["training_augmentation"] = {"config": config, "sha256": augmentation_sha256(config)}
+        elif getattr(self, "loaded_training_augmentation", None) is not None:
+            import copy
+            from imagewam.augmentation_config import augmentation_sha256, normalize_augmentation
+            metadata = copy.deepcopy(self.loaded_training_augmentation)
+            require(isinstance(metadata, dict) and set(metadata) == {"config", "sha256"},
+                    "Invalid loaded training augmentation metadata")
+            config = normalize_augmentation(metadata["config"])
+            require(config == metadata["config"] and augmentation_sha256(config) == metadata["sha256"],
+                    "Loaded training augmentation digest differs")
+            payload["training_augmentation"] = metadata
         if optimizer is not None:
             payload["optimizer"] = optimizer.state_dict()
         torch.save(payload, path)
@@ -391,6 +405,14 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         require(isinstance(payload, dict) and payload.get("checkpoint_format") == self.state_only_protocol()["format"],
                 "Restore requires the whole-body checkpoint schema, not a legacy/native/C-Pred model")
         require(payload.get("state_only_delta") == self.state_only_protocol(), "Checkpoint action/state/source/route protocol differs")
+        if "training_augmentation" in payload:
+            from imagewam.augmentation_config import augmentation_sha256, normalize_augmentation
+            metadata = payload["training_augmentation"]
+            require(isinstance(metadata, dict) and set(metadata) == {"config", "sha256"},
+                    "Invalid checkpoint training augmentation metadata")
+            config = normalize_augmentation(metadata["config"])
+            require(config == metadata["config"] and augmentation_sha256(config) == metadata["sha256"],
+                    "Checkpoint training augmentation digest differs")
         require(isinstance(payload.get("initialization_audit"), dict), "Checkpoint lacks initialization provenance")
         state = payload.get("mot")
         expected = self.mot.state_dict()
@@ -410,6 +432,9 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         require(optimizer is None or "optimizer" in payload, "Training resume requested without optimizer state")
         self.mot.load_state_dict(payload["mot"], strict=True)
         self.compatible_action_initialization_audit = payload["initialization_audit"]
+        # Provenance only. Inference never constructs the training augmenter.
+        import copy
+        self.loaded_training_augmentation = copy.deepcopy(payload.get("training_augmentation"))
         if optimizer is not None:
             optimizer.load_state_dict(payload["optimizer"])
         return payload

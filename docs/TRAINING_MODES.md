@@ -5,6 +5,12 @@ Run commands from the repository root, using the dedicated ImageWAM environment.
 The lightweight `humanwam` package does not install FLUX.2 or the training dependencies.
 For checkpoint files, persistent inference services and SONIC integration, see the
 [deployment guide](G1_DEPLOYMENT.md).
+New generated training configs enable paired exposure/color/jitter/blur augmentation,
+light current-state noise and occasional masking of 1–3 state dimensions. Use
+`--no-augmentation` for a clean-input ablation or `--augmentation-config PATH` for a custom
+profile. Legacy configs without this field remain disabled. See the
+[augmentation settings](DATA_AUGMENTATION.md) for exact probabilities and separate
+Delta-flow source noise settings. Inference does not apply training augmentation.
 
 | Mode | Predicted physical action after denormalization | History / prediction / execution | SONIC v1.1 interface |
 |---|---|---|---|
@@ -45,8 +51,7 @@ For motion-token mode:
 
 ```bash
 python -m imagewam.datasets.wholebody \
-  --dataset-dir "$DATASET_DIR" --output-dir "$WORK_DIR/inputs" \
-  --action-horizon 16 --past-action-size 16
+  --dataset-dir "$DATASET_DIR" --output-dir "$WORK_DIR/inputs"
 ```
 
 For joint mode on the existing G1 recordings:

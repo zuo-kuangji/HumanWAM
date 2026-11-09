@@ -371,12 +371,13 @@ class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
                  split: str = "train", action_horizon: int = 16, past_action_size: int = 16,
                  qwen_context_len: int = 128, qwen_text_dim: int = 7680,
                  video_cache_frames: int = 64, decoder: Callable | None = None,
-                 train_split_mode: str = "all_episodes"):
+                 train_split_mode: str = "all_episodes", augmentation=None):
         if (type(action_horizon) is not int or action_horizon not in (16, 40)
                 or past_action_size != action_horizon):
             raise ValueError("Use matching action/history horizon16, or explicit legacy40")
         if split != "train":
             raise ValueError("This all-episode version has no validation dataset; split must be train")
+        self._configure_augmentation(augmentation, split=split)
         self.meta = load_metadata(dataset_dir)
         self.root = self.meta["root"]
         self.stats = json.loads(Path(stats_path).read_text())
@@ -435,6 +436,38 @@ class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
     def __len__(self):
         return int(self.ends[-1])
 
+    def _configure_augmentation(self, augmentation, *, split):
+        from imagewam.datasets.proprio_augmentation import TrainingAugmentation
+        self.augmentation = TrainingAugmentation(augmentation, training=split == "train")
+
+    def set_epoch(self, epoch):
+        """Publish the augmentation epoch to persistent DataLoader workers."""
+        augmentation = getattr(self, "augmentation", None)
+        if augmentation is not None:
+            augmentation.set_epoch(epoch)
+
+    def _augmentation_generator(self):
+        augmentation = getattr(self, "augmentation", None)
+        return None if augmentation is None else augmentation.generator()
+
+    def _training_visual_parameters(self, *, generator):
+        augmentation = getattr(self, "augmentation", None)
+        return None if augmentation is None else augmentation.visual_parameters(generator=generator)
+
+    def _training_camera_frames(self, episode, camera, indices, *, generator, parameters=None):
+        frames = self._frames(episode, camera, indices)
+        augmentation = getattr(self, "augmentation", None)
+        if augmentation is None:
+            return frames
+        return augmentation.apply_video(frames, generator=generator, parameters=parameters)
+
+    def _training_current_state(self, current, raw_current, *, generator):
+        augmentation = getattr(self, "augmentation", None)
+        if augmentation is None:
+            return current
+        return augmentation.apply_current_state(current, raw_current_state=raw_current,
+                                                normalizer=self.normalizer, generator=generator)
+
     def _frames(self, episode: int, camera: str, indices: list[int]) -> torch.Tensor:
         keys = [(episode, camera, int(i)) for i in indices]
         # Snapshot every hit before touching the LRU. A preceding miss in this
@@ -471,7 +504,10 @@ class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
         anchor = int(index - (self.ends[ep_position - 1] if ep_position else 0))
         states, actions = self.episodes[episode]
         window = window_indices(anchor, len(actions), self.action_horizon, self.past_action_size)
-        video = torch.cat([self._frames(episode, cam, window["image"].tolist()) for cam in CAMERAS], dim=-1)
+        generator = self._augmentation_generator()
+        visual_parameters = self._training_visual_parameters(generator=generator)
+        video = torch.cat([self._training_camera_frames(episode, cam, window["image"].tolist(),
+                          generator=generator, parameters=visual_parameters) for cam in CAMERAS], dim=-1)
         video = (video * 2.0 - 1.0).permute(1, 0, 2, 3).contiguous()
         action = self.normalizer.forward(actions[window["action"]], "action")
         past = self.normalizer.forward(actions[window["past_action"]], "action")
@@ -480,6 +516,7 @@ class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
             # actions[0] here would leak the first target through its source.
             past = np.zeros_like(past)
         current_state = self.normalizer.forward(states[anchor], "state")
+        current_state = self._training_current_state(current_state, states[anchor], generator=generator)
         # Never return future-state values through the proprio time dimension.
         proprio = np.repeat(current_state[None], self.action_horizon, axis=0)
         return {"video": video, "action": torch.from_numpy(action),

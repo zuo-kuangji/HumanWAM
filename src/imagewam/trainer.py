@@ -1118,6 +1118,14 @@ class Wan22Trainer:
             state_file,
         )
 
+    def _training_data_iterator(self):
+        # Publish the epoch before DataLoader starts/prefetches, including for
+        # persistent workers. Ordinary datasets without this hook are unchanged.
+        set_epoch = getattr(self.train_dataset, "set_epoch", None)
+        if callable(set_epoch):
+            set_epoch(self.epoch)
+        return iter(self.train_loader)
+
     def train(self):
         self._set_dit_only_train_mode()
 
@@ -1127,7 +1135,7 @@ class Wan22Trainer:
             raise ValueError("`max_steps` must be set before entering the while-step training loop.")
 
         logger.info("Starting training with max_steps=%d.", self.max_steps)
-        data_iter = iter(self.train_loader)
+        data_iter = self._training_data_iterator()
         self.run_start_step = self.global_step
         self.run_start_time = time.perf_counter()
 
@@ -1147,7 +1155,7 @@ class Wan22Trainer:
                 self.epoch += 1
                 self.batch_in_epoch = 0
                 self.train_sampler.clear_resume_batch_offset()
-                data_iter = iter(self.train_loader)
+                data_iter = self._training_data_iterator()
                 continue
             step_timings["data"] = time.perf_counter() - data_start
 

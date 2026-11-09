@@ -3,7 +3,7 @@
 本文对应 main 上的两条 ImageWAM Δ-flow 路线。模型训练见[训练入口](TRAINING_MODES.md)，
 关节标签来源见[数据审计](policies/REFERENCE_LABEL_AUDIT_20261110.md)。
 
-HumanWAM 已实现模型加载、常驻 HTTP 预测、HTTP 客户端，以及关节参考的时钟检查和协议导出。
+HumanWAM 已实现同进程直接调用、可选的常驻 HTTP 预测与客户端，以及关节参考的时钟检查和协议导出。
 SONIC v1.1 接收端由固定版本的上游实现提供。本仓库目前没有完整的在线 ZMQ 发布循环或
 Inspire 硬件驱动桥，下面明确标出这些接线边界；启动模型服务不等于已经启动机器人控制。
 新 joint47 v2 需要先训练自己的模型，目前没有可直接下载的已训练 joint47 v2 checkpoint。
@@ -48,6 +48,38 @@ ImageWAM 原生环境的安装命令和 CUDA 版本见[环境说明](G1_WHOLEBOD
 不需要上传或加载 optimizer/scheduler state。使用已有文本缓存时，推理不重新运行 Qwen。
 迁移机器后，只将 YAML 中使用的文件路径指向新位置，保留结构、horizon、统计值、instruction和各 SHA。
 不要编辑 `dataset_stats.json` 来“适配”另一组权重，也不要将 motion76 checkpoint 改名后交给 joint factory。
+
+## 同进程直接调用，不经过 HTTP
+
+直接调用和HTTP都保留。已有采集／执行程序能使用ImageWAM环境时，可直接复用policy对象；
+希望将模型与调用方放在不同进程或环境中时，可使用下文的HTTP服务。两种方式返回相同的动作语义，
+训练和SONIC本身不要求HTTP。
+
+下面代码在实际ImageWAM解释器中运行，所需环境变量与对应路线的服务配置相同：
+
+```python
+import json
+from pathlib import Path
+
+from humanwam.config import load_config
+from humanwam.observations import observation_from_npz
+from humanwam.registry import build_policy
+
+# Motion token；Joint47改为configs/humanwam/imagewam-joint47.json。
+policy = build_policy(load_config("configs/humanwam/imagewam-h16.json"))
+
+def predict_capture(npz_path, metadata_path):
+    metadata = json.loads(Path(metadata_path).read_text())
+    observation = observation_from_npz(npz_path, metadata)
+    return policy.predict(observation)
+
+prediction = predict_capture("actual_observation.npz", "actual_metadata.json")
+# 后续对新观测继续调用predict_capture，复用同一policy和已加载模型。
+```
+
+首次`predict`加载native模型，`build_policy`本身不切换Python解释器。
+直接调用同样需要实际观测和严格过去的history；joint结果直接交给第7节的时钟runtime。
+它不会绕开归一化、source contract、heading恢复或过期检查。下面的HTTP章节是可选部署方式。
 
 ## 2. 启动 Motion token 模型服务
 

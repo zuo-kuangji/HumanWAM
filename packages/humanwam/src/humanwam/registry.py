@@ -31,8 +31,8 @@ BACKENDS = {
         "humanwam.backends.imagewam_joint_reference",
         "humanwam.backends.imagewam_joint_reference",
         ".",
-        "two current RGB + current state44 + strictly-past stride2 joint41/47 references",
-        "H16 raw joint29 + measured Inspire12, optionally predicted root rotation6d; SONIC v1",
+        "two current RGB + current state44 + past stride2 history16; v2 also needs current root and observation clock",
+        "joint47 v2: prediction40/execution16 with root rotation6d; legacy joint41/47 via explicit config; SONIC v1.1",
         "ImageWAM FLUX.2 BF16 environment; distinct from motion76 checkpoints",
     ),
     "psi0": Backend(

@@ -9,6 +9,7 @@ matching smoke receipts and starts independently from the base again.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import math
@@ -49,6 +50,54 @@ def expected_microbatches(loader_length, accumulation, optimizer_updates):
     updates_per_epoch = math.ceil(loader_length / accumulation)
     complete_epochs, remaining_updates = divmod(optimizer_updates, updates_per_epoch)
     return complete_epochs * loader_length + min(remaining_updates * accumulation, loader_length)
+
+
+def training_augmentation_contract(cfg, *, dataset=None):
+    """Validate task-bound training settings; missing legacy fields mean disabled."""
+    from imagewam.augmentation_config import augmentation_sha256, normalize_augmentation
+
+    ds, contract = cfg["data"]["train"], cfg["wholebody_contract"]
+    present = ("augmentation" in ds, "training_augmentation" in contract,
+               "training_augmentation_sha256" in contract)
+    require(not any(present) or all(present),
+            "Dataset augmentation and its complete config/SHA contract must be recorded together")
+    try:
+        canonical = normalize_augmentation(contract.get("training_augmentation"))
+        digest = augmentation_sha256(canonical)
+        if any(present):
+            require(contract["training_augmentation"] == canonical
+                    and ds["augmentation"] == canonical
+                    and normalize_augmentation(ds["augmentation"]) == canonical
+                    and contract["training_augmentation_sha256"] == digest,
+                    "Training augmentation must retain the exact canonical profile and SHA256")
+        if dataset is not None:
+            actual = getattr(dataset, "augmentation", None)
+            actual_config = getattr(actual, "config", None)
+            require(normalize_augmentation(actual_config) == canonical,
+                    "Actual dataset training augmentation differs from the resolved recipe")
+            if actual is not None:
+                require(actual_config == canonical and getattr(actual, "enabled", None) is canonical["enabled"],
+                        "Actual dataset augmentation config or enabled state differs")
+    except (TypeError, ValueError) as error:
+        raise RuntimeError("Invalid training augmentation configuration") from error
+    return {"config": canonical, "sha256": digest, "legacy": not any(present)}
+
+
+def validate_smoke_sample(sample, cfg):
+    """Raw joint v2 samples contain target40 and history16 before source expansion."""
+    import torch
+
+    target = int(cfg["model"]["expected_action_horizon"])
+    history = int(cfg["data"]["train"]["past_action_size"])
+    dimension = int(cfg["model"]["expected_action_dim"])
+    require(tuple(sample["video"].shape) == (1, 3, 2, 224, 448)
+            and tuple(sample["action"].shape) == (1, target, dimension)
+            and tuple(sample["past_action"].shape) == (1, history, dimension)
+            and tuple(sample["proprio"].shape) == (1, target, 44)
+            and tuple(sample["text_hidden_states"].shape) == (1, 128, 7680),
+            "Actual sample schema differs from target/history horizons")
+    require(torch.equal(sample["proprio"], sample["proprio"][:, :1].expand_as(sample["proprio"])),
+            "Dataset supplied future state instead of one augmented current state")
 
 
 def config_spec(cfg):
@@ -167,6 +216,7 @@ def config_spec(cfg):
 def validate_config(cfg, *, smoke):
     """Check the resolved, fresh-run method before constructing a CUDA model."""
     c, model, data = cfg["wholebody_contract"], cfg["model"], cfg["data"]
+    training_augmentation_contract(cfg)
     spec = config_spec(cfg)
     dim = spec["action_dim"]
     require(
@@ -398,9 +448,17 @@ def validate_config(cfg, *, smoke):
 def require_completed_smoke(cfg):
     """Production is allowed only after all ranks completed the same five-update smoke."""
     c = cfg["wholebody_contract"]
+    augmentation = training_augmentation_contract(cfg)
     root = Path(c["smoke_output_dir"])
     for rank in range(int(c["world_size"])):
         report = json.loads((root / f"smoke_rank_{rank}.json").read_text())
+        recorded_digest = report.get("training_augmentation_sha256")
+        require(recorded_digest == augmentation["sha256"]
+                or (augmentation["legacy"] and recorded_digest is None),
+                "Smoke training augmentation differs from production; run a matching smoke")
+        if recorded_digest is not None:
+            require(report.get("training_augmentation") == augmentation["config"],
+                    "Smoke training augmentation profile differs from production")
         require(report.get("action_horizon", 40) == cfg["model"]["expected_action_horizon"]
                 and report.get("action_dim", 76) == cfg["model"]["expected_action_dim"],
                 "Smoke prediction horizon differs from production; run a matching smoke")
@@ -462,9 +520,14 @@ def install_training_contract(*, smoke):
         cfg, before = kwargs.get("cfg"), kwargs.get("model")
         require(cfg is not None and before is not None, "Native trainer requires explicit model/config")
         schedule = validate_config(cfg, smoke=smoke)
+        augmentation = training_augmentation_contract(cfg)
+        before.training_augmentation_config = copy.deepcopy(augmentation["config"])
         initializer_audit(before, cfg)
         original_init(self, *args, **kwargs)
         model = self.accelerator.unwrap_model(self.model)
+        actual_augmentation = training_augmentation_contract(self.cfg, dataset=self.train_dataset)
+        require(getattr(model, "training_augmentation_config", None) == actual_augmentation["config"],
+                "Model training augmentation metadata differs from its actual dataset")
         c = self.cfg.wholebody_contract
         protocol = model.validate_state_only_route()
         audit = initializer_audit(model, self.cfg)
@@ -512,11 +575,14 @@ def install_training_contract(*, smoke):
              "parent_weights_loaded": False, "parent_optimizer_loaded": False, "smoke_weights_loaded": False,
              "state_encoder_in_optimizer": True, "initial_lr": float(self.optimizer.param_groups[0]["lr"]),
              "peak_lr": self.learning_rate, "cosine_min_lr": cosine.eta_min,
-             "protocol": protocol, "initialization_audit": audit})
+             "protocol": protocol, "initialization_audit": audit,
+             "training_augmentation": augmentation["config"],
+             "training_augmentation_sha256": augmentation["sha256"]})
 
     def checked_train(self):
         original_train(self)
         engine = self.accelerator.deepspeed_engine_wrapped.engine
+        augmentation = training_augmentation_contract(self.cfg, dataset=self.train_dataset)
         require(self.global_step == self.max_steps == engine.global_steps and engine.skipped_steps == 0, "Native training did not finish its exact optimizer-update count")
         self.accelerator.wait_for_everyone()
         weights = sorted(Path(self.weights_dir).glob("*.pt"))
@@ -528,7 +594,9 @@ def install_training_contract(*, smoke):
              "optimizer_updates": self.global_step, "skipped_updates": engine.skipped_steps,
              "training_epochs": self.num_epochs, "fresh_base": True, "smoke_weights_loaded": False,
              "weight_files": [p.name for p in weights], "training_state_directories": [p.name for p in states],
-             "task_success_evaluated": False})
+             "task_success_evaluated": False,
+             "training_augmentation": augmentation["config"],
+             "training_augmentation_sha256": augmentation["sha256"]})
 
     Wan22Trainer.__init__, Wan22Trainer.train = checked_init, checked_train
 
@@ -608,12 +676,7 @@ def install_smoke_hooks():
         original_init(self, *args, **kwargs)
         model = self.accelerator.unwrap_model(self.model)
         sample = default_collate([self.train_dataset[0]])
-        horizon = int(self.cfg.model.expected_action_horizon)
-        require(tuple(sample["video"].shape) == (1, 3, 2, 224, 448)
-                and tuple(sample["action"].shape) == tuple(sample["past_action"].shape) == (1, horizon, int(self.cfg.model.expected_action_dim))
-                and tuple(sample["proprio"].shape) == (1, horizon, 44)
-                and tuple(sample["text_hidden_states"].shape) == (1, 128, 7680), "Actual sample schema differs")
-        require(torch.equal(sample["proprio"], sample["proprio"][:, :1].expand_as(sample["proprio"])), "Dataset supplied future state instead of repeated current state")
+        validate_smoke_sample(sample, self.cfg)
         with torch.no_grad(), self.accelerator.autocast():
             first = model.build_inputs_flux2(sample)
             second = model.build_inputs_flux2(dict(sample, proprio=sample["proprio"] + .25))
@@ -660,6 +723,7 @@ def install_smoke_hooks():
         hashes = [None] * self.accelerator.num_processes
         dist.all_gather_object(hashes, digest.hexdigest())
         require(len(set(hashes)) == 1, "Action-side state encoder differs across ranks")
+        augmentation = training_augmentation_contract(self.cfg, dataset=self.train_dataset)
         evidence.update(status="FIVE_UPDATES_VERIFIED", rank=self.accelerator.process_index,
             action_horizon=int(self.cfg.model.expected_action_horizon),
             action_dim=int(self.cfg.model.expected_action_dim),
@@ -669,6 +733,7 @@ def install_smoke_hooks():
             schedule_total_updates=self.cfg.lr_scheduler_total_steps,
             statistics_sha256=self.cfg.wholebody_contract.statistics_sha256,
             action_initializer_sha256=self.cfg.model.action_initializer_sha256,
+            training_augmentation=augmentation["config"], training_augmentation_sha256=augmentation["sha256"],
             fp32_master_probe_absolute_change=change, state_encoder_hash=digest.hexdigest(),
             peak_allocated_bytes=torch.cuda.max_memory_allocated(), peak_reserved_bytes=torch.cuda.max_memory_reserved(),
             no_weight_or_optimizer_checkpoints_saved=True, production_must_reload_fresh_base=True,
@@ -690,6 +755,12 @@ def main():
     validate_config(cfg, smoke=args.smoke)
     receipt = json.loads((config_path.parent / "build_receipt.json").read_text())
     require(receipt["config_sha256"].get(config_path.name) == sha256(config_path), "Resolved config changed; rebuild into a new run directory")
+    augmentation = training_augmentation_contract(cfg)
+    require((augmentation["legacy"] and "training_augmentation" not in receipt
+             and "training_augmentation_sha256" not in receipt)
+            or (receipt.get("training_augmentation") == augmentation["config"]
+                and receipt.get("training_augmentation_sha256") == augmentation["sha256"]),
+            "Build receipt training augmentation differs from the resolved configuration")
     if not args.smoke:
         require_completed_smoke(cfg)
     claim_output(cfg.output_dir, config_path)

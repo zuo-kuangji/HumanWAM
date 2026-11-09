@@ -25,6 +25,10 @@ CHECKS = (
     ("native_fm_ic", "tests", "test_wholebody_delta.py"),
     ("training_cli", "tests", "test_wholebody_training_cli.py"),
     ("joint_v2_cli", "tests", "test_wholebody_joint_v2_cli.py"),
+    ("augmentation_config", "tests", "test_augmentation_config.py"),
+    ("visual_augmentation", "tests", "test_wholebody_visual_augmentation.py"),
+    ("training_augmentation", "tests", "test_wholebody_training_augmentation.py"),
+    ("augmentation_cli", "tests", "test_wholebody_cli.py"),
 )
 
 

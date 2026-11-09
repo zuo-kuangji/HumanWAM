@@ -266,6 +266,15 @@ def argument_parser():
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--accumulation", type=int, default=2)
     parser.add_argument("--num-processes", type=int, default=8)
+    augmentation = parser.add_mutually_exclusive_group()
+    augmentation.add_argument(
+        "--augmentation-config", type=Path,
+        help="Training-only augmentation YAML; defaults to configs/wholebody/augmentation_v1.yaml",
+    )
+    augmentation.add_argument(
+        "--no-augmentation", action="store_true",
+        help="Explicitly disable training augmentation while keeping the legacy inference path",
+    )
     parser.add_argument(
         "--horizon",
         type=int,
@@ -283,11 +292,31 @@ def argument_parser():
     return parser
 
 
+def resolve_training_augmentation(args):
+    from imagewam.augmentation_config import augmentation_sha256, normalize_augmentation
+    from omegaconf import OmegaConf
+
+    custom = getattr(args, "augmentation_config", None)
+    disabled = getattr(args, "no_augmentation", False)
+    require(type(disabled) is bool, "no_augmentation must be an explicit boolean")
+    require(not (disabled and custom is not None), "Choose an augmentation profile or --no-augmentation")
+    if disabled:
+        config, source = normalize_augmentation(None), None
+    else:
+        profile = (Path(custom) if custom is not None else
+                   Path(__file__).resolve().parents[2] / "configs/wholebody/augmentation_v1.yaml")
+        profile = profile.expanduser().resolve(strict=True)
+        config = normalize_augmentation(OmegaConf.to_container(OmegaConf.load(profile), resolve=True))
+        source = str(profile)
+    return config, augmentation_sha256(config), source
+
+
 def build(args, *, measure_loader=measure_native_loader):
     from omegaconf import OmegaConf
 
     for name in ("epochs", "batch_size", "accumulation", "num_processes"):
         require(getattr(args, name) > 0, name + " must be positive")
+    augmentation, augmentation_digest, augmentation_source = resolve_training_augmentation(args)
     paths = {
         name: getattr(args, name).expanduser().resolve(strict=True)
         for name in (
@@ -392,6 +421,7 @@ def build(args, *, measure_loader=measure_native_loader):
     cfg.data.train.dataset_dir = str(paths["dataset_dir"])
     cfg.data.train.stats_path = str(paths["stats_path"])
     cfg.data.train.qwen_text_cache_dir = str(paths["text_cache_dir"])
+    cfg.data.train.augmentation = augmentation
     for key, name in (
         ("flux2_src_path", "flux2_src"),
         ("flux2_model_path", "flux2_model"),
@@ -416,6 +446,8 @@ def build(args, *, measure_loader=measure_native_loader):
         "smoke_output_dir": str(root / "smoke"),
         "production_output_dir": str(root / "production"),
         "fresh_base": True,
+        "training_augmentation": augmentation,
+        "training_augmentation_sha256": augmentation_digest,
     }
     if spec.get("recipe_version") == "v2":
         cfg.wholebody_contract.joint_recipe = spec["joint_recipe"]
@@ -491,6 +523,9 @@ def build(args, *, measure_loader=measure_native_loader):
         "visual_source": "0.5 * z_current + sqrt(0.75) * epsilon",
         "action_source": f"normalized_past_action{dim} + 0.5 * epsilon_all{dim}",
         "checkpoint_retention": "latest four weight snapshots and latest one training state",
+        "training_augmentation": augmentation,
+        "training_augmentation_sha256": augmentation_digest,
+        "training_augmentation_profile": augmentation_source,
     }
     if spec.get("recipe_version") == "v2":
         receipt.update(

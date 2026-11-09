@@ -10,8 +10,12 @@ on:
       - "scripts/humanwam/**"
       - "src/imagewam/wholebody*.py"
       - "src/imagewam/joint_reference*.py"
-      - "src/imagewam/datasets/wholebody_joint_reference.py"
+      - "src/imagewam/augmentation_config.py"
+      - "src/imagewam/trainer.py"
+      - "src/imagewam/datasets/wholebody*.py"
+      - "src/imagewam/datasets/proprio_augmentation.py"
       - "tests/test_wholebody*.py"
+      - "tests/test_augmentation_config.py"
       - "tests/test_joint_reference_contract.py"
       - "patches/**"
       - "backends.lock.json"
@@ -26,8 +30,12 @@ on:
       - "scripts/humanwam/**"
       - "src/imagewam/wholebody*.py"
       - "src/imagewam/joint_reference*.py"
-      - "src/imagewam/datasets/wholebody_joint_reference.py"
+      - "src/imagewam/augmentation_config.py"
+      - "src/imagewam/trainer.py"
+      - "src/imagewam/datasets/wholebody*.py"
+      - "src/imagewam/datasets/proprio_augmentation.py"
       - "tests/test_wholebody*.py"
+      - "tests/test_augmentation_config.py"
       - "tests/test_joint_reference_contract.py"
       - "patches/**"
       - "backends.lock.json"
@@ -67,5 +75,7 @@ jobs:
           python -m pytest -q packages/humanwam/tests
           tests/test_wholebody_training_cli.py tests/test_wholebody_joint_v2_cli.py
           tests/test_joint_reference_contract.py
+          tests/test_augmentation_config.py
+          tests/test_wholebody_cli.py
       - name: Lightweight package lint
         run: python -m ruff check packages/humanwam

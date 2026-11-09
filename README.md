@@ -6,6 +6,8 @@ motion-token and joint-reference training modes with distinct action and checkpo
 
 - [G1 training modes and reproducible commands](docs/TRAINING_MODES.md)
 - [G1 deployment: model services, HTTP clients and SONIC v1.1](docs/G1_DEPLOYMENT.md)
+- [Image preprocessing, source noise and augmentation settings](docs/DATA_AUGMENTATION.md)
+- [Training augmentation verification: 431 CPU checks](docs/policies/AUGMENTATION_VALIDATION_20261110.md)
 - [Two-route CPU validation and limitations](docs/policies/TRAINING_ROUTES_VALIDATION_20261110.md)
 - [Installation, repository structure and maintenance](docs/POLICY_MAINTENANCE.md)
 - [Base weights, initialization and checkpoint loading](docs/MODEL_INITIALIZATION.md)

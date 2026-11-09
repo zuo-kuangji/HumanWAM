@@ -1119,9 +1119,11 @@ class JointReferenceLeRobotDataset(WholeBodyLeRobotDataset):
         recipe_version="v1",
         execution_horizon=16,
         source_contract=None,
+        augmentation=None,
     ):
         if split != "train":
             raise ValueError("This all-episode version has no validation dataset")
+        self._configure_augmentation(augmentation, split=split)
         self.recipe_version = recipe_version
         self.source_contract = _contract(
             body_target, orientation_target, recipe_version, source_contract
@@ -1253,8 +1255,11 @@ class JointReferenceLeRobotDataset(WholeBodyLeRobotDataset):
             recipe_version=self.recipe_version,
             execution_horizon=self.timing.get("execution_horizon", 16),
         )
+        generator = self._augmentation_generator()
+        visual_parameters = self._training_visual_parameters(generator=generator)
         video = torch.cat(
-            [self._frames(episode, cam, window["image"].tolist()) for cam in CAMERAS],
+            [self._training_camera_frames(episode, cam, window["image"].tolist(),
+                 generator=generator, parameters=visual_parameters) for cam in CAMERAS],
             dim=-1,
         )
         action = self.normalizer.forward(actions[window["action"]], "action")
@@ -1273,6 +1278,7 @@ class JointReferenceLeRobotDataset(WholeBodyLeRobotDataset):
             past = self.normalizer.forward(past_raw, "action")
         past[window["past_action_is_pad"]] = 0.0
         current = self.normalizer.forward(states[anchor], "state")
+        current = self._training_current_state(current, states[anchor], generator=generator)
         orientation_masks = {}
         if self.action_dim == 47:
             validity = arrays[2]

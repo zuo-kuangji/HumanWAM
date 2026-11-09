@@ -78,6 +78,11 @@ for package in ("imagewam", "imagewam.models", "imagewam.models.backbones", "flu
     module = ModuleType(package)
     module.__path__ = []
     sys.modules[package] = module
+augmentation_spec = importlib.util.spec_from_file_location(
+    "imagewam.augmentation_config", HERE.parent / "src/imagewam/augmentation_config.py")
+augmentation_module = importlib.util.module_from_spec(augmentation_spec)
+sys.modules[augmentation_spec.name] = augmentation_module
+augmentation_spec.loader.exec_module(augmentation_module)
 native_module = ModuleType("imagewam.models.backbones.imagewam")
 native_module.__file__ = str(NATIVE / "imagewam.py")
 namespace = native_module.__dict__
@@ -403,6 +408,53 @@ class WholeBodyAdapterTests(unittest.TestCase):
         scale = self.model.image_i2i_current_residual_scale
         self.assertAlmostEqual(scale / (1 + scale**2)**.5, .5)
         self.assertAlmostEqual(1 / (1 + scale**2)**.5, .75**.5)
+
+    def test_training_augmentation_provenance_roundtrip_and_tamper_rejection(self):
+        self.model.training_augmentation_config = augmentation_module.default_augmentation()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "augmented.pt"
+            self.model.save_checkpoint(path, step=8)
+            other = make_model()
+            payload = other.load_checkpoint(path)
+            metadata = payload["training_augmentation"]
+            self.assertEqual(metadata["sha256"], augmentation_module.augmentation_sha256(metadata["config"]))
+            self.assertEqual(other.loaded_training_augmentation, metadata)
+            self.assertEqual(other.state_only_protocol(), self.model.state_only_protocol())
+            # The record is provenance, not an inference transform/controller.
+            self.assertFalse(hasattr(other, "augmentation"))
+            self.assertFalse(hasattr(other, "training_augmentation_config"))
+            resaved = Path(directory) / "resaved.pt"
+            other.save_checkpoint(resaved)
+            self.assertEqual(torch.load(resaved, weights_only=False)["training_augmentation"], metadata)
+            other.loaded_training_augmentation["config"]["seed"] += 1
+            with self.assertRaisesRegex(ValueError, "digest"):
+                other.save_checkpoint(Path(directory) / "invalid-resave.pt")
+            other.loaded_training_augmentation = copy.deepcopy(metadata)
+            for kind in ("digest", "config", "schema", "partial"):
+                bad = copy.deepcopy(payload)
+                if kind == "digest": bad["training_augmentation"]["sha256"] = "0" * 64
+                if kind == "config": bad["training_augmentation"]["config"]["seed"] += 1
+                if kind == "schema": bad["training_augmentation"]["config"]["schema"] = "unknown"
+                if kind == "partial": bad["training_augmentation"]["config"].pop("visual")
+                torch.save(bad, path)
+                before = {key: value.clone() for key, value in other.mot.state_dict().items()}
+                with self.assertRaises(ValueError): other.load_checkpoint(path)
+                self.assertTrue(all(torch.equal(value, other.mot.state_dict()[key]) for key, value in before.items()))
+            legacy = Path(directory) / "legacy.pt"
+            make_model().save_checkpoint(legacy)
+            other.load_checkpoint(legacy)
+            other.save_checkpoint(resaved)
+            self.assertNotIn("training_augmentation", torch.load(resaved, weights_only=False))
+
+    def test_legacy_checkpoint_without_augmentation_remains_loadable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.pt"
+            self.model.save_checkpoint(path)
+            other = make_model()
+            payload = other.load_checkpoint(path)
+            self.assertNotIn("training_augmentation", payload)
+            self.assertIsNone(other.loaded_training_augmentation)
+            self.assertFalse(hasattr(other, "training_augmentation_config"))
 
     def test_legacy_prior_and_action_dim_fail_closed(self):
         self.model.image_i2i_current_residual_scale = 1.
