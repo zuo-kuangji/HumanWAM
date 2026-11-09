@@ -15,9 +15,9 @@ visual:
     gain: [1.25, 1.8]
   color:
     probability: 0.7
-    contrast: [0.9, 1.1]
-    saturation: [0.85, 1.15]
-    hue: 0.01
+    contrast: [0.85, 1.15]
+    saturation: [0.8, 1.2]
+    hue: 0.013888888888888888  # +/- 5 degrees, expressed as hue-circle turns
   jitter:
     probability: 0.4
     translation: 0.02
@@ -25,8 +25,8 @@ visual:
     scale: [0.98, 1.02]
   blur:
     probability: 0.12
-    sigma: [0.2, 0.8]
-    kernel_size: 5
+    sigma: [0.4, 1.2]
+    kernel_size: 9
 proprio:
   enabled: true
   noise_probability: 0.25

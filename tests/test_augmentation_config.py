@@ -36,6 +36,33 @@ def test_profile_yaml_and_hydra_nested_config_match_canonical_defaults():
     assert normalize_proprio_config(profile.proprio) == default_augmentation()["proprio"]
 
 
+def test_updated_color_and_blur_defaults_keep_the_three_event_probabilities():
+    config = default_augmentation()
+    assert config["visual"]["color"] == {
+        "probability": 0.7, "contrast": [0.85, 1.15],
+        "saturation": [0.8, 1.2], "hue": 5 / 360,
+    }
+    assert config["visual"]["blur"] == {
+        "probability": 0.12, "sigma": [0.4, 1.2], "kernel_size": 9,
+    }
+    assert config["visual"]["probability"] == 0.5
+    assert config["proprio"]["noise_probability"] == 0.25
+    assert config["proprio"]["state_dropout"] == {"probability": 0.1}
+
+
+def test_previous_complete_v2_profile_keeps_explicit_ranges_and_its_original_sha():
+    previous = default_augmentation()
+    previous["visual"]["color"].update(
+        contrast=[0.9, 1.1], saturation=[0.85, 1.15], hue=0.01,
+    )
+    previous["visual"]["blur"].update(sigma=[0.2, 0.8], kernel_size=5)
+    saved = copy.deepcopy(previous)
+    assert normalize_augmentation(previous) == saved
+    assert augmentation_sha256(previous) == "a0d5efb8d3659022014f921fe1fe113a690192b5fd78a39a505c03cbe4f01aca"
+    assert previous == saved
+    assert augmentation_sha256(previous) != augmentation_sha256(default_augmentation())
+
+
 def test_legacy_v1_profile_preserves_its_canonical_hash_for_checkpoint_provenance():
     OmegaConf = pytest.importorskip("omegaconf").OmegaConf
     profile = OmegaConf.load(REPO / "configs/wholebody/augmentation_v1.yaml")

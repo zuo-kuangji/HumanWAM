@@ -24,7 +24,10 @@ _VISUAL_V1 = {
     },
     "blur": {"probability": 0.12, "sigma": [0.2, 0.8], "kernel_size": 5},
 }
-_VISUAL = dict(_VISUAL_V1, probability=0.5)
+_VISUAL = copy.deepcopy(_VISUAL_V1)
+_VISUAL["probability"] = 0.5
+_VISUAL["color"].update(contrast=[0.85, 1.15], saturation=[0.8, 1.2], hue=5.0 / 360.0)
+_VISUAL["blur"].update(sigma=[0.4, 1.2], kernel_size=9)
 _PROPRIO_V1 = {
     "enabled": True,
     "body_noise_std": 0.01,

@@ -1,5 +1,7 @@
 """CPU RGB augmentation checks; no model weights, dataset mutation or CUDA."""
 import copy
+import colorsys
+import itertools
 from pathlib import Path
 import sys
 
@@ -109,6 +111,51 @@ def test_hue_rotation_uses_rgb_channel_semantics():
     output=WholeBodyVisualAugmenter().apply(red,generator=generator(),parameters=params)
     green=torch.zeros_like(red);green[:,1]=1
     torch.testing.assert_close(output,green,rtol=0,atol=1e-6)
+
+
+@pytest.mark.parametrize("contrast,saturation,hue", list(itertools.product(
+    (0.85, 1.15), (0.8, 1.2), (-5 / 360, 5 / 360),
+)))
+def test_primary_colors_keep_dominant_channel_and_hue_within_five_degrees(
+    contrast, saturation, hue,
+):
+    # This checks RGB/HSV numerical behavior, not a real classifier's decisions.
+    original = torch.eye(3).reshape(3, 3, 1, 1).expand(-1, -1, 8, 8).clone()
+    parameters = {key: None for key in ("exposure", "overexposure", "jitter", "blur")}
+    parameters["color"] = {"contrast": contrast, "saturation": saturation, "hue": hue}
+    output = WholeBodyVisualAugmenter(only("color")).apply(
+        original, generator=generator(), parameters=parameters,
+    )
+    assert torch.equal(output.argmax(dim=1), original.argmax(dim=1))
+    assert bool(torch.isfinite(output).all())
+    for color in range(3):
+        before = colorsys.rgb_to_hsv(*original[color, :, 0, 0].tolist())[0]
+        after = colorsys.rgb_to_hsv(*output[color, :, 0, 0].tolist())[0]
+        difference = abs(after - before)
+        circular_degrees = min(difference, 1 - difference) * 360
+        assert circular_degrees <= 5 + 1e-4
+
+
+def test_maximum_updated_gaussian_blur_smooths_more_than_previous_maximum_and_preserves_pair():
+    row = torch.arange(32)
+    checker = ((row[:, None] + row[None, :]) % 2).float()
+    original = checker[None, None].expand(2, 3, -1, -1).clone()
+    saved = original.clone()
+    old = WholeBodyVisualAugmenter(only("blur", sigma=[0.8, 0.8], kernel_size=5)).apply(
+        original, generator=generator(),
+    )
+    updated = WholeBodyVisualAugmenter(only("blur", sigma=[1.2, 1.2], kernel_size=9)).apply(
+        original, generator=generator(),
+    )
+    def spatial_variation(image):
+        return ((image[..., 1:] - image[..., :-1]).abs().mean()
+                + (image[..., 1:, :] - image[..., :-1, :]).abs().mean())
+    assert spatial_variation(updated) < spatial_variation(old)
+    assert torch.equal(updated[0], updated[1])
+    assert bool(torch.isfinite(updated).all())
+    assert 0 < float(updated.min()) <= float(updated.max()) <= 1
+    assert float(updated.mean()) > 0.1
+    torch.testing.assert_close(original, saved, rtol=0, atol=0)
 
 
 def test_seed_reproducibility_and_advancing_worker_generator_change_parameters():

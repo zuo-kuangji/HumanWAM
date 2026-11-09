@@ -55,3 +55,21 @@ python scripts/wholebody/check_two_routes.py --output-dir /absolute/path/to/new-
 Tests use CPU fixtures for backbone/native-method routing and do not load the full FLUX.2
 weights, measure GPU performance, perform optimizer updates or actuate a robot. No task
 success improvement is claimed, and existing production runs and datasets were not changed.
+
+## Color and blur defaults follow-up
+
+The initial 456-test snapshot above predates the subsequent bounded-strength adjustment.
+Current defaults use contrast 0.85–1.15, saturation 0.8–1.2, hue rotation at most ±5 degrees
+(`5/360` turns), and Gaussian sigma 0.4–1.2 with a 9×9 kernel. Event probabilities remain
+50% for the visual pipeline, 25% for state noise and 10% for state conditioning dropout.
+
+The follow-up ran 177 relevant native CPU tests without skips: 66 configuration, 40 visual,
+27 dataset augmentation,23 training CLI, 4 joint-v2 CLI and 17 augmentation CLI tests.
+The added checks cover bounded RGB-primary hue changes/dominant channels, stronger but
+finite paired blur, profile/default agreement and preservation of the previously complete
+v2 profile digest. The original v1 digest remains readable. These color-patch checks are
+not a real-apple recognition or task-success evaluation.
+
+Real two-camera previews at 0/5/10/15/20 seconds compare old/new color limits and Gaussian
+blur, with source images retained outside the repository. Existing production runs,
+original data and inference preprocessing were unchanged.
