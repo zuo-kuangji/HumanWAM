@@ -100,13 +100,13 @@ class WholeBodyNumericTests(unittest.TestCase):
         with self.assertRaises(ValueError): md.WholeBodyNormalizer(wrong)
 
     def test_window_boundaries_strict_history_and_same_episode(self):
-        middle = md.window_indices(50, 100)
+        middle = md.window_indices(50, 100, 40, 40)
         np.testing.assert_array_equal(middle['past_action'], np.arange(10, 50))
         np.testing.assert_array_equal(middle['action'], np.arange(50, 90))
         np.testing.assert_array_equal(middle['image'], [50, 90])
-        self.assertTrue(md.window_indices(0, 100)['past_action_is_pad'].all())
-        self.assertEqual(int(md.window_indices(2, 100)['past_action_is_pad'].sum()), 38)
-        tail = md.window_indices(99, 100)
+        self.assertTrue(md.window_indices(0, 100, 40, 40)['past_action_is_pad'].all())
+        self.assertEqual(int(md.window_indices(2, 100, 40, 40)['past_action_is_pad'].sum()), 38)
+        tail = md.window_indices(99, 100, 40, 40)
         self.assertEqual(int(tail['action_is_pad'].sum()), 39)
         self.assertTrue((tail['action'] == 99).all())
         np.testing.assert_array_equal(tail['image_is_pad'], [False, True])
@@ -182,11 +182,30 @@ class WholeBodyFixtureTests(unittest.TestCase):
         return md.prepare_statistics(str(self.root), str(self.output))
 
     def dataset(self, **kwargs):
+        kwargs.setdefault('action_horizon',40)
+        kwargs.setdefault('past_action_size',40)
         def decoder(path, indices):
             offset = 0.5 if 'chest' in str(path) else 0
             return {i: torch.full((3, 224, 224), i / 200 + offset) for i in indices}
         return md.WholeBodyLeRobotDataset(str(self.root), str(self.output / 'dataset_stats.json'),
             str(self.cache), decoder=decoder, **kwargs)
+
+    def test_h16_sample_history_supervision_and_no_future_state(self):
+        self.prepare()
+        ds=self.dataset(action_horizon=16,past_action_size=16)
+        row=ds[50]
+        self.assertEqual(tuple(row['action'].shape),(16,76))
+        self.assertEqual(tuple(row['proprio'].shape),(16,44))
+        state,action=self.arrays[0]
+        np.testing.assert_array_equal(row['past_action'][0],ds.normalizer.forward(action[34],'action'))
+        np.testing.assert_array_equal(row['action'][-1],ds.normalizer.forward(action[65],'action'))
+        self.assertTrue(torch.equal(row['proprio'],row['proprio'][:1].expand_as(row['proprio'])))
+        self.assertEqual(int(ds[99]['action_is_pad'].sum()),15)
+        self.assertTrue(ds[0]['past_action_is_pad'].all())
+        self.assertTrue((ds[0]['past_action']==0).all())
+        self.assertEqual(md.window_indices(50,100)['image'].tolist(),[50,66])
+        for horizon,past in [(16,40),(40,16),(17,17)]:
+            with self.assertRaises(ValueError):self.dataset(action_horizon=horizon,past_action_size=past)
 
     def test_no_training_split_or_modality_required_and_source_frozen(self):
         before = {str(p.relative_to(self.root)): md.sha256(p) for p in self.root.rglob('*') if p.is_file()}

@@ -8,6 +8,8 @@ import math
 import os
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -126,6 +128,19 @@ class ContractTests(unittest.TestCase):
         result = trainer.validate_config(self.cfg, smoke=False)
         self.assertEqual(result["total_updates"], 43680)
 
+    def test_both_horizons_validate_and_window_mismatches_are_rejected(self):
+        for horizon in (16,40):
+            c=copy.deepcopy(self.cfg)
+            c['model']['expected_action_horizon']=horizon
+            c['data']['train'].update(action_horizon=horizon,past_action_size=horizon)
+            c['wholebody_contract'].update(action_horizon=horizon,past_action_horizon=horizon)
+            c['EVALUATION']={'action_horizon':horizon}
+            trainer.validate_config(c,smoke=False)
+            for part,key in [('data','past_action_size'),('EVALUATION','action_horizon')]:
+                wrong=copy.deepcopy(c)
+                (wrong['data']['train'] if part=='data' else wrong[part])[key]=40 if horizon==16 else 16
+                with self.assertRaises(RuntimeError):trainer.validate_config(wrong,smoke=False)
+
     def test_smoke_keeps_production_schedule_but_saves_nothing(self):
         self.cfg.update(output_dir=str(self.root / "smoke"), max_steps=5, save_every=0, save_at_end=False)
         self.assertEqual(trainer.validate_config(self.cfg, smoke=True)["total_updates"], 43680)
@@ -166,6 +181,10 @@ class ContractTests(unittest.TestCase):
                 "schedule_total_updates": 43680}
             (smoke / f"smoke_rank_{rank}.json").write_text(json.dumps(report))
         trainer.require_completed_smoke(self.cfg)
+        wrong_horizon=copy.deepcopy(self.cfg)
+        wrong_horizon['model']['expected_action_horizon']=16
+        with self.assertRaisesRegex(RuntimeError,"horizon"):
+            trainer.require_completed_smoke(wrong_horizon)
         report["actual_optimizer_updates"] = 4
         (smoke / "smoke_rank_7.json").write_text(json.dumps(report))
         with self.assertRaises(RuntimeError):
@@ -217,6 +236,11 @@ class ConfigBuildTests(unittest.TestCase):
             self.assertEqual((receipt["updates_per_epoch"], receipt["total_updates"], receipt["warmup_updates"]), (24, 168, 8))
             production = OmegaConf.load(root / "newrun/production.yaml")
             smoke = OmegaConf.load(root / "newrun/smoke.yaml")
+            self.assertEqual(production.data.train.action_horizon,16)
+            self.assertEqual(production.data.train.past_action_size,16)
+            self.assertEqual(production.model.expected_action_horizon,16)
+            self.assertEqual(production.EVALUATION.action_horizon,16)
+            self.assertEqual(receipt['future_action_offsets'],[0,15])
             trainer.validate_config(production, smoke=False)
             trainer.validate_config(smoke, smoke=True)
             self.assertEqual(smoke.lr_scheduler_total_steps, production.lr_scheduler_total_steps)
@@ -231,18 +255,31 @@ class ConfigBuildTests(unittest.TestCase):
                      "Native CPU loader integration needs the installed repository dependencies")
 class NativeLoaderTests(unittest.TestCase):
     def test_real_native_loader_measurement_without_iteration_or_gpu(self):
-        from omegaconf import OmegaConf
-        from torch.utils.data import Dataset
-        class UniteratedDataset(Dataset):
-            def __len__(self):
-                return 93064
-            def __getitem__(self, index):
-                raise AssertionError("Config generation must never iterate/decode data")
-        cfg = OmegaConf.create({"batch_size": 8, "num_workers": 0, "prefetch_factor": 2,
-            "persistent_workers": False, "seed": 42, "gradient_accumulation_steps": 2,
-            "data": {"train": {}}, "wholebody_contract": {"world_size": 8}})
-        with mock.patch("hydra.utils.instantiate", return_value=UniteratedDataset()):
-            measured = builder.measure_native_loader(cfg)
+        # The native-loss AST fixtures intentionally register a minimal imagewam
+        # namespace. A fresh CPU process avoids letting those fixture modules
+        # replace the actual trainer import during test discovery.
+        code = '''
+import importlib.util,json
+from unittest import mock
+from omegaconf import OmegaConf
+from torch.utils.data import Dataset
+from pathlib import Path
+spec=importlib.util.spec_from_file_location("build_config",Path("scripts/wholebody/build_config.py"))
+builder=importlib.util.module_from_spec(spec);spec.loader.exec_module(builder)
+class UniteratedDataset(Dataset):
+ def __len__(self):return 93064
+ def __getitem__(self,index):raise AssertionError("Loader measurement must never iterate/decode")
+cfg=OmegaConf.create(dict(batch_size=8,num_workers=0,prefetch_factor=2,persistent_workers=False,
+ seed=42,gradient_accumulation_steps=2,data=dict(train={}),wholebody_contract=dict(world_size=8)))
+with mock.patch("hydra.utils.instantiate",return_value=UniteratedDataset()):
+ measured=builder.measure_native_loader(cfg)
+print("MEASUREMENT="+json.dumps(measured))
+'''
+        env=dict(os.environ,CUDA_VISIBLE_DEVICES="",PYTHONPATH=str(REPO/"src"))
+        result=subprocess.run([sys.executable,"-c",code],cwd=REPO,env=env,text=True,capture_output=True)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+        measured=json.loads(next(row.removeprefix("MEASUREMENT=") for row in result.stdout.splitlines()
+                                 if row.startswith("MEASUREMENT=")))
         self.assertEqual((measured["raw_loader_batches"], measured["per_rank_microbatches"]), (11633, 1455))
         self.assertEqual(builder.derive_schedule(measured, 60, 2)["total_updates"], 43680)
 

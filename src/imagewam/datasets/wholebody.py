@@ -152,7 +152,7 @@ def read_episode(root: Path, episode_id: int, expected_length: int,
     return map_numeric(columns)
 
 
-def window_indices(anchor: int, length: int, horizon: int = 40, history: int = 40) -> dict:
+def window_indices(anchor: int, length: int, horizon: int = 16, history: int = 16) -> dict:
     if not 0 <= anchor < length or min(horizon, history) < 1:
         raise ValueError("Invalid episode anchor/window")
     future = np.arange(anchor, anchor + horizon, dtype=np.int64)
@@ -306,8 +306,9 @@ def prepare_statistics(dataset_dir: str, output_dir: str,
              "raw_video_resolutions": {camera: meta["info"]["features"][camera]["shape"][:2] for camera in CAMERAS},
              "output_video_resolution": [224, 448],
              "state_condition_time": "anchor only, repeated across proprio time axis",
-             "future_state_in_model_input": False, "future_image_offset": 40,
-             "future_action_offsets": [0, 39], "past_action_offsets": [-40, -1],
+             "future_state_in_model_input": False,
+             "window_configuration": "Statistics are frame-based and independent of the selected horizon; resolved training config records exact offsets",
+             "supported_action_horizons": [16, 40], "default_action_horizon": 16,
              "episode_boundary_policy": "repeat nearest same-episode value; anchor0 uses zero normalized history; padding masks retained",
              "motion_target_preserved": True, "hand_target_type": "same-row measured feedback",
              "hand_target_time_offset": 0, "hand_command_reconstruction_claimed": False,
@@ -367,12 +368,13 @@ def decode_resized_frames(path: Path, indices: list[int], fps: int = 30) -> dict
 class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
     """Native ImageWAM-ready tensors; numeric data small/in-memory, RGB on demand."""
     def __init__(self, dataset_dir: str, stats_path: str, qwen_text_cache_dir: str,
-                 split: str = "train", action_horizon: int = 40, past_action_size: int = 40,
+                 split: str = "train", action_horizon: int = 16, past_action_size: int = 16,
                  qwen_context_len: int = 128, qwen_text_dim: int = 7680,
                  video_cache_frames: int = 64, decoder: Callable | None = None,
                  train_split_mode: str = "all_episodes"):
-        if action_horizon != 40 or past_action_size != 40:
-            raise ValueError("This audited protocol uses action/history horizon 40")
+        if (type(action_horizon) is not int or action_horizon not in (16, 40)
+                or past_action_size != action_horizon):
+            raise ValueError("Use matching action/history horizon16, or explicit legacy40")
         if split != "train":
             raise ValueError("This all-episode version has no validation dataset; split must be train")
         self.meta = load_metadata(dataset_dir)

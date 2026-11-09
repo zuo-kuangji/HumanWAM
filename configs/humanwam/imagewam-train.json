@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "backend": "imagewam_delta",
+  "python": "${IMAGEWAM_PYTHON}",
+  "options": {
+    "native_config": "${IMAGEWAM_NATIVE_CONFIG}",
+    "num_processes": 8
+  }
+}

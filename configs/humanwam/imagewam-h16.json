@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "backend": "imagewam_delta",
+  "python": "${IMAGEWAM_PYTHON}",
+  "options": {
+    "model_config": "${IMAGEWAM_MODEL_CONFIG}",
+    "checkpoint": "${IMAGEWAM_CHECKPOINT}",
+    "text_cache": "${IMAGEWAM_TEXT_CACHE}",
+    "horizon": 16,
+    "device": "cuda:0",
+    "host": "127.0.0.1",
+    "port": 8090
+  }
+}

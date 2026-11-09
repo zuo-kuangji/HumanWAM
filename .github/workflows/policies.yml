@@ -1,0 +1,43 @@
+name: HumanWAM policy contracts
+
+on:
+  push:
+    paths:
+      - "packages/humanwam/**"
+      - "configs/humanwam/**"
+      - "patches/**"
+      - "backends.lock.json"
+      - ".gitmodules"
+      - ".github/workflows/policies.yml"
+  pull_request:
+    paths:
+      - "packages/humanwam/**"
+      - "configs/humanwam/**"
+      - "patches/**"
+      - "backends.lock.json"
+      - ".gitmodules"
+      - ".github/workflows/policies.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  lightweight-contracts:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install orchestration and test dependencies
+        run: python -m pip install -e './packages/humanwam[test]'
+      - name: CPU policy and orchestration contracts
+        run: python -m pytest -q packages/humanwam/tests
+      - name: Lightweight package lint
+        run: python -m ruff check packages/humanwam

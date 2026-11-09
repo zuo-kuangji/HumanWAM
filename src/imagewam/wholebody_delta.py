@@ -28,6 +28,7 @@ CHECKPOINT_FORMAT = "wholebody_inspire76_p25_flux2_v1"
 SCHEMA_ID = "wholebody.inspire_action76.state44.p25.v1"
 NORMALIZATION_STRATEGY = "fit_wholebody_motion64_body29_gravity3_fixed_inspire_hands"
 IMAGE_RESIDUAL_SCALE = 1.0 / math.sqrt(3.0)
+SUPPORTED_HORIZONS = (16, 40)
 UPSTREAM_SHA256 = {
     "imagewam.py": "7b27cfdaa6771cf67ab25f85cce93f53be12ed1bd320bec48a296317b4713af6",
     "action_dit_flux2.py": "2bfbdaea89c78f9f4872c9cf3e70e1560faf2fec78bf68755f342c1ca9290137",
@@ -108,12 +109,12 @@ class StateOnlyDeltaImageWAM(ImageWAM):
                 and self.mot.mixtures["video"] is self.video_expert and self.dit is self.mot,
                 "The conditioned action expert must be registered inside the optimized/saved MoT")
         require(self.action_state_dim == 44 and self.action_expert.action_state_dim == 44
-                and self.action_expert.action_dim == 76 and self.expected_action_horizon == 40,
-                "Whole-body policy requires action76/current-state44/horizon40")
+                and self.action_expert.action_dim == 76 and self.expected_action_horizon in SUPPORTED_HORIZONS,
+                "Whole-body policy requires action76/current-state44 and horizon16 or explicit legacy40")
         require(self.action_expert.state_encoder.in_features == 44
                 and self.action_expert.state_encoder.out_features == self.action_expert.hidden_dim,
                 "Wrong action-side state projection")
-        require(self.action_expert.max_action_horizon >= 40, "Action expert horizon is shorter than forty")
+        require(self.action_expert.max_action_horizon >= self.expected_action_horizon, "Action expert capacity is shorter than the configured horizon")
         require(not hasattr(self, "pose_head") and not self.action_aura_enabled and self.action_aura_router is None,
                 "This architecture has neither C-Pred/pose supervision nor AURA")
         require(self.action_a2a_enabled and self.action_a2a_fm_weight == 1.0
@@ -138,7 +139,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
 
     def state_only_protocol(self):
         return {"format": CHECKPOINT_FORMAT, "schema_id": self.state_only_schema_id,
-                "action_dim": 76, "current_state_dim": 44, "action_horizon": 40,
+                "action_dim": 76, "current_state_dim": 44, "action_horizon": self.expected_action_horizon,
                 "input_size": [224, 448], "state_source": "measured_current_normalized",
                 "state_index": 0, "visual_state_route": "none", "text_state_route": "none",
                 "action_state_route": "additive_hidden_linear", "detach_measured_state": True,
@@ -146,7 +147,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
                 "action_source": "normalized_past_plus_0.5_gaussian_all76",
                 "action_layout": "motion64,inspire_left_measured6,inspire_right_measured6",
                 "hand_target_time_offset": 0,
-                "hand_target_offsets": [0, 39],
+                "hand_target_offsets": [0, self.expected_action_horizon - 1],
                 "hand_target_is_issued_command": False,
                 "normalization_strategy": NORMALIZATION_STRATEGY,
                 "training_initialization": "FLUX.2-klein-base-4B-and-base-derived-action114",
@@ -232,10 +233,10 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         self.validate_state_only_route()
         safe = self._without_state(sample)
         inputs = super().build_inputs_flux2(safe, tiled=tiled)
-        require(tuple(inputs["action"].shape[1:]) == (40, 76)
+        require(tuple(inputs["action"].shape[1:]) == (self.expected_action_horizon, 76)
                 and inputs["past_action"] is not None
                 and tuple(inputs["past_action"].shape) == tuple(inputs["action"].shape),
-                "Current task needs matching forty-step past/future 76D action chunks")
+                "Current task needs matching configured past/future 76D action chunks")
         require(tuple(inputs["ref_image_latents"].shape[1:]) == (392, 128)
                 and tuple(inputs["target_latent"].shape) == tuple(inputs["ref_image_latents"].shape),
                 "Two224px views must form native224x448 FLUX.2 current/future token grids")
@@ -311,14 +312,16 @@ class StateOnlyDeltaImageWAM(ImageWAM):
                                                     inputs=self._checked_inputs(inputs))
 
     def _bind_inference(self, method, args, kwargs):
-        bound = inspect.signature(method).bind(self, *args, **kwargs)
-        defaults = {"num_inference_steps": 1, "action_init_noise_strength": 0.5,
+        signature = inspect.signature(method)
+        bound = signature.bind_partial(self, *args, **kwargs)
+        defaults = {"num_inference_steps": 1, "action_horizon": self.expected_action_horizon,
+                    "action_init_noise_strength": 0.5,
                     "action_init_noise_type": "additive", "action_init_noise_dim_mask": [True] * 76,
                     "clamp_action_init_after_noise": False}
         for key, value in defaults.items():
             if key not in bound.arguments:
                 bound.arguments[key] = value
-        return bound
+        return signature.bind(*bound.args, **bound.kwargs)
 
     @wraps(ImageWAM.infer_action)
     def infer_action(self, *args, **kwargs):
@@ -336,10 +339,11 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         bound = self._bind_inference(ImageWAM.infer_action_flux2, args, kwargs)
         bound.apply_defaults()
         current = self._current_measured_state(bound.arguments.pop("proprio"), inference=True)
-        require(int(bound.arguments["action_horizon"]) == 40, "Expected forty-step whole-body action prediction")
+        horizon = self.expected_action_horizon
+        require(int(bound.arguments["action_horizon"]) == horizon, "Inference horizon must match the trained checkpoint protocol")
         history = bound.arguments["action_init"]
-        require(torch.is_tensor(history) and tuple(history.shape) in {(40, 76), (1, 40, 76)}
-                and bool(torch.isfinite(history).all()), "Inference requires finite normalized40x76 recent action history")
+        require(torch.is_tensor(history) and tuple(history.shape) in {(horizon, 76), (1, horizon, 76)}
+                and bool(torch.isfinite(history).all()), "Inference requires finite normalized history matching the trained horizon")
         require(float(bound.arguments["action_init_noise_strength"]) == 0.5
                 and bound.arguments["action_init_noise_type"] == "additive"
                 and tuple(bound.arguments["action_init_noise_dim_mask"] or ()) == (True,) * 76
@@ -353,7 +357,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
             result = ImageWAM.infer_action_flux2(*bound.args, **bound.kwargs)
             require(scope.calls >= int(result["num_inference_steps"]) > 0,
                     "Native action solver did not consume the CURRENT action-side state")
-            require(tuple(result["action"].shape) == (40, 76)
+            require(tuple(result["action"].shape) == (horizon, 76)
                     and bool(torch.isfinite(result["action"]).all()), "Native solver returned invalid whole-body actions")
         self.last_action_condition = self.action_expert.last_action_condition
         return {**result, "state_only_visual_state_route": "none", "state_only_action_state_source": "measured_current",
@@ -412,21 +416,22 @@ class StateOnlyDeltaImageWAM(ImageWAM):
 
 
 def adopt_state_only_delta(model, *, action_state_dim=44, expected_action_dim=76,
-                           expected_action_horizon=40, state_only_init_seed=42,
+                           expected_action_horizon=16, state_only_init_seed=42,
                            state_only_schema_id=SCHEMA_ID):
     """Register only new input/output/state projections in an initialized MoT."""
     require(type(model) is ImageWAM and type(model.action_expert) is ActionDiTFlux2,
             "Only the unchanged native ImageWAM and ActionDiTFlux2 can be adopted")
     require(model.proprio_encoder is None and model.proprio_dim is None and not model.pack_proprio_after_text,
             "The base factory must construct a state-free visual branch from the start")
-    require((int(action_state_dim), int(expected_action_dim), int(expected_action_horizon)) == (44, 76, 40),
-            "This task fixes action76/state44/horizon40")
+    require((int(action_state_dim), int(expected_action_dim)) == (44, 76)
+            and type(expected_action_horizon) is int and expected_action_horizon in SUPPORTED_HORIZONS,
+            "This task fixes action76/state44 with horizon16 or explicit legacy40")
     require(model.action_expert.action_dim == 76, "Configure the native action expert for76 dimensions before adoption")
     parameter = next(model.action_expert.parameters())
     model.__class__ = StateOnlyDeltaImageWAM
     model.action_expert.__class__ = StateOnlyActionDiTFlux2
     model.action_state_dim = model.action_expert.action_state_dim = 44
-    model.expected_action_horizon = 40
+    model.expected_action_horizon = expected_action_horizon
     model.state_only_schema_id = str(state_only_schema_id)
     model.state_only_init_seed = int(state_only_init_seed)
     model._state_only_owner = object()
@@ -557,7 +562,7 @@ def load_compatible_action_initializer(model, path, *, expected_sha256):
 
 
 def create_imagewam_flux2_wholebody_delta(*, action_initializer_sha256, action_state_dim=44, expected_action_dim=76,
-        expected_action_horizon=40, state_only_init_seed=42,
+        expected_action_horizon=16, state_only_init_seed=42,
         state_only_schema_id=SCHEMA_ID, **kwargs):
     """Fresh FLUX.2 base video + base-derived shared action layers, no parent task."""
     from imagewam.runtime import create_imagewam_flux2_klein

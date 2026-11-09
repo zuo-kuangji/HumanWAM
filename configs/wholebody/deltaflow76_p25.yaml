@@ -51,8 +51,8 @@ data:
     qwen_text_cache_dir: ???
     split: train
     train_split_mode: all_episodes
-    action_horizon: 40
-    past_action_size: 40
+    action_horizon: 16
+    past_action_size: 16
     qwen_context_len: 128
     qwen_text_dim: 7680
     video_cache_frames: 64
@@ -69,7 +69,7 @@ model:
   proprio_dim: 44
   action_state_dim: 44
   expected_action_dim: 76
-  expected_action_horizon: 40
+  expected_action_horizon: 16
   state_only_init_seed: 42
   mot_checkpoint_mixed_attn: true
   mot_gqa_implementation: repeat

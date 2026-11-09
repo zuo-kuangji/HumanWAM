@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "name": "groot_n17",
+      "path": "third_party/Isaac-GR00T",
+      "url": "https://github.com/NVIDIA/Isaac-GR00T.git",
+      "commit": "7aa0bca50f1097f8b17f5c274c98264b72a1419f",
+      "patches": []
+    },
+    {
+      "name": "sonic",
+      "path": "third_party/GR00T-WholeBodyControl",
+      "url": "https://github.com/NVlabs/GR00T-WholeBodyControl.git",
+      "commit": "1e1ec4f5f27e6c3e03048f693bd7c60cce04afda",
+      "patches": []
+    },
+    {
+      "name": "pi05",
+      "path": "third_party/openpi",
+      "url": "https://github.com/Physical-Intelligence/openpi.git",
+      "commit": "215abfb217dbac7d5f1273282331b9b1866c0479",
+      "patches": [
+        {
+          "path": "patches/openpi-a2a.patch",
+          "sha256": "d1e5091747129d5c1ec1529b1e4d29b87ee62f729cb04ce3e0e7cc08f70122f8"
+        }
+      ]
+    },
+    {
+      "name": "dit4dit",
+      "path": "third_party/DiT4DiT",
+      "url": "https://github.com/Mondo-Robotics/DiT4DiT.git",
+      "commit": "66a6f3a12e2c8740157c1e478795952c040d31dd",
+      "patches": [
+        {
+          "path": "patches/dit4dit-cosmos-log.patch",
+          "sha256": "7dfe9e743f49f5b84414a12653b6d8c8e05bfca5d06120f2b95728fa43b68f77"
+        }
+      ]
+    }
+  ],
+  "imagewam": {
+    "upstream_repository": "https://github.com/zuo-kuangji/HumanWAM",
+    "base_commit": "9cb38e1075ad1ac7379f56fec6daadc532508b5f",
+    "managed_path": "src/imagewam"
+  }
+}

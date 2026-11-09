@@ -1,3 +1,29 @@
+# HumanWAM
+
+统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow 和 DiT4DiT 四类 policy。
+
+- [统一安装、代码结构与维护说明](docs/POLICY_MAINTENANCE.md)
+- [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
+- [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
+- [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
+- [DiT4DiT](docs/policies/DIT4DIT.md)
+
+新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
+各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
+ImageWAM 新全身训练默认16步，下面继承的历史说明如出现40步，仅对应旧配置。
+
+```bash
+export HUMANWAM_ROOT="$PWD"
+python3 scripts/humanwam/bootstrap.py
+python3 -m pip install -e packages/humanwam
+humanwam list
+humanwam doctor
+```
+
+下面保留原 ImageWAM 安装、benchmark 和历史真机说明。
+
+---
+
 # ImageWAM
 
 ## G1 全身 Delta-Flow 训练

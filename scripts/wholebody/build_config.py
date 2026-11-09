@@ -89,6 +89,8 @@ def argument_parser():
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--accumulation", type=int, default=2)
     parser.add_argument("--num-processes", type=int, default=8)
+    parser.add_argument("--horizon", type=int, choices=(16, 40), default=16,
+                        help="New training uses16;40 explicitly preserves a legacy training protocol")
     return parser
 
 
@@ -113,6 +115,11 @@ def build(args, *, measure_loader=measure_native_loader):
     cfg.batch_size = args.batch_size
     cfg.gradient_accumulation_steps = args.accumulation
     cfg.num_epochs = args.epochs
+    horizon = getattr(args, "horizon", 16)
+    require(type(horizon) is int and horizon in (16, 40), "Horizon must be16 or explicit legacy40")
+    cfg.data.train.action_horizon = cfg.data.train.past_action_size = horizon
+    cfg.model.expected_action_horizon = horizon
+    cfg.EVALUATION = {"action_horizon": horizon, "num_inference_steps": 1}
     cfg.data.train.dataset_dir = str(paths["dataset_dir"])
     cfg.data.train.stats_path = str(paths["stats_path"])
     cfg.data.train.qwen_text_cache_dir = str(paths["text_cache_dir"])
@@ -123,6 +130,7 @@ def build(args, *, measure_loader=measure_native_loader):
     cfg.model.action_initializer_sha256 = sha256(paths["action_initializer"])
     cfg.model.loss.action_a2a.source_noise_dim_mask = [True] * 76
     cfg.wholebody_contract = {"world_size": args.num_processes, "zero_stage": 1,
+        "action_horizon": horizon, "past_action_horizon": horizon,
         "statistics_sha256": sha256(paths["stats_path"]), "stats_schema": STATS_SCHEMA,
         "normalization_strategy": NORMALIZATION, "smoke_output_dir": str(root / "smoke"),
         "production_output_dir": str(root / "production"), "fresh_base": True}
@@ -150,6 +158,9 @@ def build(args, *, measure_loader=measure_native_loader):
         with path.open("x") as stream:
             OmegaConf.save(OmegaConf.create(payload), stream, resolve=True)
     receipt = {"status": "CONFIGS_BUILT_NO_TRAINING", "epochs": args.epochs,
+        "action_horizon": horizon, "past_action_horizon": horizon,
+        "future_image_offset": horizon, "future_action_offsets": [0, horizon - 1],
+        "past_action_offsets": [-horizon, -1],
         "actual_native_loader": measurement, **schedule,
         "nominal_global_batch": args.batch_size * args.accumulation * args.num_processes,
         "production_config": str(config_paths[0]), "smoke_config": str(config_paths[1]),

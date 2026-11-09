@@ -1,0 +1,11 @@
+--- a/DiT4DiT/training/train.py
++++ b/DiT4DiT/training/train.py
+@@ -80,7 +80,7 @@
+ 
+ def build_model(cfg) -> torch.nn.Module:
+     """build model framework"""
+-    logger.info(f"Loading Base VLM `{cfg.framework.qwenvl.base_vlm}` from ID/Path")
++    logger.info(f"Loading Cosmos video base `{cfg.framework.cosmos25.base_model}` from ID/Path")
+     model = build_framework(cfg)
+ 
+     return model

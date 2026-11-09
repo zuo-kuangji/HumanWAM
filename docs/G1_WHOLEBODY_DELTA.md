@@ -88,22 +88,24 @@ state44 = concat([body29, left_hand6, right_hand6, projected_gravity3])
 
 ## 2. 每个训练样本怎么构造
 
-每一帧 `t` 都可以作为 anchor，窗口不跨 episode：
+新训练默认 history 与 horizon 都是16。只有明确复现旧模型时才设置
+`--horizon 40`。数据、训练、推理与 checkpoint 的 horizon 必须一致，不能把旧40步
+权重当作16步模型直接加载。每一帧 `t` 都可以作为 anchor，窗口不跨 episode：
 
 | 内容 | 帧范围 |
 |---|---|
-| 历史动作 source | `t-40 ... t-1` |
-| 动作监督目标 | `t ... t+39` |
+| 历史动作 source | `t-16 ... t-1` |
+| 动作监督目标 | `t ... t+15` |
 | 当前 state | 仅 `t` |
-| 当前/未来图像 | `t` 与 `t+40`，间隔约1.333秒 |
+| 当前/未来图像 | `t` 与 `t+16`，间隔约0.533秒 |
 
 episode 开头历史不足时重复本 episode 最早可用值并返回 padding mask。
 `t=0` 完全无历史时使用**归一化空间的全零 history**，不拿 `action[0]` 填充 source。
 末尾不足时重复本 episode 最后值并返回 mask。mask 的具体使用由原生 loss 决定，
 不能笼统理解为所有 pad 都必然不计入每项 loss。
 
-当前 state 在数据张量的40步时间轴上重复，模型只取当前项。
-当前及未来手状态（`t..t+39`）是 action 标签，不作为未来 proprio 输入。
+当前 state 在数据张量的16步时间轴上重复，模型只取当前项。
+当前及未来手状态（`t..t+15`）是 action 标签，不作为未来 proprio 输入。
 未来图像是视觉监督目标，不是推理时可用的观测；`noise_idm` 动作上下文使用
 当前图像、文本及噪声未来图像 token 的 detached KV，不向动作提供真实未来图像值。
 
@@ -114,8 +116,8 @@ episode 开头历史不足时重复本 episode 最早可用值并返回 padding 
 
 ```text
 video                  [3, 2, 224, 448]
-action / past_action   [40, 76]
-proprio                [40, 44]  # 当前 state 重复，不是未来40帧 state
+action / past_action   [16, 76]
+proprio                [16, 44]  # 当前 state 重复，不是未来16帧 state
 text_hidden_states     [128, 7680]
 text_attention_mask    [128]
 ```
@@ -254,10 +256,13 @@ python scripts/wholebody/build_config.py \
   --flux2-src "$FLUX2_SRC" --flux2-model "$FLUX2_MODEL_PATH" \
   --ae-model "$FLUX2_AE_MODEL_PATH" --qwen-model "$QWEN3_MODEL_DIR" \
   --action-initializer "$WORK_DIR/action_shared_flux2_4b.pt" \
-  --epochs 60 --batch-size 8 --accumulation 2 --num-processes 8
+  --epochs 60 --horizon 16 --batch-size 8 --accumulation 2 --num-processes 8
 ```
 
 产生 `production.yaml`、`smoke.yaml`、`build_receipt.json`。
+生成的 train、model 与 EVALUATION 配置统一记录 horizon，并把具体未来图像、动作与历史
+offset 写入 build receipt。统计值由逐帧数据拟合，与16或40步窗口无关，统计 audit
+不再固定宣称未来图像 offset40。旧40步复现显式使用 `--horizon 40`，对应 smoke 也必须为40步。
 每轮更新数来自原生 loader 和 Accelerate 的实际分片长度，再按 accumulation 取 ceil。
 总步数是该值乘 epochs，5%线性warmup后 cosine 到1e-6。不能只改 `max_steps`，
 也不能把其他数据集的728 updates/epoch照抄过来。

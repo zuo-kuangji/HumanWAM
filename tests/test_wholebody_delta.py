@@ -208,19 +208,20 @@ def make_base():
     return model
 
 
-def make_model():
-    return adapter.adopt_state_only_delta(make_base())
+def make_model(horizon=40):
+    # Historical fixtures deliberately exercise the explicitly selected H40 protocol.
+    return adapter.adopt_state_only_delta(make_base(), expected_action_horizon=horizon)
 
 
-def sample():
+def sample(horizon=40):
     return {"target_latent": torch.randn(1, 392, 128), "target_img_ids": torch.zeros(1, 392, 4),
             "ref_image_latents": torch.randn(1, 392, 128), "ref_img_ids": torch.zeros(1, 392, 4),
             "text_hidden_states": torch.randn(1, 4, 128), "text_attention_mask": torch.ones(1, 4, dtype=torch.bool),
-            "action": torch.randn(1, 40, 76), "past_action": torch.randn(1, 40, 76),
-            "action_is_pad": torch.zeros(1, 40, dtype=torch.bool),
+            "action": torch.randn(1, horizon, 76), "past_action": torch.randn(1, horizon, 76),
+            "action_is_pad": torch.zeros(1, horizon, dtype=torch.bool),
             "action_dim_is_pad": torch.zeros(1, 76, dtype=torch.bool),
-            "proprio": torch.randn(1, 40, 44), "proprio_dim_is_pad": torch.zeros(1, 44, dtype=torch.bool),
-            "proprio_is_pad": torch.zeros(1, 40, dtype=torch.bool)}
+            "proprio": torch.randn(1, horizon, 44), "proprio_dim_is_pad": torch.zeros(1, 44, dtype=torch.bool),
+            "proprio_is_pad": torch.zeros(1, horizon, dtype=torch.bool)}
 
 
 def has_grad(module):
@@ -519,6 +520,45 @@ class BaseInitializerTests(unittest.TestCase):
                     adapter.load_compatible_action_initializer(model, path, expected_sha256=adapter.file_sha256(path))
                 self.assertTrue(all(torch.equal(value, model.action_expert.state_dict()[name])
                                     for name, value in before.items()), case)
+
+
+class H16AdapterTests(unittest.TestCase):
+    def setUp(self):
+        torch.manual_seed(42)
+        torch.set_num_threads(1)
+        self.model, self.sample = make_model(16), sample(16)
+
+    test_real_native_noise_formulas = WholeBodyAdapterTests.test_real_native_noise_formulas
+    test_visual_inputs_are_exactly_invariant_to_current_and_future_state = WholeBodyAdapterTests.test_visual_inputs_are_exactly_invariant_to_current_and_future_state
+    test_native_three_losses_backward_independently_and_scope_is_not_live_at_yield = WholeBodyAdapterTests.test_native_three_losses_backward_independently_and_scope_is_not_live_at_yield
+    test_action_fm_and_ic_gradients_do_not_enter_visual_branch = WholeBodyAdapterTests.test_action_fm_and_ic_gradients_do_not_enter_visual_branch
+
+    def test_native_h16_inference_defaults_match_and_legacy_shape_is_rejected(self):
+        kwargs = dict(prompt=None, input_image=torch.rand(1, 3, 224, 448),
+            context=self.sample["text_hidden_states"], context_mask=self.sample["text_attention_mask"],
+            action_init=self.sample["past_action"], seed=73, rand_device="cpu", proprio=torch.ones(1,44))
+        result = self.model.infer_action(**kwargs)
+        self.assertEqual(tuple(result["action"].shape), (16,76))
+        self.assertEqual(self.model.state_only_protocol()["hand_target_offsets"], [0,15])
+        for changes in [dict(action_horizon=40),dict(action_init=torch.zeros(1,40,76))]:
+            with self.assertRaises(ValueError): self.model.infer_action(**dict(kwargs,**changes))
+
+    def test_checkpoint_protocol_rejects_cross_horizon_before_copy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/"checkpoint.pt"
+            self.model.save_checkpoint(path,step=1)
+            target=make_model(40)
+            before={k:v.clone() for k,v in target.mot.state_dict().items()}
+            with self.assertRaisesRegex(ValueError,"protocol"):
+                target.load_checkpoint(path)
+            self.assertTrue(all(torch.equal(v,target.mot.state_dict()[k]) for k,v in before.items()))
+            make_model(16).load_checkpoint(path)
+            target.save_checkpoint(path,step=2)
+            with self.assertRaisesRegex(ValueError,"protocol"): self.model.load_checkpoint(path)
+
+    def test_training_window_mismatch_fails_before_visual_loss(self):
+        with self.assertRaisesRegex(ValueError,"configured"):
+            self.model.build_inputs_flux2(sample(40))
 
 
 class FreshFactoryTests(unittest.TestCase):

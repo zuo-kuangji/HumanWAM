@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "backend": "pi05",
+  "python": "${OPENPI_PYTHON}",
+  "options": {
+    "method": "delta_flow",
+    "config_name": "pi05_libero_a2a_jax_lora_warmup_cosine",
+    "checkpoint_dir": "${PI05_CHECKPOINT}",
+    "num_steps": 1,
+    "action_dim": 7,
+    "action_horizon": 10,
+    "port": 8000
+  }
+}

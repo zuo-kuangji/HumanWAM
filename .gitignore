@@ -65,6 +65,8 @@ scripts/optional/
 *.pyc
 *Thumbs.db
 *.patch
+!patches/
+!patches/*.patch
 
 # Credential information that should never be checked in
 credentials

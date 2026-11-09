@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "backend": "dit4dit",
+  "source_dir": "${HUMANWAM_ROOT}/third_party/DiT4DiT",
+  "options": {
+    "upstream_root": "${HUMANWAM_ROOT}/third_party/DiT4DiT",
+    "checkpoint": "${DIT4DIT_CHECKPOINT}",
+    "device": "cuda",
+    "action_schema": "dit4dit_native_normalized",
+    "use_bf16": false,
+    "port": 10093,
+    "idle_timeout": 1800
+  }
+}

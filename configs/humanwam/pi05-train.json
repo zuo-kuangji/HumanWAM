@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "backend": "pi05",
+  "python": "${OPENPI_PYTHON}",
+  "options": {
+    "method": "delta_flow",
+    "config_name": "pi05_libero_a2a_jax_lora_warmup_cosine",
+    "exp_name": "${PI05_RUN_NAME}"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "backend": "groot_n17",
+  "source_dir": "${HUMANWAM_ROOT}/third_party/Isaac-GR00T",
+  "python": "${GROOT_PYTHON}",
+  "options": {
+    "model_path": "${GROOT_CHECKPOINT}",
+    "embodiment_tag": "UNITREE_G1_SONIC",
+    "device": "cuda:0",
+    "host": "127.0.0.1",
+    "port": 5555
+  }
+}

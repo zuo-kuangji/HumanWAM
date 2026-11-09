@@ -66,13 +66,19 @@ def validate_config(cfg, *, smoke):
             and data["train"]["train_split_mode"] == "all_episodes", "This recipe has no held-out validation split")
     require(not model["flux2_lora_config"]["enabled"] and not model["load_text_encoder"]
             and not model["pack_proprio_after_text"], "Full DiT finetuning uses cached pure text, without state tokens")
+    horizon = model["expected_action_horizon"]
+    require(type(horizon) is int and horizon in (16, 40), "Expected horizon16 or explicit legacy40")
+    require(c.get("action_horizon", horizon) == c.get("past_action_horizon", horizon) == horizon,
+            "Resolved window contract differs from the model horizon")
     require(model["action_state_dim"] == model["proprio_dim"] == 44
-            and model["expected_action_dim"] == model["action_dit_config"]["action_dim"] == 76
-            and model["expected_action_horizon"] == 40, "Expected current state44, action76 and horizon40")
+            and model["expected_action_dim"] == model["action_dit_config"]["action_dim"] == 76,
+            "Expected current state44 and action76")
     ds = data["train"]
-    require(ds["action_horizon"] == ds["past_action_size"] == 40
+    require(ds["action_horizon"] == ds["past_action_size"] == horizon
             and ds["qwen_context_len"] == 128 and ds["qwen_text_dim"] == 7680,
             "Dataset history/horizon/text dimensions changed")
+    if "EVALUATION" in cfg:
+        require(cfg["EVALUATION"]["action_horizon"] == horizon, "Evaluation horizon differs from training")
     context = model["flux2_action_image_context"]
     require(context["mode"] == "noise_idm" and context["include_future_tokens"] is True
             and context["knowledge_insulation"] is True and context["reuse_image_fm_workspace"] is False,
@@ -121,6 +127,8 @@ def require_completed_smoke(cfg):
     root = Path(c["smoke_output_dir"])
     for rank in range(int(c["world_size"])):
         report = json.loads((root / f"smoke_rank_{rank}.json").read_text())
+        require(report.get("action_horizon", 40) == cfg["model"]["expected_action_horizon"],
+                "Smoke prediction horizon differs from production; run a matching smoke")
         require(report.get("status") == "FIVE_UPDATES_VERIFIED" and report.get("actual_optimizer_updates") == 5
                 and report.get("skipped_updates") == 0 and report.get("world_size") == c["world_size"]
                 and report.get("microbatch") == cfg["batch_size"]
@@ -209,7 +217,7 @@ def install_training_contract(*, smoke):
         require(protocol["visual_state_route"] == protocol["text_state_route"] == "none"
                 and protocol["action_to_visual_gradients"] is False and protocol["knowledge_insulation"] is True
                 and protocol["action_dim"] == 76 and protocol["current_state_dim"] == 44
-                and protocol["action_horizon"] == 40, "Current-state/stop-gradient protocol changed")
+                and protocol["action_horizon"] == int(cfg.model.expected_action_horizon), "Current-state/stop-gradient protocol changed")
         require(model.training_objective_count() == 3 and model.text_encoder is None
                 and all(not p.requires_grad for p in model.vae.parameters()), "Use frozen VAE, cached Qwen and the three native objective events")
         require(not any(isinstance(m, torch.nn.Dropout) and m.p > 0 for m in model.modules()), "Condition/model dropout is not part of this recipe")
@@ -282,7 +290,7 @@ def install_smoke_hooks():
     original_action = ImageWAM._apply_action_a2a_source_noise
     def checked_action(self, source, *args, **kwargs):
         value = original_action(self, source, *args, **kwargs)
-        require(tuple(source.shape[1:]) == (40, 76) and tuple(self.action_a2a_source_noise_dim_mask) == (True,) * 76,
+        require(tuple(source.shape[1:]) == (self.expected_action_horizon, 76) and tuple(self.action_a2a_source_noise_dim_mask) == (True,) * 76,
                 "Wrong action-history shape/noise mask")
         residual = value.float() - source.float()
         require(bool(torch.isfinite(value).all()) and .35 < residual.std(unbiased=False).item() < .65
@@ -325,9 +333,10 @@ def install_smoke_hooks():
         original_init(self, *args, **kwargs)
         model = self.accelerator.unwrap_model(self.model)
         sample = default_collate([self.train_dataset[0]])
+        horizon = int(self.cfg.model.expected_action_horizon)
         require(tuple(sample["video"].shape) == (1, 3, 2, 224, 448)
-                and tuple(sample["action"].shape) == tuple(sample["past_action"].shape) == (1, 40, 76)
-                and tuple(sample["proprio"].shape) == (1, 40, 44)
+                and tuple(sample["action"].shape) == tuple(sample["past_action"].shape) == (1, horizon, 76)
+                and tuple(sample["proprio"].shape) == (1, horizon, 44)
                 and tuple(sample["text_hidden_states"].shape) == (1, 128, 7680), "Actual sample schema differs")
         require(torch.equal(sample["proprio"], sample["proprio"][:, :1].expand_as(sample["proprio"])), "Dataset supplied future state instead of repeated current state")
         with torch.no_grad(), self.accelerator.autocast():
@@ -377,6 +386,7 @@ def install_smoke_hooks():
         dist.all_gather_object(hashes, digest.hexdigest())
         require(len(set(hashes)) == 1, "Action-side state encoder differs across ranks")
         evidence.update(status="FIVE_UPDATES_VERIFIED", rank=self.accelerator.process_index,
+            action_horizon=int(self.cfg.model.expected_action_horizon),
             actual_optimizer_updates=engine.global_steps, skipped_updates=engine.skipped_steps,
             world_size=self.accelerator.num_processes, microbatch=self.batch_size, accumulation=self.gradient_accumulation_steps,
             consumed_microbatches=micros,

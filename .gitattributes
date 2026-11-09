@@ -1,0 +1,2 @@
+# Preserve upstream patch bytes, including unified-diff context prefixes.
+patches/*.patch -whitespace
