@@ -1,6 +1,6 @@
 # HumanWAM
 
-统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow 、DiT4DiT 和 Psi-Zero 五类 policy。
+统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow、Fast-WAM、DiT4DiT 和 Psi-Zero 六个 policy 家族，共七个注册入口。ImageWAM 的 motion76 与 joint-reference 使用独立入口和动作schema。
 
 - [统一安装、代码结构与维护说明](docs/POLICY_MAINTENANCE.md)
 - [初始权重、下载与恢复说明](docs/MODEL_INITIALIZATION.md)
@@ -8,12 +8,17 @@
 - [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
 - [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
 - [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
+- [ImageWAM joint29＋Inspire12 新训练路径](docs/G1_JOINT_REFERENCE_DELTA.md)
+- [SONIC joint-reference 离线导出与协议](docs/policies/SONIC_JOINT_REFERENCE.md)
+- [Fast-WAM 原生 Gaussian FM](docs/policies/FASTWAM.md)
 - [DiT4DiT](docs/policies/DIT4DIT.md)
 - [Psi-Zero / SONIC](docs/policies/PSI0.md)
 
 新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
 各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
 ImageWAM 新全身训练默认16步，下面继承的历史说明如出现40步，仅对应旧配置。
+Fast-WAM 已完成源码、配置、公开权重metadata和CPU接口核验，尚未进行GPU推理。
+joint-reference 是新增训练与离线导出路径，目前没有已训练checkpoint或真机效果结论。
 
 ```bash
 export HUMANWAM_ROOT="$PWD"
@@ -60,6 +65,15 @@ FM + endpoint consistency with stop-gradient. It includes the exact LeRobot
 field mapping, causal windows, per-dataset normalization, portable configuration
 builder, CPU tests and a mandatory five-update smoke stage. This is a
 motion-latent training interface, not a direct joint-command controller.
+
+The separate [joint-reference recipe](docs/G1_JOINT_REFERENCE_DELTA.md) predicts
+29 raw G1 joint targets plus 12 measured Inspire hand states, with an optional
+6D root-rotation target. It requires new task projections, statistics and training;
+existing motion76 checkpoints are not joint41/47 checkpoints. The
+[offline SONIC exporter](docs/policies/SONIC_JOINT_REFERENCE.md) validates joint
+order, future root orientation and time coverage, resamples to50Hz and writes
+NPZ/body-only protocol bytes. It does not connect to a robot. WBC motor-qtarget
+labels used as SONIC references define a new experimental control chain.
 
 **Chair training/testing data:** use
 [OKayQi/wb_chair](https://huggingface.co/datasets/OKayQi/wb_chair), specifically

@@ -109,8 +109,8 @@ class StateOnlyDeltaImageWAM(ImageWAM):
                 and self.mot.mixtures["video"] is self.video_expert and self.dit is self.mot,
                 "The conditioned action expert must be registered inside the optimized/saved MoT")
         require(self.action_state_dim == 44 and self.action_expert.action_state_dim == 44
-                and self.action_expert.action_dim == 76 and self.expected_action_horizon in SUPPORTED_HORIZONS,
-                "Whole-body policy requires action76/current-state44 and horizon16 or explicit legacy40")
+                and self.action_expert.action_dim == self.expected_action_dim and self.expected_action_horizon in SUPPORTED_HORIZONS,
+                "Whole-body policy action/current-state dimensions or horizon differ from its schema")
         require(self.action_expert.state_encoder.in_features == 44
                 and self.action_expert.state_encoder.out_features == self.action_expert.hidden_dim,
                 "Wrong action-side state projection")
@@ -119,7 +119,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
                 "This architecture has neither C-Pred/pose supervision nor AURA")
         require(self.action_a2a_enabled and self.action_a2a_fm_weight == 1.0
                 and self.action_a2a_source_noise_std == 0.5
-                and tuple(self.action_a2a_source_noise_dim_mask or ()) == (True,) * 76
+                and tuple(self.action_a2a_source_noise_dim_mask or ()) == (True,) * self.expected_action_dim
                 and self.action_a2a_ic_weight == 0.5 and self.action_a2a_ic_steps == 1
                 and self.action_a2a_ic_loss == "l1", "Wrong action Delta/FM/IC source configuration")
         require(self.image_i2i_enabled and self.image_i2i_source_mode == "gaussian"
@@ -233,10 +233,10 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         self.validate_state_only_route()
         safe = self._without_state(sample)
         inputs = super().build_inputs_flux2(safe, tiled=tiled)
-        require(tuple(inputs["action"].shape[1:]) == (self.expected_action_horizon, 76)
+        require(tuple(inputs["action"].shape[1:]) == (self.expected_action_horizon, self.expected_action_dim)
                 and inputs["past_action"] is not None
                 and tuple(inputs["past_action"].shape) == tuple(inputs["action"].shape),
-                "Current task needs matching configured past/future 76D action chunks")
+                "Current task needs matching configured past/future action chunks")
         require(tuple(inputs["ref_image_latents"].shape[1:]) == (392, 128)
                 and tuple(inputs["target_latent"].shape) == tuple(inputs["ref_image_latents"].shape),
                 "Two224px views must form native224x448 FLUX.2 current/future token grids")
@@ -316,7 +316,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         bound = signature.bind_partial(self, *args, **kwargs)
         defaults = {"num_inference_steps": 1, "action_horizon": self.expected_action_horizon,
                     "action_init_noise_strength": 0.5,
-                    "action_init_noise_type": "additive", "action_init_noise_dim_mask": [True] * 76,
+                    "action_init_noise_type": "additive", "action_init_noise_dim_mask": [True] * self.expected_action_dim,
                     "clamp_action_init_after_noise": False}
         for key, value in defaults.items():
             if key not in bound.arguments:
@@ -342,13 +342,13 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         horizon = self.expected_action_horizon
         require(int(bound.arguments["action_horizon"]) == horizon, "Inference horizon must match the trained checkpoint protocol")
         history = bound.arguments["action_init"]
-        require(torch.is_tensor(history) and tuple(history.shape) in {(horizon, 76), (1, horizon, 76)}
+        require(torch.is_tensor(history) and tuple(history.shape) in {(horizon, self.expected_action_dim), (1, horizon, self.expected_action_dim)}
                 and bool(torch.isfinite(history).all()), "Inference requires finite normalized history matching the trained horizon")
         require(float(bound.arguments["action_init_noise_strength"]) == 0.5
                 and bound.arguments["action_init_noise_type"] == "additive"
-                and tuple(bound.arguments["action_init_noise_dim_mask"] or ()) == (True,) * 76
+                and tuple(bound.arguments["action_init_noise_dim_mask"] or ()) == (True,) * self.expected_action_dim
                 and bound.arguments["clamp_action_init_after_noise"] is False,
-                "Inference must match training: history+0.5*Gaussian on all76 dimensions, without clipping")
+                "Inference must match training: history+0.5*Gaussian on all action dimensions, without clipping")
         image = bound.arguments["input_image"]
         require(tuple(image.shape) in {(3, 224, 448), (1, 3, 224, 448)}, "Expected two-view224x448 current image")
         bound.arguments["proprio"] = None
@@ -357,11 +357,11 @@ class StateOnlyDeltaImageWAM(ImageWAM):
             result = ImageWAM.infer_action_flux2(*bound.args, **bound.kwargs)
             require(scope.calls >= int(result["num_inference_steps"]) > 0,
                     "Native action solver did not consume the CURRENT action-side state")
-            require(tuple(result["action"].shape) == (horizon, 76)
+            require(tuple(result["action"].shape) == (horizon, self.expected_action_dim)
                     and bool(torch.isfinite(result["action"]).all()), "Native solver returned invalid whole-body actions")
         self.last_action_condition = self.action_expert.last_action_condition
         return {**result, "state_only_visual_state_route": "none", "state_only_action_state_source": "measured_current",
-                "state_only_action_condition_calls": scope.calls, "state_only_action_dim": 76}
+                "state_only_action_condition_calls": scope.calls, "state_only_action_dim": self.expected_action_dim}
 
     @wraps(ImageWAM.infer_video_flux2)
     def infer_video_flux2(self, *args, **kwargs):
@@ -380,7 +380,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
     def save_checkpoint(self, path, optimizer=None, step=None):
         self.validate_state_only_route()
         require(step is None or (type(step) is int and step >= 0), "Invalid checkpoint optimizer step")
-        payload = {"checkpoint_format": CHECKPOINT_FORMAT, "state_only_delta": self.state_only_protocol(),
+        payload = {"checkpoint_format": self.state_only_protocol()["format"], "state_only_delta": self.state_only_protocol(),
                    "mot": self.mot.state_dict(), "step": step, "torch_dtype": str(self.torch_dtype),
                    "initialization_audit": self.compatible_action_initialization_audit}
         if optimizer is not None:
@@ -388,7 +388,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         torch.save(payload, path)
 
     def validate_checkpoint_payload(self, payload):
-        require(isinstance(payload, dict) and payload.get("checkpoint_format") == CHECKPOINT_FORMAT,
+        require(isinstance(payload, dict) and payload.get("checkpoint_format") == self.state_only_protocol()["format"],
                 "Restore requires the whole-body checkpoint schema, not a legacy/native/C-Pred model")
         require(payload.get("state_only_delta") == self.state_only_protocol(), "Checkpoint action/state/source/route protocol differs")
         require(isinstance(payload.get("initialization_audit"), dict), "Checkpoint lacks initialization provenance")
@@ -415,32 +415,40 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         return payload
 
 
-def adopt_state_only_delta(model, *, action_state_dim=44, expected_action_dim=76,
+def _adopt_state_only_delta(model, *, action_state_dim=44, expected_action_dim=76,
                            expected_action_horizon=16, state_only_init_seed=42,
-                           state_only_schema_id=SCHEMA_ID):
-    """Register only new input/output/state projections in an initialized MoT."""
+                           state_only_schema_id=SCHEMA_ID, route_class=StateOnlyDeltaImageWAM,
+                           route_metadata=None):
+    """Internal adoption; public factories bind dimensions to explicit schemas."""
     require(type(model) is ImageWAM and type(model.action_expert) is ActionDiTFlux2,
             "Only the unchanged native ImageWAM and ActionDiTFlux2 can be adopted")
     require(model.proprio_encoder is None and model.proprio_dim is None and not model.pack_proprio_after_text,
             "The base factory must construct a state-free visual branch from the start")
-    require((int(action_state_dim), int(expected_action_dim)) == (44, 76)
+    require(int(action_state_dim) == 44 and int(expected_action_dim) in (41, 47, 76)
             and type(expected_action_horizon) is int and expected_action_horizon in SUPPORTED_HORIZONS,
-            "This task fixes action76/state44 with horizon16 or explicit legacy40")
-    require(model.action_expert.action_dim == 76, "Configure the native action expert for76 dimensions before adoption")
+            "Expected a supported action schema with current state44 and a supported horizon")
+    require(model.action_expert.action_dim == int(expected_action_dim), "Native action dimension differs from the explicit schema")
     parameter = next(model.action_expert.parameters())
-    model.__class__ = StateOnlyDeltaImageWAM
+    model.__class__ = route_class
     model.action_expert.__class__ = StateOnlyActionDiTFlux2
     model.action_state_dim = model.action_expert.action_state_dim = 44
     model.expected_action_horizon = expected_action_horizon
+    model.expected_action_dim = int(expected_action_dim)
     model.state_only_schema_id = str(state_only_schema_id)
     model.state_only_init_seed = int(state_only_init_seed)
+    if route_metadata is not None:
+        require(route_class is not StateOnlyDeltaImageWAM
+                and set(route_metadata) == {"statistics_sha256", "instruction_sha256"},
+                "Only explicit joint routes use the independent dataset identity metadata")
+        model.joint_statistics_sha256 = route_metadata["statistics_sha256"]
+        model.joint_instruction_sha256 = route_metadata["instruction_sha256"]
     model._state_only_owner = object()
     model.action_expert._state_only_owner = model._state_only_owner
     hidden = int(model.action_expert.hidden_dim)
     with torch.random.fork_rng(devices=[]), torch.device("cpu"):
         torch.random.default_generator.manual_seed(int(state_only_init_seed))
-        model.action_expert.action_encoder = nn.Linear(76, hidden)
-        model.action_expert.head.linear = nn.Linear(hidden, 76, bias=False)
+        model.action_expert.action_encoder = nn.Linear(int(expected_action_dim), hidden)
+        model.action_expert.head.linear = nn.Linear(hidden, int(expected_action_dim), bias=False)
         model.action_expert.state_encoder = nn.Linear(44, hidden)
         # The canonical FLUX.2 partial initializer has no output modulation.
         # Initialize it explicitly, not from the base factory's incidental RNG
@@ -455,6 +463,18 @@ def adopt_state_only_delta(model, *, action_state_dim=44, expected_action_dim=76
         "newly_initialized": sorted(PARTIAL_NEW_ACTION_KEYS), "init_seed": int(state_only_init_seed)}
     model.validate_state_only_route()
     return model
+
+
+def adopt_state_only_delta(model, *, action_state_dim=44, expected_action_dim=76,
+                           expected_action_horizon=16, state_only_init_seed=42,
+                           state_only_schema_id=SCHEMA_ID):
+    """Preserve the original strict motion76 public factory contract."""
+    require((int(action_state_dim), int(expected_action_dim)) == (44, 76)
+            and state_only_schema_id == SCHEMA_ID,
+            "Motion-token adoption requires its exact action76/state44 schema")
+    return _adopt_state_only_delta(model, action_state_dim=action_state_dim,
+        expected_action_dim=expected_action_dim, expected_action_horizon=expected_action_horizon,
+        state_only_init_seed=state_only_init_seed, state_only_schema_id=state_only_schema_id)
 
 
 def _file_identity(path):
@@ -508,7 +528,7 @@ def load_compatible_action_initializer(model, path, *, expected_sha256):
     require(all(isinstance(key, str) for key in state), "Initializer contains a non-string tensor key")
     require({key.split(".", 1)[0] for key in state} <= allowed,
             "Base initializer contains a non-shared/task-specific tensor")
-    require(model.action_expert.action_dim == 76 and model.action_expert.action_state_dim == 44
+    require(model.action_expert.action_dim == model.expected_action_dim and model.expected_action_dim in (41, 47, 76) and model.action_expert.action_state_dim == 44
             and model.state_only_init_seed == 42, "Expected the freshly seeded action76/state44 expert")
     expected = model.action_expert.state_dict()
     require(set(expected) - set(state) == set(PARTIAL_NEW_ACTION_KEYS)
@@ -545,7 +565,7 @@ def load_compatible_action_initializer(model, path, *, expected_sha256):
         "source": str(source), "source_sha256": actual_sha256,
         "expected_sha256": expected_sha256,
         "source_format": "flux2_shared_partial_initializer_v1", "source_action_dim": None,
-        "target_action_dim": 76, "current_state_dim": 44,
+        "target_action_dim": model.expected_action_dim, "current_state_dim": 44,
         "retained_keys": sorted(state), "retained_tensor_count": 114,
         "ignored_source_projections": [], "newly_initialized": sorted(PARTIAL_NEW_ACTION_KEYS),
         "new_parameter_shapes": {key: list(actual[key].shape) for key in sorted(PARTIAL_NEW_ACTION_KEYS)},
@@ -561,9 +581,10 @@ def load_compatible_action_initializer(model, path, *, expected_sha256):
     return audit
 
 
-def create_imagewam_flux2_wholebody_delta(*, action_initializer_sha256, action_state_dim=44, expected_action_dim=76,
+def _create_state_only_flux2(*, action_initializer_sha256, action_state_dim=44, expected_action_dim=76,
         expected_action_horizon=16, state_only_init_seed=42,
-        state_only_schema_id=SCHEMA_ID, **kwargs):
+        state_only_schema_id=SCHEMA_ID, route_class=StateOnlyDeltaImageWAM,
+        route_metadata=None, **kwargs):
     """Fresh FLUX.2 base video + base-derived shared action layers, no parent task."""
     from imagewam.runtime import create_imagewam_flux2_klein
 
@@ -574,7 +595,12 @@ def create_imagewam_flux2_wholebody_delta(*, action_initializer_sha256, action_s
     for cls in (ImageWAM, ActionDiTFlux2):
         source = Path(inspect.getfile(cls))
         require(file_sha256(source) == UPSTREAM_SHA256[source.name], f"Unreviewed native source: {source}")
-    require(state_only_schema_id == SCHEMA_ID, "Whole-body checkpoint schema cannot masquerade as another architecture")
+    require((route_class is StateOnlyDeltaImageWAM and state_only_schema_id == SCHEMA_ID
+             and int(expected_action_dim) == 76) or
+            (route_class is not StateOnlyDeltaImageWAM
+             and issubclass(route_class, StateOnlyDeltaImageWAM)
+             and route_class.accepts_schema(state_only_schema_id, expected_action_dim)),
+            "Whole-body checkpoint schema cannot masquerade as another architecture")
     require(int(state_only_init_seed) == 42, "Fresh task projections must use seed42")
     require(kwargs.get("variant") == "klein-base-4b", "Use the FLUX.2-klein-base-4B base variant")
     require(Path(str(kwargs.get("flux2_model_path"))).name == "flux-2-klein-base-4b.safetensors",
@@ -584,8 +610,8 @@ def create_imagewam_flux2_wholebody_delta(*, action_initializer_sha256, action_s
     require(not bool(kwargs.get("zero_init_action_head", False)) and float(kwargs.get("action_head_init_scale", 1.0)) == 1.0,
             "New whole-body output head must use its recorded nonzero initialization")
     action_config = kwargs.get("action_dit_config")
-    require(action_config is not None and int(action_config.get("action_dim", -1)) == 76,
-            "Configure native action_dit_config.action_dim=76")
+    require(action_config is not None and int(action_config.get("action_dim", -1)) == int(expected_action_dim),
+            "Native action_dit_config.action_dim must match the explicit schema")
     initializer = kwargs.get("action_dit_pretrained_path")
     require(initializer is not None, "Fresh whole-body training requires a base-derived action114 initializer")
     # Validate the artifact before allocating the full backbone, and validate it
@@ -595,12 +621,24 @@ def create_imagewam_flux2_wholebody_delta(*, action_initializer_sha256, action_s
     kwargs["proprio_dim"] = None
     kwargs["pack_proprio_after_text"] = False
     kwargs["action_dit_pretrained_path"] = None
-    model = adopt_state_only_delta(create_imagewam_flux2_klein(**kwargs),
+    model = _adopt_state_only_delta(create_imagewam_flux2_klein(**kwargs),
         action_state_dim=action_state_dim, expected_action_dim=expected_action_dim,
         expected_action_horizon=expected_action_horizon, state_only_init_seed=state_only_init_seed,
-        state_only_schema_id=state_only_schema_id)
+        state_only_schema_id=state_only_schema_id, route_class=route_class, route_metadata=route_metadata)
     load_compatible_action_initializer(model, initializer, expected_sha256=action_initializer_sha256)
     model.model_paths["action_dit"] = str(Path(initializer).expanduser().resolve(strict=True))
     model.model_paths["parent_task"] = None
     model.validate_state_only_route()
     return model
+
+
+def create_imagewam_flux2_wholebody_delta(*, action_initializer_sha256, action_state_dim=44,
+        expected_action_dim=76, expected_action_horizon=16, state_only_init_seed=42,
+        state_only_schema_id=SCHEMA_ID, **kwargs):
+    """Original motion-token route; joint-reference routes have their own factory."""
+    require(expected_action_dim == 76 and state_only_schema_id == SCHEMA_ID,
+            "Motion-token factory requires the action76 schema")
+    return _create_state_only_flux2(action_initializer_sha256=action_initializer_sha256,
+        action_state_dim=action_state_dim, expected_action_dim=expected_action_dim,
+        expected_action_horizon=expected_action_horizon, state_only_init_seed=state_only_init_seed,
+        state_only_schema_id=state_only_schema_id, **kwargs)

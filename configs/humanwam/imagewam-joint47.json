@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "backend": "imagewam_joint_reference",
+  "python": "${IMAGEWAM_PYTHON}",
+  "options": {
+    "model_config": "${IMAGEWAM_JOINT_MODEL_CONFIG}",
+    "checkpoint": "${IMAGEWAM_JOINT_CHECKPOINT}",
+    "text_cache": "${IMAGEWAM_JOINT_TEXT_CACHE}",
+    "schema": "joint47_predicted_rotation6d",
+    "horizon": 16,
+    "device": "cuda:0",
+    "host": "127.0.0.1",
+    "port": 8092
+  }
+}

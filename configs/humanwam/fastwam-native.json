@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "backend": "fastwam",
+  "source_dir": "${HUMANWAM_ROOT}/third_party/FastWAM",
+  "options": {
+    "profile": "libero_uncond_2cam224",
+    "method": "gaussian_fm",
+    "checkpoint": "${FASTWAM_CHECKPOINT}",
+    "checkpoint_sha256": "1000437cfcf55c000094f79a2600634c502bcb5b492476b94bf8509883a49579",
+    "stats_path": "${FASTWAM_STATS}",
+    "stats_sha256": "30f81ad7d5076e97323e3328bce003e01a04cb21327b5bacd21bb72846768638",
+    "model_cache_root": "${FASTWAM_MODEL_CACHE}",
+    "device": "cuda",
+    "dtype": "bf16",
+    "num_inference_steps": 10,
+    "sigma_shift": 5.0,
+    "compile_action_infer": false,
+    "binarize_gripper": true,
+    "host": "127.0.0.1",
+    "port": 8094
+  }
+}

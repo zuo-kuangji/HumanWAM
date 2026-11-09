@@ -17,6 +17,24 @@ class Backend:
 
 
 BACKENDS = {
+    "fastwam": Backend(
+        "Fast-WAM (native Gaussian)",
+        "humanwam.backends.fastwam",
+        "humanwam.backends.fastwam_commands",
+        "third_party/FastWAM",
+        "native LIBERO/RoboTwin current RGB views + state + instruction",
+        "official task checkpoint action7/14; no implicit SONIC conversion",
+        "Separate native Fast-WAM Wan2.2 environment",
+    ),
+    "imagewam_joint_reference": Backend(
+        "ImageWAM Delta-flow joint reference",
+        "humanwam.backends.imagewam_joint_reference",
+        "humanwam.backends.imagewam_joint_reference",
+        ".",
+        "two current RGB + current state44 + strictly-past stride2 joint41/47 references",
+        "H16 raw joint29 + measured Inspire12, optionally predicted root rotation6d; SONIC v1",
+        "ImageWAM FLUX.2 BF16 environment; distinct from motion76 checkpoints",
+    ),
     "psi0": Backend(
         "Psi-Zero + SONIC",
         "humanwam.backends.psi0",
@@ -96,7 +114,7 @@ def build_command(config, action, root):
     module = importlib.import_module(spec.commands)
     options = dict(config.get("options", {}))
     options.setdefault("python", config.get("python", "python3"))
-    if config["backend"] == "imagewam_delta":
+    if config["backend"] in ("imagewam_delta", "imagewam_joint_reference", "fastwam"):
         options.setdefault("launcher_config", config.get("_config_path"))
     source = Path(config.get("source_dir", root / spec.source))
     if not source.is_absolute():

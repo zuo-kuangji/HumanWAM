@@ -5,6 +5,11 @@ on:
     paths:
       - "packages/humanwam/**"
       - "configs/humanwam/**"
+      - "configs/wholebody/**"
+      - "scripts/wholebody/**"
+      - "src/imagewam/wholebody*.py"
+      - "src/imagewam/datasets/wholebody_joint_reference.py"
+      - "tests/test_wholebody*.py"
       - "patches/**"
       - "backends.lock.json"
       - ".gitmodules"
@@ -13,6 +18,11 @@ on:
     paths:
       - "packages/humanwam/**"
       - "configs/humanwam/**"
+      - "configs/wholebody/**"
+      - "scripts/wholebody/**"
+      - "src/imagewam/wholebody*.py"
+      - "src/imagewam/datasets/wholebody_joint_reference.py"
+      - "tests/test_wholebody*.py"
       - "patches/**"
       - "backends.lock.json"
       - ".gitmodules"
@@ -38,6 +48,6 @@ jobs:
       - name: Install orchestration and test dependencies
         run: python -m pip install -e './packages/humanwam[test]'
       - name: CPU policy and orchestration contracts
-        run: python -m pytest -q packages/humanwam/tests
+        run: python -m pytest -q packages/humanwam/tests tests/test_wholebody_training_cli.py
       - name: Lightweight package lint
         run: python -m ruff check packages/humanwam

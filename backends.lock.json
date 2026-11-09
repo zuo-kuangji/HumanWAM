@@ -51,6 +51,13 @@
         "commit": "d40376994ff094787591ab76a691c50b8e131786",
         "required_for": "native PSI robot controller; optional for offline policy inference"
       }
+    },
+    {
+      "name": "fastwam",
+      "path": "third_party/FastWAM",
+      "url": "https://github.com/yuantianyuan01/FastWAM.git",
+      "commit": "7faa71108368fbb3b6885649f112af607427a2d4",
+      "patches": []
     }
   ],
   "imagewam": {

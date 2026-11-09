@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "backend": "fastwam",
+  "source_dir": "${HUMANWAM_ROOT}/third_party/FastWAM",
+  "options": {
+    "task": "libero_uncond_2cam224_1e-4",
+    "model_cache_root": "${FASTWAM_MODEL_CACHE}",
+    "output_dir": "${FASTWAM_OUTPUT}",
+    "num_processes": 8,
+    "overrides": {
+      "model.redirect_common_files": false,
+      "model.action_dit_pretrained_path": "${FASTWAM_ACTION_INIT}",
+      "data.train.dataset_dirs": ["${FASTWAM_DATA_ROOT}"],
+      "data.train.text_embedding_cache_dir": "${FASTWAM_TEXT_CACHE}",
+      "batch_size": 16,
+      "gradient_accumulation_steps": 1,
+      "num_epochs": 10,
+      "learning_rate": 0.0001,
+      "wandb.enabled": false
+    }
+  }
+}
