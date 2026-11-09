@@ -3,6 +3,7 @@
 统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow、Fast-WAM、DiT4DiT 和 Psi-Zero 六个 policy 家族，共七个注册入口。ImageWAM 的 motion76 与 joint-reference 使用独立入口和动作schema。
 
 - [两种G1训练方式、初始化与完整复现命令](docs/TRAINING_MODES.md)
+- [G1部署：模型服务、HTTP客户端与SONIC v1.1接线](docs/G1_DEPLOYMENT.md)
 - [两条路线的295项CPU验证及验证范围](docs/policies/TRAINING_ROUTES_VALIDATION_20261110.md)
 
 - [统一安装、代码结构与维护说明](docs/POLICY_MAINTENANCE.md)

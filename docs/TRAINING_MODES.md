@@ -3,6 +3,8 @@
 HumanWAM maintains two ImageWAM Delta-flow training modes for G1 with Inspire hands.
 Run commands from the repository root, using the dedicated ImageWAM environment.
 The lightweight `humanwam` package does not install FLUX.2 or the training dependencies.
+For checkpoint files, persistent inference services and SONIC integration, see the
+[deployment guide](G1_DEPLOYMENT.md).
 
 | Mode | Predicted physical action after denormalization | History / prediction / execution | SONIC v1.1 interface |
 |---|---|---|---|

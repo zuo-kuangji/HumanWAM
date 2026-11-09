@@ -53,7 +53,7 @@ def main(argv=None):
                     self.reply(404, dict(error="Unknown endpoint"))
                     return
                 self.reply(200, result)
-            except (ValueError, TypeError, KeyError, RuntimeError) as exc:
+            except (ValueError, TypeError, KeyError, RuntimeError, OSError, ImportError) as exc:
                 self.reply(400, dict(error=str(exc)))
 
     HTTPServer((args.host, args.port), Handler).serve_forever()
