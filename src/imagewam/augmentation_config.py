@@ -6,9 +6,10 @@ import hashlib
 import json
 import math
 
-SCHEMA = "wholebody_training_augmentation_v1"
+SCHEMA = "wholebody_training_augmentation_v2"
+LEGACY_SCHEMA = "wholebody_training_augmentation_v1"
 
-_VISUAL = {
+_VISUAL_V1 = {
     "enabled": True,
     "camera_mode": "independent",
     "exposure": {"probability": 0.35, "gain": [0.85, 1.25], "gamma": [0.85, 1.15]},
@@ -23,7 +24,8 @@ _VISUAL = {
     },
     "blur": {"probability": 0.12, "sigma": [0.2, 0.8], "kernel_size": 5},
 }
-_PROPRIO = {
+_VISUAL = dict(_VISUAL_V1, probability=0.5)
+_PROPRIO_V1 = {
     "enabled": True,
     "body_noise_std": 0.01,
     "body_bias_std": 0.0,
@@ -34,6 +36,16 @@ _PROPRIO = {
         "probability": 0.1, "dimension_probability": 0.05,
         "max_dropped_dimensions": 3,
     },
+}
+_PROPRIO = {
+    "enabled": True,
+    "noise_probability": 0.25,
+    "body_noise_std": 0.01,
+    "body_bias_std": 0.0,
+    "hand_noise_std": 0.005,
+    "hand_bias_std": 0.0,
+    "gravity_rotation_std_deg": 0.0,
+    "state_dropout": {"probability": 0.1},
 }
 
 
@@ -83,9 +95,12 @@ def _range(value, name, *, positive=False):
     return [lo, hi]
 
 
-def normalize_visual_config(config=None):
-    result = _merge(_VISUAL, _plain({} if config is None else config), "augmentation.visual")
+def _normalize_visual(config, *, legacy=False):
+    result = _merge(_VISUAL_V1 if legacy else _VISUAL,
+                    _plain({} if config is None else config), "augmentation.visual")
     _boolean(result["enabled"], "visual.enabled")
+    if not legacy:
+        result["probability"] = _number(result["probability"], "visual.probability", maximum=1)
     if result["camera_mode"] not in ("independent", "shared"):
         raise ValueError("visual.camera_mode must be independent or shared")
     for key in ("exposure", "overexposure", "color", "jitter", "blur"):
@@ -106,19 +121,33 @@ def normalize_visual_config(config=None):
     return result
 
 
-def normalize_proprio_config(config=None):
-    result = _merge(_PROPRIO, _plain({} if config is None else config), "augmentation.proprio")
+def normalize_visual_config(config=None):
+    """Validate v2 visual settings, including the one-per-sample event gate."""
+    return _normalize_visual(config)
+
+
+def _normalize_proprio(config, *, legacy=False):
+    result = _merge(_PROPRIO_V1 if legacy else _PROPRIO,
+                    _plain({} if config is None else config), "augmentation.proprio")
     _boolean(result["enabled"], "proprio.enabled")
     for key in ("body_noise_std", "body_bias_std", "hand_noise_std", "hand_bias_std", "gravity_rotation_std_deg"):
         result[key] = _number(result[key], "proprio." + key,
                               maximum=5.0 if key == "gravity_rotation_std_deg" else 0.1)
+    if not legacy:
+        result["noise_probability"] = _number(result["noise_probability"], "proprio.noise_probability", maximum=1)
     drop = result["state_dropout"]
-    for key in ("probability", "dimension_probability"):
+    for key in (("probability", "dimension_probability") if legacy else ("probability",)):
         drop[key] = _number(drop[key], "state_dropout." + key, maximum=1)
-    count = drop["max_dropped_dimensions"]
-    if type(count) is not int or not 1 <= count <= 3:
-        raise ValueError("Light state dropout allows at most3 body/hand dimensions")
+    if legacy:
+        count = drop["max_dropped_dimensions"]
+        if type(count) is not int or not 1 <= count <= 3:
+            raise ValueError("Legacy state dropout allows at most3 body/hand dimensions")
     return result
+
+
+def normalize_proprio_config(config=None):
+    """Validate the v2 noise and whole-embedding dropout configuration."""
+    return _normalize_proprio(config)
 
 
 def default_augmentation(*, enabled=True):
@@ -134,15 +163,18 @@ def normalize_augmentation(config=None):
     if config is None:
         return default_augmentation(enabled=False)
     supplied = _plain(config)
-    default = default_augmentation()
+    legacy = isinstance(supplied, Mapping) and supplied.get("schema") == LEGACY_SCHEMA
+    default = (dict(schema=LEGACY_SCHEMA, enabled=True, seed=42,
+                    visual=_normalize_visual(None, legacy=True), proprio=_normalize_proprio(None, legacy=True))
+               if legacy else default_augmentation())
     result = _merge(default, supplied, "augmentation")
-    if result["schema"] != SCHEMA:
+    if result["schema"] not in (SCHEMA, LEGACY_SCHEMA):
         raise ValueError("Unknown training augmentation schema")
     _boolean(result["enabled"], "augmentation.enabled")
     if type(result["seed"]) is not int or not 0 <= result["seed"] < 2**63:
         raise ValueError("augmentation.seed must be a nonnegative signed64-bit integer")
-    result["visual"] = normalize_visual_config(result["visual"])
-    result["proprio"] = normalize_proprio_config(result["proprio"])
+    result["visual"] = _normalize_visual(result["visual"], legacy=legacy)
+    result["proprio"] = _normalize_proprio(result["proprio"], legacy=legacy)
     return result
 
 

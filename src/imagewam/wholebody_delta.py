@@ -34,7 +34,8 @@ UPSTREAM_SHA256 = {
     "action_dit_flux2.py": "2bfbdaea89c78f9f4872c9cf3e70e1560faf2fec78bf68755f342c1ca9290137",
 }
 STATE_KEYS = frozenset({"proprio", "state", "gt_pose", "predicted_proprio",
-                        "proprio_is_pad", "proprio_dim_is_pad", "state_is_pad", "state_dim_is_pad"})
+                        "proprio_is_pad", "proprio_dim_is_pad", "state_is_pad", "state_dim_is_pad",
+                        "state_condition_keep"})
 NEW_ACTION_KEYS = frozenset({"action_encoder.weight", "action_encoder.bias", "head.linear.weight",
                             "state_encoder.weight", "state_encoder.bias"})
 PARTIAL_NEW_ACTION_KEYS = NEW_ACTION_KEYS | {"head.adaLN_modulation.1.weight"}
@@ -70,6 +71,7 @@ def validate_expected_sha256(value):
 class _ActionStateScope:
     owner: object
     current: torch.Tensor
+    keep: torch.Tensor | None = None
     calls: int = 0
 
 
@@ -90,7 +92,12 @@ class StateOnlyActionDiTFlux2(ActionDiTFlux2):
         condition = scope.current.to(device=pre["tokens"].device, dtype=pre["tokens"].dtype)
         # Recompute this projection for every FM/IC forward. Never retain its
         # autograd graph across the native independently-backpropagated losses.
-        pre["tokens"] = pre["tokens"] + self.state_encoder(condition)[:, None, :]
+        features = self.state_encoder(condition)
+        if scope.keep is not None:
+            # One sample-level gate shared by FM/IC. Mask AFTER projection so
+            # the complete condition, including its learned bias, is absent.
+            features = features * scope.keep.to(device=features.device, dtype=features.dtype)[:, None]
+        pre["tokens"] = pre["tokens"] + features[:, None, :]
         scope.calls += 1
         self.last_action_condition = condition.detach().clone()
         return pre
@@ -204,16 +211,24 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         return value.detach().clone()
 
     @contextmanager
-    def action_state_scope(self, current=None):
+    def action_state_scope(self, current=None, keep=None):
         existing = _CURRENT_ACTION_STATE.get()
         if existing is not None:
             require(existing.owner is self._state_only_owner, "Nested action state belongs to a different model")
             if current is not None:
                 require(torch.equal(current, existing.current), "A nested call changed the current observation")
+            if keep is not None:
+                require(existing.keep is not None and torch.equal(keep, existing.keep),
+                        "A nested call changed the state condition dropout gate")
             yield existing
             return
         require(current is not None, "Missing CURRENT measured state; never infer a zero/future condition")
-        scope = _ActionStateScope(self._state_only_owner, current)
+        if keep is not None:
+            require(torch.is_tensor(keep) and keep.dtype == torch.bool
+                    and tuple(keep.shape) == (current.shape[0],),
+                    "State condition keep must be one boolean per sample")
+            keep = keep.detach().clone()
+        scope = _ActionStateScope(self._state_only_owner, current, keep)
         token = _CURRENT_ACTION_STATE.set(scope)
         try:
             yield scope
@@ -228,6 +243,22 @@ class StateOnlyDeltaImageWAM(ImageWAM):
                     "Training requires normalized CURRENT sample['proprio']")
             return None
         return self._current_measured_state(value, sample=sample)
+
+    def _state_keep_for_sample(self, sample):
+        keep = sample.get("state_condition_keep")
+        if keep is None:
+            existing = _CURRENT_ACTION_STATE.get()
+            if existing is not None and existing.owner is self._state_only_owner:
+                return None
+            config = getattr(self, "training_augmentation_config", {})
+            proprio = config.get("proprio", {})
+            expected = (config.get("enabled", False) and proprio.get("enabled", False)
+                        and proprio.get("state_dropout", {}).get("probability", 0) > 0)
+            require(not expected, "Training augmentation requires the dataset's state condition dropout gate")
+            return None
+        require(torch.is_tensor(keep) and keep.dtype == torch.bool and keep.ndim == 1,
+                "State condition keep must be a batched boolean tensor")
+        return keep.detach().clone()
 
     def build_inputs_flux2(self, sample, tiled=False):
         self.validate_state_only_route()
@@ -277,6 +308,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
     def iter_training_losses(self, sample, tiled=False):
         self.validate_state_only_route()
         current = self._scope_for_sample(sample)
+        keep = self._state_keep_for_sample(sample)
         iterator = super().iter_training_losses(self._without_state(sample), tiled=tiled)
         try:
             while True:
@@ -284,7 +316,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
                 # Native checkpoint recomputation is inside MoT blocks and
                 # never re-enters action pre_dit, so no live scope is needed.
                 try:
-                    with self.action_state_scope(current):
+                    with self.action_state_scope(current, keep):
                         item = next(iterator)
                 except StopIteration:
                     return
@@ -295,14 +327,14 @@ class StateOnlyDeltaImageWAM(ImageWAM):
     def _training_loss_flux2(self, sample, tiled=False, include_action_ic=True, inputs=None,
                              action_video_workspace=None, return_action_workspace=False):
         self.validate_state_only_route()
-        with self.action_state_scope(self._scope_for_sample(sample)):
+        with self.action_state_scope(self._scope_for_sample(sample), self._state_keep_for_sample(sample)):
             return super()._training_loss_flux2(self._without_state(sample), tiled=tiled,
                 include_action_ic=include_action_ic, inputs=self._checked_inputs(inputs),
                 action_video_workspace=self._checked_workspace(action_video_workspace), return_action_workspace=return_action_workspace)
 
     def _training_loss_flux2_action_ic(self, sample, tiled=False, inputs=None, action_video_workspace=None):
         self.validate_state_only_route()
-        with self.action_state_scope(self._scope_for_sample(sample)):
+        with self.action_state_scope(self._scope_for_sample(sample), self._state_keep_for_sample(sample)):
             return super()._training_loss_flux2_action_ic(self._without_state(sample), tiled=tiled,
                 inputs=self._checked_inputs(inputs), action_video_workspace=self._checked_workspace(action_video_workspace))
 

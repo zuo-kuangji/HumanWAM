@@ -24,6 +24,7 @@ def camera_pair():
 
 def only(operation,**overrides):
     cfg=copy.deepcopy(DEFAULT_VISUAL_AUGMENTATION)
+    cfg["probability"]=1
     for key in ("exposure","overexposure","color","jitter","blur"):cfg[key]["probability"]=0
     cfg[operation].update(probability=1,**overrides)
     return cfg
@@ -31,6 +32,7 @@ def only(operation,**overrides):
 
 def all_operations():
     cfg=copy.deepcopy(DEFAULT_VISUAL_AUGMENTATION)
+    cfg["probability"]=1
     for key in ("exposure","overexposure","color","jitter","blur"):cfg[key]["probability"]=1
     return cfg
 
@@ -131,12 +133,32 @@ def test_no_global_rng_input_cache_or_config_mutation():
 def test_disabled_and_all_zero_probabilities_are_exact_copies_without_rng_draws():
     original=camera_pair().double()
     zero=copy.deepcopy(DEFAULT_VISUAL_AUGMENTATION)
+    zero["probability"]=1
     for key in ("exposure","overexposure","color","jitter","blur"):zero[key]["probability"]=0
     for cfg in ({"enabled":False},zero):
         g=generator();before=g.get_state().clone()
         output=WholeBodyVisualAugmenter(cfg).apply(original,generator=g)
         assert torch.equal(output,original) and output.dtype==original.dtype
         assert output.data_ptr()!=original.data_ptr() and torch.equal(before,g.get_state())
+
+
+def test_overall_visual_probability_controls_the_entire_pipeline():
+    original=camera_pair()
+    config=all_operations();config["probability"]=0
+    g=generator();before=g.get_state().clone()
+    result=WholeBodyVisualAugmenter(config).apply(original,generator=g)
+    assert torch.equal(result,original) and torch.equal(before,g.get_state())
+    config["probability"]=.5
+    augmenter=WholeBodyVisualAugmenter(config)
+    # First uniform draws: seed0=.4963 (keep), seed1=.7576 (skip).
+    assert not torch.equal(augmenter.apply(original,generator=generator(0)),original)
+    assert torch.equal(augmenter.apply(original,generator=generator(1)),original)
+
+
+def test_controller_can_apply_a_preselected_global_gate_without_resampling_it():
+    original=camera_pair();config=all_operations();config["probability"]=0
+    augmenter=WholeBodyVisualAugmenter(config)
+    assert not torch.equal(augmenter.apply(original,generator=generator(),apply_probability=False),original)
 
 
 def test_explicit_parameters_can_be_shared_across_cameras_without_new_rng_draws():

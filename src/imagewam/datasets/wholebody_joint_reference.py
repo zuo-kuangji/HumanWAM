@@ -1279,6 +1279,7 @@ class JointReferenceLeRobotDataset(WholeBodyLeRobotDataset):
         past[window["past_action_is_pad"]] = 0.0
         current = self.normalizer.forward(states[anchor], "state")
         current = self._training_current_state(current, states[anchor], generator=generator)
+        state_condition_keep = self._training_state_keep(generator=generator)
         orientation_masks = {}
         if self.action_dim == 47:
             validity = arrays[2]
@@ -1294,6 +1295,7 @@ class JointReferenceLeRobotDataset(WholeBodyLeRobotDataset):
             "video": (video * 2 - 1).permute(1, 0, 2, 3).contiguous(),
             "action": torch.from_numpy(action),
             "past_action": torch.from_numpy(past),
+            "state_condition_keep": state_condition_keep,
             "proprio": torch.from_numpy(
                 np.repeat(current[None], self.action_horizon, axis=0)
             ),

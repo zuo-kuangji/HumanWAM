@@ -54,7 +54,7 @@ def expected_microbatches(loader_length, accumulation, optimizer_updates):
 
 def training_augmentation_contract(cfg, *, dataset=None):
     """Validate task-bound training settings; missing legacy fields mean disabled."""
-    from imagewam.augmentation_config import augmentation_sha256, normalize_augmentation
+    from imagewam.augmentation_config import SCHEMA, augmentation_sha256, normalize_augmentation
 
     ds, contract = cfg["data"]["train"], cfg["wholebody_contract"]
     present = ("augmentation" in ds, "training_augmentation" in contract,
@@ -63,6 +63,8 @@ def training_augmentation_contract(cfg, *, dataset=None):
             "Dataset augmentation and its complete config/SHA contract must be recorded together")
     try:
         canonical = normalize_augmentation(contract.get("training_augmentation"))
+        require(not canonical["enabled"] or canonical["schema"] == SCHEMA,
+                "Enabled training augmentation must use whole-state conditioning dropout, not legacy dimension masking")
         digest = augmentation_sha256(canonical)
         if any(present):
             require(contract["training_augmentation"] == canonical
@@ -83,6 +85,40 @@ def training_augmentation_contract(cfg, *, dataset=None):
     return {"config": canonical, "sha256": digest, "legacy": not any(present)}
 
 
+def state_condition_keep_summary(sample, *, require_flag=False):
+    """Observe the real per-sample gate; never redraw it for a smoke objective."""
+    import torch
+
+    batch = int(sample["proprio"].shape[0])
+    require(batch > 0, "Smoke requires a nonempty proprio batch")
+    keep = sample.get("state_condition_keep")
+    if keep is None:
+        require(not require_flag, "Whole-state conditioning dropout requires sample state_condition_keep")
+        retained = batch
+    else:
+        require(torch.is_tensor(keep) and keep.dtype == torch.bool and tuple(keep.shape) == (batch,),
+                "state_condition_keep must be a per-sample[B] boolean tensor")
+        retained = int(keep.sum().item())
+    return {"state_condition_batch_size": batch, "state_condition_retained_count": retained,
+            "state_condition_dropped_count": batch - retained}
+
+
+def validate_smoke_gradient_event(event):
+    """A valid all-dropped microbatch has zero local state-encoder gradients."""
+    require(all(math.isfinite(event[key]) for key in ("visual", "action", "state")),
+            "Nonfinite native gradient norm in smoke evidence")
+    state_ok = (event["state"] > 0 if event["state_condition_retained_count"] > 0 else event["state"] == 0)
+    if event["name"] == "image_ic":
+        require(event["visual"] > 0 and event["action"] == event["state"] == 0,
+                "Visual IC gradient route failed")
+    elif event["name"] == "action_ic":
+        require(event["visual"] == 0 and event["action"] > 0 and state_ok,
+                "Action IC stop-gradient/current-state gate route failed")
+    else:
+        require(event["name"] == "main_fm" and event["visual"] > 0 and event["action"] > 0 and state_ok,
+                "Main visual/action FM or current-state gate gradient route failed")
+
+
 def validate_smoke_sample(sample, cfg):
     """Raw joint v2 samples contain target40 and history16 before source expansion."""
     import torch
@@ -98,6 +134,15 @@ def validate_smoke_sample(sample, cfg):
             "Actual sample schema differs from target/history horizons")
     require(torch.equal(sample["proprio"], sample["proprio"][:, :1].expand_as(sample["proprio"])),
             "Dataset supplied future state instead of one augmented current state")
+    from imagewam.augmentation_config import SCHEMA, normalize_augmentation
+    augmentation = normalize_augmentation(cfg["data"]["train"].get("augmentation"))
+    gate_enabled = (augmentation["enabled"] and augmentation["schema"] == SCHEMA
+                    and augmentation["proprio"]["enabled"]
+                    and augmentation["proprio"]["state_dropout"]["probability"] > 0)
+    summary = state_condition_keep_summary(sample, require_flag=gate_enabled)
+    require(gate_enabled or summary["state_condition_dropped_count"] == 0,
+            "Sample dropped a state condition while whole-state dropout is disabled")
+    return summary
 
 
 def config_spec(cfg):
@@ -558,7 +603,8 @@ def install_training_contract(*, smoke):
                 and protocol["action_horizon"] == int(cfg.model.expected_action_horizon), "Current-state/stop-gradient protocol changed")
         require(model.training_objective_count() == 3 and model.text_encoder is None
                 and all(not p.requires_grad for p in model.vae.parameters()), "Use frozen VAE, cached Qwen and the three native objective events")
-        require(not any(isinstance(m, torch.nn.Dropout) and m.p > 0 for m in model.modules()), "Condition/model dropout is not part of this recipe")
+        require(not any(isinstance(m, torch.nn.Dropout) and m.p > 0 for m in model.modules()),
+                "nn.Dropout(p>0) inside the model is disabled; audited sample-level whole-state condition gates are allowed")
         engine = self.accelerator.deepspeed_engine_wrapped.engine
         require(engine.global_steps == engine.skipped_steps == 0, "Optimizer counters were inherited")
         optimized = [p for group in engine.optimizer.bit16_groups for p in group]
@@ -654,19 +700,16 @@ def install_smoke_hooks():
 
     original_iter = StateOnlyDeltaImageWAM.iter_training_losses
     def checked_iter(self, *args, **kwargs):
+        sample = args[0] if args else kwargs.get("sample")
+        summary = state_condition_keep_summary(sample)
         for loss, metrics in original_iter(self, *args, **kwargs):
             require(bool(torch.isfinite(loss).all()) and all(math.isfinite(float(v)) for v in metrics.values()), "Nonfinite native smoke loss")
             require(_CURRENT_ACTION_STATE.get() is None, "Action-state context leaked across objective yield/backward")
             name = "image_ic" if "loss_image_ic" in metrics else ("action_ic" if "loss_ic" in metrics and "loss_video" not in metrics else "main_fm")
-            phase.update(name=name, visual=0., action=0., state=0.)
+            phase.update(name=name, visual=0., action=0., state=0., **summary)
             yield loss, metrics
             event = dict(phase, metrics={k: float(v) for k, v in metrics.items()})
-            if name == "image_ic":
-                require(event["visual"] > 0 and event["action"] == event["state"] == 0, "Visual IC gradient route failed")
-            elif name == "action_ic":
-                require(event["visual"] == 0 and event["action"] > 0 and event["state"] > 0, "Action IC stop-gradient/current-state route failed")
-            else:
-                require(event["visual"] > 0 and event["action"] > 0 and event["state"] > 0, "Main visual/action FM gradients missing")
+            validate_smoke_gradient_event(event)
             evidence["objective_events"].append(event)
             phase["name"] = None
     StateOnlyDeltaImageWAM.iter_training_losses = checked_iter
@@ -724,6 +767,7 @@ def install_smoke_hooks():
         dist.all_gather_object(hashes, digest.hexdigest())
         require(len(set(hashes)) == 1, "Action-side state encoder differs across ranks")
         augmentation = training_augmentation_contract(self.cfg, dataset=self.train_dataset)
+        main_events = [event for event in evidence["objective_events"] if event["name"] == "main_fm"]
         evidence.update(status="FIVE_UPDATES_VERIFIED", rank=self.accelerator.process_index,
             action_horizon=int(self.cfg.model.expected_action_horizon),
             action_dim=int(self.cfg.model.expected_action_dim),
@@ -734,6 +778,9 @@ def install_smoke_hooks():
             statistics_sha256=self.cfg.wholebody_contract.statistics_sha256,
             action_initializer_sha256=self.cfg.model.action_initializer_sha256,
             training_augmentation=augmentation["config"], training_augmentation_sha256=augmentation["sha256"],
+            state_condition_retained_microbatches=sum(event["state_condition_retained_count"] > 0 for event in main_events),
+            state_condition_all_dropped_microbatches=sum(event["state_condition_retained_count"] == 0 for event in main_events),
+            state_condition_gate_resampled_by_smoke=False,
             fp32_master_probe_absolute_change=change, state_encoder_hash=digest.hexdigest(),
             peak_allocated_bytes=torch.cuda.max_memory_allocated(), peak_reserved_bytes=torch.cuda.max_memory_reserved(),
             no_weight_or_optimizer_checkpoints_saved=True, production_must_reload_fresh_base=True,

@@ -77,11 +77,13 @@ class WholeBodyVisualAugmenter:
         self.config = normalize_visual_config(config)
         self.camera_mode = self.config["camera_mode"]
 
-    def sample_parameters(self, generator):
+    def sample_parameters(self, generator, *, apply_probability=True):
         if not isinstance(generator, torch.Generator) or generator.device.type != "cpu":
             raise ValueError("Visual augmentation requires a caller-owned CPU torch.Generator")
         result = {key: None for key in ("exposure", "overexposure", "color", "jitter", "blur")}
         if not self.config["enabled"]:
+            return result
+        if apply_probability and not _event(self.config.get("probability", 1.0), generator):
             return result
         for key in result:
             block = self.config[key]
@@ -103,7 +105,7 @@ class WholeBodyVisualAugmenter:
                 result[key] = {"sigma": _uniform(block["sigma"], generator), "kernel_size": block["kernel_size"]}
         return result
 
-    def apply(self, frames, *, generator, parameters=None):
+    def apply(self, frames, *, generator, parameters=None, apply_probability=True):
         if (not torch.is_tensor(frames) or not frames.is_floating_point() or frames.ndim != 4
                 or frames.shape[0] < 1 or frames.shape[1] != 3 or min(frames.shape[-2:]) < 2
                 or not bool(torch.isfinite(frames).all())
@@ -111,7 +113,8 @@ class WholeBodyVisualAugmenter:
             raise ValueError("Paired visual augmentation expects finite float RGB [T,3,H,W] in[0,1]")
         if not self.config["enabled"]:
             return frames.clone()
-        params = self.sample_parameters(generator) if parameters is None else _plain(parameters)
+        params = (self.sample_parameters(generator, apply_probability=apply_probability)
+                  if parameters is None else _plain(parameters))
         if not isinstance(params, dict) or set(params) != {"exposure", "overexposure", "color", "jitter", "blur"}:
             raise ValueError("Explicit paired visual parameters have an invalid schema")
         if all(value is None for value in params.values()):

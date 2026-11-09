@@ -1,0 +1,39 @@
+# Training only. Inference keeps deterministic resize and raw current state.
+schema: wholebody_training_augmentation_v2
+enabled: true
+seed: 42
+visual:
+  enabled: true
+  probability: 0.5
+  camera_mode: independent
+  exposure:
+    probability: 0.35
+    gain: [0.85, 1.25]
+    gamma: [0.85, 1.15]
+  overexposure:
+    probability: 0.12
+    gain: [1.25, 1.8]
+  color:
+    probability: 0.7
+    contrast: [0.9, 1.1]
+    saturation: [0.85, 1.15]
+    hue: 0.01
+  jitter:
+    probability: 0.4
+    translation: 0.02
+    rotation_degrees: 1.5
+    scale: [0.98, 1.02]
+  blur:
+    probability: 0.12
+    sigma: [0.2, 0.8]
+    kernel_size: 5
+proprio:
+  enabled: true
+  noise_probability: 0.25
+  body_noise_std: 0.01
+  body_bias_std: 0.0
+  hand_noise_std: 0.005
+  hand_bias_std: 0.0
+  gravity_rotation_std_deg: 0.0
+  state_dropout:
+    probability: 0.1

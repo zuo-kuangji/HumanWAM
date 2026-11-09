@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from imagewam.augmentation_config import (
-    SCHEMA, default_augmentation, normalize_augmentation,
+    SCHEMA, LEGACY_SCHEMA, default_augmentation, normalize_augmentation,
     normalize_visual_config, normalize_proprio_config, augmentation_sha256,
 )
 
@@ -29,11 +29,28 @@ def test_missing_config_preserves_legacy_while_explicit_profile_enables_training
 
 def test_profile_yaml_and_hydra_nested_config_match_canonical_defaults():
     OmegaConf = pytest.importorskip("omegaconf").OmegaConf
-    profile = OmegaConf.load(REPO / "configs/wholebody/augmentation_v1.yaml")
+    profile = OmegaConf.load(REPO / "configs/wholebody/augmentation_v2.yaml")
     assert normalize_augmentation(profile) == default_augmentation()
     assert augmentation_sha256(profile) == augmentation_sha256(default_augmentation())
     assert normalize_visual_config(profile.visual) == default_augmentation()["visual"]
     assert normalize_proprio_config(profile.proprio) == default_augmentation()["proprio"]
+
+
+def test_legacy_v1_profile_preserves_its_canonical_hash_for_checkpoint_provenance():
+    OmegaConf = pytest.importorskip("omegaconf").OmegaConf
+    profile = OmegaConf.load(REPO / "configs/wholebody/augmentation_v1.yaml")
+    normalized = normalize_augmentation(profile)
+    assert normalized["schema"] == LEGACY_SCHEMA
+    assert normalized["proprio"]["state_dropout"]["max_dropped_dimensions"] == 3
+    assert "noise_probability" not in normalized["proprio"]
+    assert "probability" not in normalized["visual"]
+    assert augmentation_sha256(profile) == "87ecf74008836ffa3580294254248ef9b0ef79e844a752ae843c30929e29645d"
+    normalized["enabled"] = False
+    assert augmentation_sha256(normalized) == "cebe5c431fb1d64fd95d361fb386f809d007ab97e26b7d731110e1a68b283263"
+    with pytest.raises(ValueError):
+        normalize_augmentation({"schema": LEGACY_SCHEMA, "proprio": {"noise_probability": 0.5}})
+    with pytest.raises(ValueError):
+        normalize_augmentation({"schema": LEGACY_SCHEMA, "visual": {"probability": 0.5}})
 
 
 def test_config_and_normalized_result_are_fully_independent_deep_copies():
@@ -41,7 +58,7 @@ def test_config_and_normalized_result_are_fully_independent_deep_copies():
     saved = copy.deepcopy(supplied)
     normalized = normalize_augmentation(supplied)
     normalized["visual"]["exposure"]["gain"][0] = 0.11
-    normalized["proprio"]["state_dropout"]["max_dropped_dimensions"] = 1
+    normalized["proprio"]["state_dropout"]["probability"] = 1
     assert supplied == saved
     assert default_augmentation() == saved
     supplied["visual"]["color"]["saturation"][0] = 0.12
@@ -99,6 +116,8 @@ def test_schema_boolean_branch_and_block_types_are_checked(invalid):
     {"visual": {"exposure": {"gian": [0.8, 1.2]}}},
     {"proprio": {"perturb_actions": True}},
     {"proprio": {"state_dropout": {"maximum_dims": 3}}},
+    {"proprio": {"state_dropout": {"max_dropped_dimensions": 3}}},
+    {"proprio": {"state_dropout": {"dimension_probability": 0.05}}},
     {1: True, "typo": False}, {"visual": {1: True, "typo": False}},
 ])
 def test_unknown_and_non_string_fields_fail_with_clear_value_errors(invalid):
@@ -108,6 +127,9 @@ def test_unknown_and_non_string_fields_fail_with_clear_value_errors(invalid):
 
 @pytest.mark.parametrize("invalid", [
     {"visual": {"overexposure": {"probability": 1.01}}},
+    {"visual": {"probability": 1.01}},
+    {"visual": {"probability": True}},
+    {"visual": {"probability": float("nan")}},
     {"visual": {"blur": {"probability": -0.1}}},
     {"visual": {"color": {"hue": 0.51}}},
     {"visual": {"jitter": {"translation": 0.26}}},
@@ -125,21 +147,25 @@ def test_unknown_and_non_string_fields_fail_with_clear_value_errors(invalid):
     {"proprio": {"hand_noise_std": 0.11}},
     {"proprio": {"gravity_rotation_std_deg": 6}},
     {"proprio": {"state_dropout": {"probability": 1.1}}},
-    {"proprio": {"state_dropout": {"dimension_probability": -0.01}}},
-    {"proprio": {"state_dropout": {"max_dropped_dimensions": 4}}},
-    {"proprio": {"state_dropout": {"max_dropped_dimensions": 0}}},
-    {"proprio": {"state_dropout": {"max_dropped_dimensions": 3.0}}},
+    {"proprio": {"noise_probability": -0.01}},
+    {"proprio": {"noise_probability": 1.01}},
+    {"proprio": {"noise_probability": True}},
+    {"proprio": {"noise_probability": float("nan")}},
 ])
 def test_numeric_bounds_and_range_shape_are_validated(invalid):
     with pytest.raises(ValueError): normalize_augmentation(invalid)
 
 
-def test_zero_augmentation_strengths_and_zero_dimension_probability_are_valid():
+def test_zero_augmentation_strengths_and_zero_event_probabilities_are_valid():
     config = normalize_augmentation({"visual": {"color": {"saturation": [0, 0], "hue": 0}},
         "proprio": {"body_noise_std": 0, "hand_noise_std": 0,
-                    "state_dropout": {"dimension_probability": 0}}})
+                    "noise_probability": 0, "state_dropout": {"probability": 0}}})
     assert config["visual"]["color"]["saturation"] == [0.0, 0.0]
-    assert config["proprio"]["state_dropout"]["dimension_probability"] == 0.0
+    assert config["proprio"]["noise_probability"] == 0.0
+    assert config["proprio"]["state_dropout"]["probability"] == 0.0
+    assert default_augmentation()["proprio"]["noise_probability"] == 0.25
+    assert default_augmentation()["proprio"]["state_dropout"] == {"probability": 0.1}
+    assert default_augmentation()["visual"]["probability"] == 0.5
 
 
 def test_import_validation_and_hash_do_not_import_tensor_or_image_runtimes():

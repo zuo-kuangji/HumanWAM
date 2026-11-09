@@ -409,6 +409,66 @@ class WholeBodyAdapterTests(unittest.TestCase):
         self.assertAlmostEqual(scale / (1 + scale**2)**.5, .5)
         self.assertAlmostEqual(1 / (1 + scale**2)**.5, .75**.5)
 
+    def test_state_dropout_gates_the_whole_encoded_condition_including_bias(self):
+        expert = self.model.action_expert
+        with torch.no_grad():
+            expert.state_encoder.bias.fill_(0.7)
+        actions = torch.randn(2, 40, 76)
+        time = torch.ones(2)
+        current = torch.stack((torch.ones(44), torch.full((44,), 2.)))
+        keep = torch.tensor([True, False])
+        baseline = ActionDiTFlux2.pre_dit(expert, actions, time)["tokens"]
+        with self.model.action_state_scope(current, keep):
+            actual = expert.pre_dit(actions, time)["tokens"]
+        feature = expert.state_encoder(current)
+        self.assertTrue(torch.allclose(actual[0], baseline[0] + feature[0]))
+        self.assertTrue(torch.equal(actual[1], baseline[1]))
+        self.assertTrue(bool(feature[1].abs().sum() > 0))
+        actual.sum().backward()
+        expected_bias_gradient = torch.full_like(expert.state_encoder.bias, 40.)
+        self.assertTrue(torch.equal(expert.state_encoder.bias.grad, expected_bias_gradient))
+
+    def test_one_dataset_gate_is_shared_by_native_fm_and_endpoint_losses(self):
+        self.sample["state_condition_keep"] = torch.tensor([False])
+        before = self.sample["proprio"].clone()
+
+        def run(state):
+            losses = []
+            self.model.zero_grad(set_to_none=True)
+            torch.manual_seed(123)
+            for loss, metrics in self.model.iter_training_losses(dict(self.sample, proprio=state)):
+                loss.backward()
+                losses.append(float(loss.detach()))
+                self.assertFalse(has_grad(self.model.action_expert.state_encoder))
+                self.assertIsNone(adapter._CURRENT_ACTION_STATE.get())
+            return losses
+
+        first = run(before)
+        second = run(before + 9.)
+        self.assertEqual(len(first), 3)
+        self.assertEqual(first, second)
+        self.assertTrue(torch.equal(self.sample["proprio"], before))
+        self.assertNotIn("state_condition_keep", self.model._without_state(self.sample))
+
+    def test_declared_condition_dropout_requires_a_valid_sample_gate(self):
+        self.model.training_augmentation_config = {
+            "enabled": True, "proprio": {"enabled": True, "state_dropout": {"probability": .2}}}
+        with self.assertRaisesRegex(ValueError, "dropout gate"):
+            list(self.model.iter_training_losses(self.sample))
+        for keep in (torch.tensor([1.]), torch.tensor([[True]]), torch.tensor([True, False])):
+            with self.assertRaises(ValueError):
+                list(self.model.iter_training_losses(dict(self.sample, state_condition_keep=keep)))
+
+    def test_inference_keeps_true_state_even_when_training_dropout_probability_is_one(self):
+        self.model.training_augmentation_config = {
+            "enabled": True, "proprio": {"enabled": True, "state_dropout": {"probability": 1.}}}
+        kwargs = {"prompt": None, "input_image": torch.rand(1, 3, 224, 448), "action_horizon": 40,
+                  "context": self.sample["text_hidden_states"], "context_mask": self.sample["text_attention_mask"],
+                  "action_init": self.sample["past_action"], "seed": 73, "rand_device": "cpu"}
+        first = self.model.infer_action(**kwargs, proprio=torch.zeros(1, 44))
+        second = self.model.infer_action(**kwargs, proprio=torch.ones(1, 44))
+        self.assertFalse(torch.allclose(first["action"], second["action"]))
+
     def test_training_augmentation_provenance_roundtrip_and_tamper_rejection(self):
         self.model.training_augmentation_config = augmentation_module.default_augmentation()
         with tempfile.TemporaryDirectory() as directory:
@@ -454,6 +514,18 @@ class WholeBodyAdapterTests(unittest.TestCase):
             payload = other.load_checkpoint(path)
             self.assertNotIn("training_augmentation", payload)
             self.assertIsNone(other.loaded_training_augmentation)
+            self.assertFalse(hasattr(other, "training_augmentation_config"))
+
+    def test_v1_augmentation_checkpoint_provenance_retains_its_original_digest(self):
+        legacy = augmentation_module.normalize_augmentation({"schema": augmentation_module.LEGACY_SCHEMA})
+        self.model.training_augmentation_config = legacy
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "v1-provenance.pt"
+            self.model.save_checkpoint(path)
+            other = make_model()
+            payload = other.load_checkpoint(path)
+            self.assertEqual(payload["training_augmentation"]["config"], legacy)
+            self.assertEqual(payload["training_augmentation"]["sha256"], augmentation_module.augmentation_sha256(legacy))
             self.assertFalse(hasattr(other, "training_augmentation_config"))
 
     def test_legacy_prior_and_action_dim_fail_closed(self):

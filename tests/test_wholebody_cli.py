@@ -160,14 +160,14 @@ def test_new_builder_defaults_to_the_shared_enabled_profile_and_binds_both_confi
     receipt, production, smoke = build_fixture(tmp_path)
     shared = normalize_augmentation(
         OmegaConf.to_container(
-            OmegaConf.load(ROOT / "configs/wholebody/augmentation_v1.yaml"),
+            OmegaConf.load(ROOT / "configs/wholebody/augmentation_v2.yaml"),
             resolve=True,
         )
     )
     assert shared == default_augmentation()
     assert receipt["training_augmentation"] == shared
     assert receipt["training_augmentation_sha256"] == augmentation_sha256(shared)
-    assert Path(receipt["training_augmentation_profile"]).name == "augmentation_v1.yaml"
+    assert Path(receipt["training_augmentation_profile"]).name == "augmentation_v2.yaml"
     assert production.data.train.augmentation == smoke.data.train.augmentation == shared
 
 
@@ -183,12 +183,16 @@ def test_custom_profile_is_canonicalized_and_cli_options_are_mutually_exclusive(
 ):
     custom = tmp_path / "custom.yaml"
     custom.write_text(
-        "enabled: true\nseed: 18\nvisual:\n  camera_mode: shared\nproprio:\n  enabled: false\n"
+        "enabled: true\nseed: 18\nvisual:\n  camera_mode: shared\n  probability: 0.63\n"
+        "proprio:\n  enabled: true\n  noise_probability: 0.37\n  state_dropout:\n    probability: 0.17\n"
     )
     receipt, production, _ = build_fixture(tmp_path, augmentation_config=custom)
     assert production.data.train.augmentation.seed == 18
     assert production.data.train.augmentation.visual.camera_mode == "shared"
-    assert not production.data.train.augmentation.proprio.enabled
+    assert production.data.train.augmentation.visual.probability == 0.63
+    assert production.data.train.augmentation.proprio.enabled
+    assert production.data.train.augmentation.proprio.noise_probability == 0.37
+    assert production.data.train.augmentation.proprio.state_dropout.probability == 0.17
     assert receipt["training_augmentation_sha256"] == augmentation_sha256(
         receipt["training_augmentation"]
     )
@@ -220,6 +224,50 @@ def test_custom_profile_is_canonicalized_and_cli_options_are_mutually_exclusive(
         builder.argument_parser().parse_args(
             arguments + ["--no-augmentation", "--augmentation-config", str(custom)]
         )
+
+
+def test_enabled_legacy_dimension_dropout_profile_is_not_a_new_training_recipe(
+    tmp_path,
+):
+    profile = ROOT / "configs/wholebody/augmentation_v1.yaml"
+    with pytest.raises(ValueError, match="whole-state"):
+        builder.resolve_training_augmentation(
+            SimpleNamespace(augmentation_config=profile, no_augmentation=False)
+        )
+    from omegaconf import OmegaConf
+
+    legacy = normalize_augmentation(
+        OmegaConf.to_container(OmegaConf.load(profile), resolve=True)
+    )
+    cfg = with_profile(fixtures.fixture_config(tmp_path), legacy)
+    with pytest.raises(RuntimeError, match="whole-state"):
+        training.training_augmentation_contract(cfg)
+
+
+@pytest.mark.parametrize("name", ["main_fm", "action_ic"])
+def test_smoke_gradient_routes_accept_all_dropped_microbatches_without_false_state_gradient_claims(
+    name,
+):
+    event = {
+        "name": name,
+        "visual": 1.0 if name == "main_fm" else 0.0,
+        "action": 1.0,
+        "state": 0.0,
+        "state_condition_retained_count": 0,
+    }
+    training.validate_smoke_gradient_event(event)
+    with pytest.raises(RuntimeError, match="gradient"):
+        training.validate_smoke_gradient_event(dict(event, state=0.2))
+    with pytest.raises(RuntimeError, match="gradient"):
+        training.validate_smoke_gradient_event(
+            dict(event, state_condition_retained_count=1)
+        )
+    training.validate_smoke_gradient_event(
+        dict(event, state_condition_retained_count=1, state=0.2)
+    )
+    training.validate_smoke_gradient_event(
+        dict(event, name="image_ic", visual=1.0, action=0.0)
+    )
 
 
 def smoke_report(cfg):
@@ -358,6 +406,34 @@ def test_joint_smoke_uses_prediction40_and_unexpanded_history16_and_current_stat
         "text_hidden_states": scalar.expand(1, 128, 7680),
     }
     training.validate_smoke_sample(sample, cfg)
+    cfg["data"]["train"]["augmentation"] = default_augmentation()
+    with pytest.raises(RuntimeError, match="state_condition_keep"):
+        training.validate_smoke_sample(sample, cfg)
+    for invalid in (
+        torch.tensor(True),
+        torch.ones(1),
+        torch.ones(1, 1, dtype=torch.bool),
+    ):
+        with pytest.raises(RuntimeError, match="per-sample"):
+            training.validate_smoke_sample(
+                dict(sample, state_condition_keep=invalid), cfg
+            )
+    sample["state_condition_keep"] = torch.tensor([True])
+    assert (
+        training.validate_smoke_sample(sample, cfg)["state_condition_retained_count"]
+        == 1
+    )
+    dropped = dict(sample, state_condition_keep=torch.tensor([False]))
+    assert (
+        training.validate_smoke_sample(dropped, cfg)["state_condition_retained_count"]
+        == 0
+    )
+    disabled = copy.deepcopy(cfg)
+    disabled["data"]["train"]["augmentation"]["proprio"]["state_dropout"][
+        "probability"
+    ] = 0.0
+    with pytest.raises(RuntimeError, match="disabled"):
+        training.validate_smoke_sample(dropped, disabled)
     with pytest.raises(RuntimeError, match="history"):
         training.validate_smoke_sample(
             dict(sample, past_action=scalar.expand(1, 40, 47)), cfg

@@ -468,6 +468,11 @@ class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
         return augmentation.apply_current_state(current, raw_current_state=raw_current,
                                                 normalizer=self.normalizer, generator=generator)
 
+    def _training_state_keep(self, *, generator):
+        augmentation = getattr(self, "augmentation", None)
+        return (torch.tensor(True, dtype=torch.bool) if augmentation is None
+                else augmentation.sample_state_keep(generator))
+
     def _frames(self, episode: int, camera: str, indices: list[int]) -> torch.Tensor:
         keys = [(episode, camera, int(i)) for i in indices]
         # Snapshot every hit before touching the LRU. A preceding miss in this
@@ -517,10 +522,12 @@ class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
             past = np.zeros_like(past)
         current_state = self.normalizer.forward(states[anchor], "state")
         current_state = self._training_current_state(current_state, states[anchor], generator=generator)
+        state_condition_keep = self._training_state_keep(generator=generator)
         # Never return future-state values through the proprio time dimension.
         proprio = np.repeat(current_state[None], self.action_horizon, axis=0)
         return {"video": video, "action": torch.from_numpy(action),
                 "past_action": torch.from_numpy(past), "proprio": torch.from_numpy(proprio),
+                "state_condition_keep": state_condition_keep,
                 "action_is_pad": torch.from_numpy(window["action_is_pad"]),
                 "past_action_is_pad": torch.from_numpy(window["past_action_is_pad"]),
                 "image_is_pad": torch.from_numpy(window["image_is_pad"]),

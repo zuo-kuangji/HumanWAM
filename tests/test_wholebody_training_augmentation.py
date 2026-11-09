@@ -45,9 +45,10 @@ def enabled_config(*, proprio=True, visual=True):
     return {
         "enabled": True,
         "seed": 76,
-        "proprio": {"enabled": proprio},
+        "proprio": {"enabled": proprio, "noise_probability": 1},
         "visual": {
             "enabled": visual,
+            "probability": 1,
             "exposure": {"probability": 1.0, "gain": [0.8, 1.3]},
             "color": {"probability": 0},
             "jitter": {"probability": 0},
@@ -100,7 +101,7 @@ def test_current_state_noise_is_reproducible_bounded_and_preserves_physical_grav
     raw = raw_state()
     normalized = normalizer.forward(raw, "state")
     saved = normalized.copy()
-    state_aug = State44Augmenter({"enabled": True, "gravity_rotation_std_deg": 1.0})
+    state_aug = State44Augmenter({"enabled": True, "noise_probability": 1, "gravity_rotation_std_deg": 1.0})
     first = state_aug.apply(
         normalized,
         raw_current_state=raw,
@@ -143,10 +144,7 @@ def test_disabled_augmentation_is_an_exact_copy_and_does_not_consume_rng():
     assert frames.data_ptr() != copied.data_ptr()
 
 
-@pytest.mark.parametrize("dimension_probability", [0.05, 1.0])
-def test_sample_dropout_hides_one_to_three_dimensions_without_touching_gravity_or_scaling_survivors(
-    dimension_probability,
-):
+def test_state_dropout_never_zeros_raw_state_and_noise_zero_preserves_rng():
     normalizer = SimpleNormalizer()
     raw = raw_state()
     raw[:29], raw[29:41] = 2.0, 0.9
@@ -154,27 +152,20 @@ def test_sample_dropout_hides_one_to_three_dimensions_without_touching_gravity_o
     augment = State44Augmenter(
         {
             "enabled": True,
-            "body_noise_std": 0.0,
-            "hand_noise_std": 0.0,
-            "state_dropout": {
-                "probability": 1.0,
-                "dimension_probability": dimension_probability,
-                "max_dropped_dimensions": 3,
-            },
+            "noise_probability": 0.0,
+            "state_dropout": {"probability": 1.0},
         }
     )
+    generator = torch.Generator().manual_seed(9)
+    before = generator.get_state().clone()
     result = augment.apply(
         value,
         raw_current_state=raw,
         normalizer=normalizer,
-        generator=torch.Generator().manual_seed(9),
+        generator=generator,
     )
-    dropped = result[:41] == 0
-    assert 1 <= int(dropped.sum()) <= 3
-    np.testing.assert_array_equal(result[:41][~dropped], value[:41][~dropped])
-    np.testing.assert_array_equal(result[41:], value[41:])
-    # Body2.0 survives unchanged, rather than being clipped to the hand bounds.
-    assert np.any(result[:29] == 2.0)
+    np.testing.assert_array_equal(result, value)
+    torch.testing.assert_close(before, generator.get_state())
     np.testing.assert_array_equal(value[:29], 2.0)
 
 
@@ -195,19 +186,99 @@ def test_default_proprio_recipe_does_not_rotate_gravity_and_dropout_can_be_disab
     assert augment.values["hand_noise_std"] == 0.005
 
 
-def test_zero_dimension_probability_disables_mask_without_forced_fallback_or_rng_draw():
+def test_noise_probability_one_has_no_extra_bernoulli_draw():
     normalizer = SimpleNormalizer()
     value = np.full(44, 0.25, dtype=np.float32)
     raw = normalizer.backward(value, "state")
     augment = State44Augmenter({
-        "enabled": True, "body_noise_std": 0, "hand_noise_std": 0,
-        "state_dropout": {"probability": 1, "dimension_probability": 0},
+        "enabled": True, "noise_probability": 1,
     })
     generator = torch.Generator().manual_seed(29)
-    before = generator.get_state().clone()
+    reference = torch.Generator().manual_seed(29)
+    expected = value.copy()
+    expected[:29] += torch.randn(29, generator=reference).numpy() * 0.01
+    expected[29:41] += torch.randn(12, generator=reference).numpy() * 0.005
     result = augment.apply(value, raw_current_state=raw, normalizer=normalizer, generator=generator)
-    np.testing.assert_array_equal(result, value)
+    np.testing.assert_array_equal(result, expected)
+    torch.testing.assert_close(reference.get_state(), generator.get_state())
+
+
+def test_half_probability_noise_event_has_expected_frequency_and_is_reproducible():
+    normalizer = SimpleNormalizer()
+    raw = raw_state()
+    value = normalizer.forward(raw, "state")
+    augment = State44Augmenter({"noise_probability": 0.5})
+    def draw(seed):
+        generator = torch.Generator().manual_seed(seed)
+        return np.stack([augment.apply(value, raw_current_state=raw,
+            normalizer=normalizer, generator=generator) for _ in range(1000)])
+    first = draw(71)
+    np.testing.assert_array_equal(first, draw(71))
+    changed = np.any(first != value, axis=1)
+    assert 430 <= changed.sum() <= 570
+    np.testing.assert_array_equal(first[:, 41:44], np.repeat(value[None, 41:44], 1000, axis=0))
+
+
+@pytest.mark.parametrize("probability,expected", [(0, True), (1, False)])
+def test_condition_keep_extremes_are_scalar_bool_without_random_draw(probability, expected):
+    config = enabled_config(visual=False)
+    config["proprio"]["state_dropout"] = {"probability": probability}
+    controller = TrainingAugmentation(config)
+    generator = torch.Generator().manual_seed(11)
+    before = generator.get_state().clone()
+    keep = controller.sample_state_keep(generator)
+    assert keep.shape == () and keep.dtype is torch.bool and keep.item() is expected
     torch.testing.assert_close(before, generator.get_state())
+
+
+def test_condition_keep_probability_is_reproducible_and_no_inverted_dropout_scaling():
+    config = enabled_config(visual=False)
+    def draw(seed):
+        controller = TrainingAugmentation(config)
+        generator = torch.Generator().manual_seed(seed)
+        return torch.stack([controller.sample_state_keep(generator) for _ in range(5000)])
+    first = draw(5)
+    torch.testing.assert_close(first, draw(5))
+    assert first.dtype is torch.bool and 0.87 < first.float().mean() < 0.93
+    for controller in (TrainingAugmentation(), TrainingAugmentation(enabled_config(proprio=False))):
+        assert controller.sample_state_keep(None).item() is True
+
+
+def test_enabled_legacy_v1_is_provenance_only_and_cannot_train():
+    from imagewam.augmentation_config import LEGACY_SCHEMA
+    with pytest.raises(ValueError, match="provenance-only"):
+        TrainingAugmentation({"schema": LEGACY_SCHEMA})
+    disabled = TrainingAugmentation({"schema": LEGACY_SCHEMA, "enabled": False})
+    assert disabled.sample_state_keep(None).item() is True
+
+
+@pytest.mark.parametrize("camera_mode", ["independent", "shared"])
+def test_global_visual_zero_event_is_noop_for_both_cameras_without_rng(camera_mode):
+    config = enabled_config(proprio=False)
+    config["visual"].update(probability=0, camera_mode=camera_mode)
+    controller = TrainingAugmentation(config)
+    generator = torch.Generator().manual_seed(15)
+    before = generator.get_state().clone()
+    parameters = controller.visual_parameters(generator=generator)
+    frames = torch.full((2, 3, 8, 8), 0.4)
+    for _ in range(2):
+        result = controller.apply_video(frames, generator=generator, parameters=parameters)
+        torch.testing.assert_close(result, frames, rtol=0, atol=0)
+    torch.testing.assert_close(before, generator.get_state())
+
+
+def test_global_visual_event_is_once_per_sample_not_per_camera():
+    config = enabled_config(proprio=False)
+    config["visual"]["probability"] = 0.5
+    controller = TrainingAugmentation(config)
+    generator = torch.Generator().manual_seed(19)
+    reference = torch.Generator().manual_seed(19)
+    expected = torch.rand(1000, generator=reference) < 0.5
+    actual = torch.tensor([controller.visual_parameters(generator=generator) is None
+                           for _ in range(1000)])
+    torch.testing.assert_close(actual, expected)
+    torch.testing.assert_close(reference.get_state(), generator.get_state())
+    assert 430 <= actual.sum() <= 570
 
 
 @pytest.mark.parametrize(
@@ -262,11 +333,17 @@ def test_dataset_augmentation_only_changes_current_observation_and_preserves_sou
         augmented.augmentation.proprio,
         "apply",
         wraps=augmented.augmentation.proprio.apply,
-    ) as apply:
+    ) as apply, mock.patch.object(
+        augmented.augmentation, "sample_state_keep",
+        wraps=augmented.augmentation.sample_state_keep,
+    ) as sample_keep:
         first = augmented[42]
         # The resulting one current-state observation is reused by every FM/IC
         # path consuming this sample, rather than sampling a future sequence.
         assert apply.call_count == 1
+        assert sample_keep.call_count == 1
+        assert first["state_condition_keep"].shape == ()
+        assert first["state_condition_keep"].dtype is torch.bool
     cached = {key: value.clone() for key, value in augmented.frame_cache.items()}
     later = augmented[42]
     for field in (
@@ -300,6 +377,19 @@ def test_dataset_proprio_flag_keeps_state_clean_during_visual_only_training(rout
     torch.testing.assert_close(visual["proprio"], plain["proprio"], rtol=0, atol=0)
     torch.testing.assert_close(visual["action"], plain["action"], rtol=0, atol=0)
     assert not torch.equal(visual["video"], plain["video"])
+    assert plain["state_condition_keep"].item() is True
+    assert visual["state_condition_keep"].item() is True
+
+
+@pytest.mark.parametrize("route", ["motion", "joint"])
+def test_whole_condition_dropout_returns_flag_without_changing_states_or_supervision(route):
+    config = enabled_config(visual=False)
+    config["proprio"].update(noise_probability=0, state_dropout={"probability": 1})
+    plain = synthetic_dataset(route, None)[42]
+    dropped = synthetic_dataset(route, config)[42]
+    assert dropped["state_condition_keep"].item() is False
+    for field in ("proprio", "video", "action", "past_action", "action_is_pad"):
+        torch.testing.assert_close(dropped[field], plain[field], rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("route", ["motion", "joint"])
@@ -324,7 +414,9 @@ class WorkerAugmentationProbe(torch.utils.data.Dataset):
         return 2
 
     def __getitem__(self, index):
-        return torch.rand(4, generator=self.augmentation.generator())
+        generator = self.augmentation.generator()
+        return torch.cat((torch.rand(4, generator=generator),
+            self.augmentation.sample_state_keep(generator).float().reshape(1)))
 
 
 def test_epoch_update_reaches_persistent_worker_and_repeats_from_the_same_loader_seed():
