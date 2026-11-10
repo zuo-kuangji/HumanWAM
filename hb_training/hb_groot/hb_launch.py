@@ -77,4 +77,16 @@ Proc.__call__ = _call
 if os.environ.get("HB_PATCH_ONLY") != "1":
     entry = Path(os.environ["GROOT_SRC"]) / "gr00t/experiment/launch_finetune.py"
     sys.argv = [str(entry)] + sys.argv[1:]
-    runpy.run_path(str(entry), run_name="__main__")
+    try:
+        runpy.run_path(str(entry), run_name="__main__")
+    finally:  # batch probe: report this rank's peak reserved memory (groot_chain.py compares it with MAX_FRAC)
+        _peak = os.environ.get("HB_PEAK_FILE")
+        if _peak and torch.cuda.is_available():
+            try:
+                _dev = torch.cuda.current_device()
+                with open(f"{_peak}-rank{os.environ.get('RANK', '0')}.json", "w") as _f:
+                    json.dump({"rank": int(os.environ.get("RANK", "0")),
+                               "peak_reserved_gb": torch.cuda.max_memory_reserved(_dev) / 1e9,
+                               "total_gb": torch.cuda.get_device_properties(_dev).total_memory / 1e9}, _f)
+            except Exception:  # noqa: BLE001 - never mask the training result
+                pass

@@ -1,6 +1,7 @@
-"""ImageWAM Delta-flow 40-epoch training entry (B6/A3/A7, 100 episodes, augmentation v2).
+"""ImageWAM Delta-flow 40-epoch training entry (G1 B6/A3/A7 and H2 A18, 100 episodes, augmentation v2).
 
-Installed by prepare_deltaflow.py as HumanWAM/scripts/wholebody/train_deltaflow.py. Derived from train_a3a7.py:
+Installed by prepare_deltaflow.py / prepare_deltaflow_a18.py as <code>/scripts/wholebody/train_deltaflow.py.
+Derived from train_a3a7.py:
 - same native runtime/trainer, same 32-GPU loader-length checks and finish receipts;
 - no separate 1-update smoke phase (the supervisor retries / resumes instead);
 - every save (epoch 10/20/30/40) writes weights + full training state; the trainer keeps all four weight files
@@ -15,7 +16,11 @@ from omegaconf import OmegaConf
 from imagewam import runtime
 from imagewam.trainer import Wan22Trainer
 
-DATASET_TARGET = 'imagewam.datasets.wholebody_hbaug.WholeBodyHBAugV2LeRobotDataset'
+# dataset class -> required train_split_mode (None: the loader itself admits exactly episodes 0-99)
+DATASET_TARGETS = {
+    'imagewam.datasets.wholebody_hbaug.WholeBodyHBAugV2LeRobotDataset': 'first_100',   # G1: B6 / A3 / A7
+    'imagewam.datasets.h2_hbaug.H2HBAugV2Dataset': None,                               # H2: A18
+}
 AUG_VERSION = 'hb-aug-v2-20261109'
 EPOCHS, SAVE_EVERY_EPOCHS, WARMUP_EPOCHS, WORLD = 40, 10, 2, 32
 EXPECTED = {}
@@ -31,7 +36,8 @@ class DeltaFlowTrainer(Wan22Trainer):
         require(len(self.train_dataset) == EXPECTED['frames'] and len(self.train_loader) == EXPECTED['updates_per_epoch']
                 and self.accelerator.num_processes == WORLD,
                 'Expected the pinned 100-episode collection, its updates/epoch and 32 GPUs')
-        require(type(self.train_dataset).__name__ == DATASET_TARGET.rsplit('.', 1)[1], 'Augmentation v2 dataset missing')
+        require(type(self.train_dataset).__name__ in {t.rsplit('.', 1)[1] for t in DATASET_TARGETS},
+                'Augmentation v2 dataset missing')
         return super()._resume_or_load_checkpoint()
 
     def train(self):
@@ -55,9 +61,10 @@ def check_config(cfg, root, resume):
     total = EPOCHS * u
     EXPECTED.update(frames=int(receipt['frames']), updates_per_epoch=u)
     d = cfg.data.train
-    require(d._target_ == DATASET_TARGET and d.image_augmentation.version == AUG_VERSION
+    require(d._target_ in DATASET_TARGETS and d.image_augmentation.version == AUG_VERSION
             and d.image_augmentation.enabled is True, 'Config does not use augmentation v2')
-    require(d.train_split_mode == 'first_100' and receipt['train_episode_ids'] == list(range(100)),
+    split_mode = DATASET_TARGETS[d._target_]
+    require((split_mode is None or d.train_split_mode == split_mode) and receipt['train_episode_ids'] == list(range(100)),
             'Training must use exactly episodes 0-99')
     require(cfg.num_epochs == EPOCHS and cfg.max_steps == total and cfg.lr_scheduler_total_steps == total
             and cfg.warmup_steps == WARMUP_EPOCHS * u, 'Epoch/step schedule differs from 40 x updates_per_epoch')

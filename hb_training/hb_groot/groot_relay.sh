@@ -11,5 +11,5 @@ R2=$G/hf-home/hub/models--nvidia--Cosmos-Reason2-2B
 [ "$(cat "$R2/refs/main" 2>/dev/null)" = 9ce19a195e423419c349abfc86fd07178b230561 ] \
   && ls "$R2/snapshots/9ce19a195e423419c349abfc86fd07178b230561"/*.safetensors > /dev/null 2>&1 \
   || { echo "NEED_TOKEN: gated nvidia/Cosmos-Reason2-2B not in $G/hf-home (cache_cosmos_reason2.py)"; exit 4; }
-export HB_GROOT_PORT_BASE=$((31500 + 100 * i))
+export HB_GROOT_PORT_BASE=$((32500 + 100 * i))   # 31500+ was used by the per-GPU-64 runs in groot-runs/
 exec python3 "$H/groot_chain.py" "$T"

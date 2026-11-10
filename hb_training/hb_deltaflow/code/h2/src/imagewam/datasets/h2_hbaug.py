@@ -1,4 +1,4 @@
-"""A18 (H2 + Sharpa hands) Delta-flow loader with augmentation spec v2 and 31-joint velocity.
+"""A18 (H2 + Sharpa hands) Delta-flow loader with augmentation spec v2. NO joint velocity.
 
 Installed by prepare_deltaflow_a18.py as imagewam/datasets/h2_hbaug.py in the H2 code copy (HumanWAM-h2), next to
 an unchanged copy of $G/hb_groot/hb_aug_v2.py. Builds on H2PourDataset of a18-h2-pour-from-scratch-20261108:
@@ -9,11 +9,10 @@ same 16-step action chunk / history and t+16 image target. Changes:
     rotation/light/WB per camera on t and t+16, sensor/optics only on the observation frame t);
   - proprio (spec section 3, H2 body = state[0:31] incl. waist and head): per-episode fixed +-2 deg bias, N(0, 0.25 deg)
     noise clipped at 3 sigma, 15 % delay of 1-2 control cycles (30 Hz -> 1-2 frames) applied to the whole
-    observation and the action history, 15 % history drop; hands, gravity and every label untouched;
-  - velocity (spec section 4): 31 body joints, (q[t]-q[t-1])/(ts[t]-ts[t-1]) from a prepared cache, taken at the
-    delayed frame, N(0, 0.05 rad/s) noise clipped at 3 sigma, (v-mean)/std (std floor 0.05) clipped to [-5, 5],
-    zeros at episode frame 0.
-Model input: proprio[16, 109] = normalized(75 joints + gravity 3) followed by normalized velocity 31.
+    observation and the action history, 15 % history drop; hands, gravity and every label untouched.
+Model input: proprio[16, 78] = normalized(75 joints + gravity 3), exactly the state of the original H2 model
+(h2_pour_delta.py, HF g1-basket-transfer-imagewam-deltaflow76 h2-a18-pour-water/epoch-040: proprio_dim 78).
+User rule 2026-11-10: no joint-velocity channels in any training; any velocity argument is an error.
 """
 from __future__ import annotations
 
@@ -24,19 +23,23 @@ import numpy as np
 import torch
 
 from . import hb_aug_v2
-from .h2_pour import ACTION_DIM, CAMERAS, STATE_DIM as RAW_STATE_DIM, H2PourDataset
+from .h2_pour import ACTION_DIM, CAMERAS, STATE_DIM, H2PourDataset
 from .wholebody import window_indices
 
 BODY = 31
-STATE_DIM = RAW_STATE_DIM + BODY          # 78 + 31 = 109
 SPEC_VERSION = "hb-aug-v2-20261109"
 PROPRIO_SPEC = {"enabled": True, "joint_bias_degrees": 2.0, "joint_noise_std_degrees": 0.25,
                 "delay_probability": 0.15, "max_delay_control_cycles": 2, "control_hz": 30, "recording_hz": 30,
                 "history_drop_probability": 0.15, "bias_scope": "fixed_per_episode"}
+if STATE_DIM != 78:
+    raise ImportError(f"H2 state must be 78-D (75 joints + gravity 3), h2_pour says {STATE_DIM}")
 
 
 class H2HBAugV2Dataset(H2PourDataset):
-    def __init__(self, *, image_augmentation, proprio_augmentation, velocity_cache, velocity_noise_std=0.05, **kwargs):
+    def __init__(self, *, image_augmentation, proprio_augmentation, **kwargs):
+        velocity_args = sorted(k for k in kwargs if "velocity" in k)
+        if velocity_args:
+            raise ValueError(f"Joint velocity is not allowed in the model input (got {velocity_args})")
         image_policy = dict(image_augmentation)
         proprio_policy = dict(proprio_augmentation)
         if hb_aug_v2.VERSION != SPEC_VERSION or image_policy.get("version") != SPEC_VERSION:
@@ -49,24 +52,11 @@ class H2HBAugV2Dataset(H2PourDataset):
                 raise ValueError(f"proprio_augmentation.{key}={proprio_policy.get(key)!r}, spec v2 needs {value!r}")
         if list(proprio_policy.get("affected_angle_channels", [])) != list(range(BODY)) or "seed" not in proprio_policy:
             raise ValueError("Bias/noise must hit exactly the 31 H2 body joints (state[0:31])")
-        if float(velocity_noise_std) != 0.05:
-            raise ValueError("Velocity noise must be 0.05 rad/s")
+        if list(proprio_policy.get("velocity_channels") or []):
+            raise ValueError("velocity_channels must be empty (no joint velocity)")
         # The parent's own (spec v1) image augmentation stays disabled; hb_aug_v2 replaces it below.
         super().__init__(image_augmentation=None, **kwargs)
         self.image_policy, self.proprio_policy = image_policy, proprio_policy
-        self.velocity_noise_std = float(velocity_noise_std)
-        with np.load(velocity_cache) as cache:
-            self.velocity_mean = cache["mean"].astype(np.float32)
-            self.velocity_scale = cache["scale"].astype(np.float32)
-            self.velocities = {int(key.split("_")[1]): cache[key].astype(np.float32)
-                               for key in cache.files if key.startswith("episode_")}
-        if self.velocity_mean.shape != (BODY,) or self.velocity_scale.shape != (BODY,) or (self.velocity_scale < 0.05).any():
-            raise ValueError("Invalid velocity normalization")
-        if sorted(self.velocities) != sorted(self.episodes):
-            raise ValueError("Velocity cache episodes differ from the collection")
-        for episode, (state, _) in self.episodes.items():
-            if self.velocities[episode].shape != (len(state), BODY) or self.velocities[episode][0].any():
-                raise ValueError(f"Invalid velocity cache for episode {episode}")
         self._aug_rng, self._aug_key = None, None
         self.last_augmentation = {}
 
@@ -96,14 +86,9 @@ class H2HBAugV2Dataset(H2PourDataset):
         sigma = math.radians(policy["joint_noise_std_degrees"])
         noise = np.clip(rng.normal(0, sigma, BODY), -3 * sigma, 3 * sigma)
         raw[:BODY] = (raw[:BODY] + bias + noise).astype(np.float32)
-        current = self.normalize(raw, "state")
-        if frame > 0:
-            s = self.velocity_noise_std
-            jitter = np.clip(rng.normal(0, s, BODY), -3 * s, 3 * s)
-            velocity = np.clip((self.velocities[episode][frame] + jitter - self.velocity_mean) / self.velocity_scale,
-                               -5, 5).astype(np.float32)
-        else:
-            velocity = np.zeros(BODY, dtype=np.float32)
+        proprio = self.normalize(raw, "state").astype(np.float32)
+        if proprio.shape != (STATE_DIM,):
+            raise ValueError(f"proprio must be {STATE_DIM}-D (no velocity), got {proprio.shape}")
         if delay:
             shifted, shift_pad = torch.zeros_like(past), torch.ones_like(pad)
             if delay < len(past):
@@ -117,7 +102,6 @@ class H2HBAugV2Dataset(H2PourDataset):
                 past[i], pad[i] = past[i - 1], pad[i - 1]
                 dropped.append(i)
         past[pad] = 0
-        proprio = np.concatenate([current, velocity]).astype(np.float32)
         info = dict(delay_recorded_frames=delay, state_frame=frame, bias_degrees=np.degrees(bias).tolist(),
                     noise_degrees=np.degrees(noise).tolist(), history_drop_rows=dropped)
         return proprio, past, pad, info

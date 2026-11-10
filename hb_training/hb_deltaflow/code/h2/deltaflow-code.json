@@ -1,17 +1,16 @@
 {
   "source": "/mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/a18-h2-pour-from-scratch-20261108/HumanWAM",
   "hb_aug_v2_source": "/mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_groot/hb_aug_v2.py",
-  "created": "2026-11-09T20:29:56Z",
+  "created": "2026-11-10T06:50:36Z",
   "changes": [
-    "h2_vel_delta.py: copy of h2_pour_delta.py, current-state width 78 -> 109 (+31 body velocity), schema a18-h2-sharpa-body31-hand44-state78-vel31-chunk16-v1, checkpoint format h2_sharpa_body31_hand44_vel31_flux2_a18_chunk16_v1; h2_pour_delta.py left unchanged",
+    "h2_pour_delta.py: unchanged original 78-D H2 model (no joint velocity)",
     "hb_aug_v2.py: unchanged copy of the shared spec-v2 implementation",
-    "h2_hbaug.py: H2HBAugV2Dataset (aug v2 + 31-joint proprio aug + 31-joint velocity)",
+    "h2_hbaug.py: H2HBAugV2Dataset (aug v2 + 31-joint proprio aug, 78-D state, no velocity)",
     "train_deltaflow.py: shared 40-epoch entry, full state at every save, --resume"
   ],
   "sha256": {
-    "src/imagewam/h2_vel_delta.py": "13997f0df556023c3240da1edd35e02cfb0808bcceec10297ba2a48031936eef",
     "src/imagewam/datasets/hb_aug_v2.py": "9f7713cea4f846efcfc924234267ced48210357f419d67915c10b504316bedde",
-    "src/imagewam/datasets/h2_hbaug.py": "9c33af9d060b27654e3272a9810b909bba9ebb93cf7fcd011119f1c520afeaee",
+    "src/imagewam/datasets/h2_hbaug.py": "97a58e1133a790ff02e94ea646195761b01c2b8e3834a3169bf17c42cd838195",
     "scripts/wholebody/train_deltaflow.py": "30ec8438586b003b160caf7dfc4b9b822b7c4a996efabd5234b242cb59ab9402",
     "src/imagewam/datasets/h2_pour.py": "d61ec58b83c20621488899c023a348fed52a7881f8faa4f6ba277fcb9c399168",
     "src/imagewam/h2_pour_delta.py": "69bf26169559b082a0a45152512497998163b63c69723d1af606dcf82eca47fc",

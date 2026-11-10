@@ -8,9 +8,11 @@ Checks
      the spec, 1x and 1.5x ranges are respected and the boosted range is actually reached.
   2. hb_aug_v2.apply per effect in isolation: every effect changes the observation frame; colour / rotation-crop /
      light / white balance also change the t+16 target, sensor/optics effects leave the target untouched.
-  3. per task: manifest / statistics / velocity cache cover exactly episodes 0-99 (B6 shelves 100-148), YAML has the
-     40-epoch schedule and epoch 10/20/30/40 saves, then one real augmented batch: shapes, labels unchanged, target
-     frame = colour/geometry/light/WB only, proprio 73-D with untouched hands/gravity when not delayed.
+  3. per task: manifest / statistics cover exactly episodes 0-99 (B6 shelves 100-148), YAML has the
+     40-epoch schedule and epoch 10/20/30/40 saves and NO joint velocity anywhere (user rule 2026-11-10), then one
+     real augmented batch: shapes, labels unchanged, target frame = colour/geometry/light/WB only, proprio 44-D
+     (G1: body 29 + hands 12 + gravity 3) / 78-D (H2: 75 joints + gravity 3) with untouched hands/gravity when not
+     delayed.
 """
 import argparse
 import json
@@ -35,6 +37,22 @@ def check(condition, message):
     print(('  ok   ' if condition else '  FAIL ') + message, flush=True)
     if not condition:
         FAILURES.append(message)
+
+
+def velocity_entries(value, path='cfg'):
+    """Config entries that would add joint velocity (non-empty velocity_* settings or velocity file references)."""
+    found = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if 'velocity' in str(key).lower() and item not in ([], None, False, 0):
+                found.append(f'{path}.{key}')
+            found += velocity_entries(item, f'{path}.{key}')
+    elif isinstance(value, list):
+        for i, item in enumerate(value):
+            found += velocity_entries(item, f'{path}[{i}]')
+    elif isinstance(value, str) and 'velocity' in value.lower() and 'no velocity' not in value.lower():
+        found.append(path)
+    return found
 
 
 SENSOR = ('noise', 'gaussian_blur', 'jpeg', 'motion_blur', 'sharpen', 'defocus')
@@ -170,14 +188,10 @@ def check_task(task, A, samples):
     check(stats['train_episode_ids'] == train and stats['heldout_episode_ids'] == shelved
           and stats['train_frames'] == frames and stats['train_split_mode'] == 'first_100',
           f'normalization statistics fit on episodes 0-99 only ({frames} frames)')
-    with np.load(R / 'stats/velocity.npz') as cache:
-        keys = sorted(int(k.split('_')[1]) for k in cache.files if k.startswith('episode_'))
-        valid = np.concatenate([cache[f'episode_{i}'][1:] for i in train]).astype(np.float64)
-        stat_ok = (np.allclose(cache['mean'], valid.mean(0), rtol=1e-4, atol=1e-5)
-                   and np.allclose(cache['scale'], np.maximum(valid.std(0), .05), rtol=1e-4, atol=1e-5)
-                   and all(not cache[f'episode_{i}'][0].any() for i in train))
-    check(keys == train and stat_ok, 'velocity cache = episodes 0-99, mean/std(floor 0.05) from their valid frames')
+    check(not (R / 'stats/velocity.npz').exists() and not list(R.rglob('*velocity*')), 'no velocity cache / statistics files')
     cfg = yaml.safe_load((R / 'run/production.yaml').read_text())
+    left = velocity_entries(cfg)
+    check(not left, f'config has no joint-velocity setting ({left or "none"})')
     d = cfg['data']['train']
     saves = [e * u for e in (10, 20, 30, 40)]
     check(cfg['num_epochs'] == 40 and cfg['max_steps'] == cfg['lr_scheduler_total_steps'] == 40 * u
@@ -188,7 +202,10 @@ def check_task(task, A, samples):
           f'control {CONTROL_HZ[task]} Hz / record 30 Hz')
     check(d['_target_'].endswith('WholeBodyHBAugV2LeRobotDataset')
           and d['image_augmentation']['version'] == A.VERSION, 'dataset class uses hb_aug_v2')
-    check(cfg['model']['proprio_dim'] == 73 and cfg['model']['expected_action_dim'] == 76, 'model 73-D state / 76-D action')
+    check(cfg['model']['proprio_dim'] == cfg['model']['action_state_dim'] == 44 and cfg['model']['expected_action_dim'] == 76,
+          'model 44-D state (no velocity) / 76-D action, as reference real30-from-sim60-20261108')
+    check(d['_target_'].endswith('WholeBodyHBAugV2LeRobotDataset') and not d['proprio_augmentation'].get('velocity_channels'),
+          'loader = WholeBodyRobust-based HB aug v2, velocity_channels empty')
 
     dataset = instantiate(OmegaConf.load(R / 'run/production.yaml').data.train)
     check(len(dataset) == frames and list(dataset.episode_ids) == train, f'dataset = episodes 0-99, {len(dataset)} samples')
@@ -223,25 +240,24 @@ def check_task(task, A, samples):
     check(hands_ok == not_delayed, f'undelayed samples: hands/gravity untouched, body joints perturbed ({hands_ok}/{not_delayed})')
     check(max(episodes) < 100, f'samples only from episodes < 100 (max {max(episodes)})')
     check(len(set(boosts)) >= min(8, n // 3), f'boosted effects seen: {sorted(set(boosts))}')
-    first = batch[0]
-    check(first['frame_index'] == 0 and not first['proprio'][:, -29:].any(), 'first frame velocity = normalized zero')
+    check(all(s['proprio'].shape[-1] == 44 for s in batch), 'every sample proprio is 44-D (no velocity)')
     b = default_collate(batch[:8])
     k = len(batch[:8])
     shapes = {key: tuple(b[key].shape) for key in ('video', 'action', 'past_action', 'proprio', 'text_hidden_states')}
     check(shapes == {'video': (k, 3, 2, 224, 448), 'action': (k, 16, 76), 'past_action': (k, 16, 76),
-                     'proprio': (k, 16, 73), 'text_hidden_states': (k, 128, 7680)}, f'batch shapes {shapes}')
-    check(bool(torch.isfinite(b['proprio']).all()) and b['video'].min() >= -1 and b['video'].max() <= 1
-          and b['proprio'][..., -29:].abs().max() <= 5, 'finite proprio, video in [-1,1], velocity in [-5,5]')
+                     'proprio': (k, 16, 44), 'text_hidden_states': (k, 128, 7680)}, f'batch shapes {shapes}')
+    check(bool(torch.isfinite(b['proprio']).all()) and b['video'].min() >= -1 and b['video'].max() <= 1,
+          'finite proprio, video in [-1,1]')
 
 
 def check_task_h2(A, samples):
-    """A18 / H2: 75-D action, 109-D proprio (75 joints + gravity 3 + body velocity 31), cameras head + chest."""
+    """A18 / H2: 75-D action, 78-D proprio (75 joints + gravity 3, NO velocity), cameras head + chest."""
     import yaml
     from hydra.utils import instantiate
     from omegaconf import OmegaConf
     from torch.utils.data import default_collate
     from imagewam.datasets.h2_pour import CAMERAS, H2PourDataset
-    import imagewam.h2_vel_delta as model_module
+    import imagewam.h2_pour_delta as model_module
     R = ROOT / 'a18'
     print(f'[3] task a18 (H2): {R}')
     check((R / 'prepared.ok').is_file(), 'prepared.ok present')
@@ -249,16 +265,12 @@ def check_task_h2(A, samples):
     u, frames = receipt['updates_per_epoch'], receipt['frames']
     check(frames == 72752 and u == 285 and receipt['train_episode_ids'] == list(range(100)),
           f'A18: 100 episodes, {frames} frames, {u} updates/epoch')
-    with np.load(R / 'stats/velocity.npz') as cache:
-        keys = sorted(int(k.split('_')[1]) for k in cache.files if k.startswith('episode_'))
-        valid = np.concatenate([cache[f'episode_{i}'][1:] for i in range(100)]).astype(np.float64)
-        stat_ok = (cache['mean'].shape == (31,)
-                   and np.allclose(cache['mean'], valid.mean(0), rtol=1e-4, atol=1e-5)
-                   and np.allclose(cache['scale'], np.maximum(valid.std(0), .05), rtol=1e-4, atol=1e-5)
-                   and all(cache[f'episode_{i}'].shape[1] == 31 and not cache[f'episode_{i}'][0].any() for i in range(100)))
-    check(keys == list(range(100)) and stat_ok, 'velocity cache: 31 body joints, episodes 0-99, mean/std(floor 0.05)')
+    check(not list(R.rglob('*velocity*')), 'no velocity cache / statistics files')
     cfg = yaml.safe_load((R / 'run/production.yaml').read_text())
     d, m = cfg['data']['train'], cfg['model']
+    left = velocity_entries(cfg)
+    check(not left and not d['proprio_augmentation'].get('velocity_channels'),
+          f'config has no joint-velocity setting ({left or "none"})')
     saves = [e * u for e in (10, 20, 30, 40)]
     check(cfg['num_epochs'] == 40 and cfg['max_steps'] == cfg['lr_scheduler_total_steps'] == 40 * u
           and cfg['warmup_steps'] == 2 * u and cfg['save_steps'] == saves and cfg['save_every'] == 0
@@ -268,19 +280,17 @@ def check_task_h2(A, samples):
     check(d['_target_'].endswith('H2HBAugV2Dataset') and d['image_augmentation']['version'] == A.VERSION
           and pa['affected_angle_channels'] == list(range(31)) and pa['control_hz'] == pa['recording_hz'] == 30,
           'H2 dataset class, aug v2, bias/noise on state[0:31], 30 Hz delay conversion')
-    check(m['_target_'] == 'imagewam.h2_vel_delta.create_imagewam_flux2_wholebody_delta'
-          and m['proprio_dim'] == m['action_state_dim'] == 109 and m['expected_action_dim'] == 75
-          and m['state_only_schema_id'] == model_module.SCHEMA_ID, 'model: state 109 / action 75, widened schema')
+    check('h2_pour_delta' in m['_target_'] and m['proprio_dim'] == m['action_state_dim'] == 78
+          and m['expected_action_dim'] == 75, f'model: original H2 h2_pour_delta, state 78 (no velocity) / action 75')
     sig = __import__('inspect').signature(model_module.create_imagewam_flux2_wholebody_delta)
-    check(sig.parameters['action_state_dim'].default == 109 and 'state78' not in model_module.CHECKPOINT_FORMAT,
-          f'h2_vel_delta widened to 109 ({model_module.SCHEMA_ID})')
+    check(sig.parameters['action_state_dim'].default == 78, 'h2_pour_delta factory default state 78')
     check(list(CAMERAS) == ['observation.images.head', 'observation.images.chest'], f'cameras {list(CAMERAS)}')
 
     dataset = instantiate(OmegaConf.load(R / 'run/production.yaml').data.train)
     check(len(dataset) == frames, f'dataset {len(dataset)} samples')
     rng = np.random.default_rng(99)
     index = sorted(set(rng.integers(0, len(dataset), samples).tolist()) | {0})
-    batch, boosts, target_ok, obs_ok, label_ok, hands_ok, vel_ok, not_delayed = [], [], 0, 0, 0, 0, 0, 0
+    batch, boosts, target_ok, obs_ok, label_ok, hands_ok, not_delayed = [], [], 0, 0, 0, 0, 0
     for i in index:
         sample = dataset[i]
         info = dataset.last_augmentation
@@ -295,15 +305,6 @@ def check_task_h2(A, samples):
         obs_ok += (d0 > 1e-6) if any(active(p, k) for k in SENSOR) else (d0 < 1e-4)
         label_ok += bool(torch.equal(sample['action'], base['action']))
         numeric = info['numeric']
-        frame = numeric['state_frame']
-        if frame > 0:
-            raw = dataset.velocities[sample['episode_index']][frame]
-            centre = (raw - dataset.velocity_mean) / dataset.velocity_scale
-            bound = 3 * .05 / dataset.velocity_scale + 1e-4
-            got_v = sample['proprio'][0, 78:].numpy()
-            vel_ok += bool(np.all((np.abs(got_v - np.clip(centre, -5, 5)) <= bound) | (np.abs(got_v) >= 5 - 1e-6)))
-        else:
-            vel_ok += bool(not sample['proprio'][:, 78:].any())
         if numeric['delay_recorded_frames'] == 0:
             not_delayed += 1
             hands_ok += bool(torch.allclose(sample['proprio'][:, 31:78], base['proprio'][:, 31:78])
@@ -313,16 +314,16 @@ def check_task_h2(A, samples):
     check(target_ok == n, f't+16 target = colour/geometry/light/WB only ({target_ok}/{n})')
     check(obs_ok == n, f'observation frame gets the sensor/optics effects when drawn ({obs_ok}/{n})')
     check(label_ok == n, f'action labels identical to the un-augmented H2 loader ({label_ok}/{n})')
-    check(vel_ok == n, f'velocity = normalized cache value at the delayed frame (+ <=3 sigma noise), zero at frame 0 ({vel_ok}/{n})')
+    check(all(s['proprio'].shape[-1] == 78 for s in batch), 'every sample proprio is 78-D (no velocity)')
     check(hands_ok == not_delayed, f'undelayed: hands/gravity untouched, 31 body joints perturbed ({hands_ok}/{not_delayed})')
     check(len(set(boosts)) >= min(8, n // 3), f'boosted effects seen: {sorted(set(boosts))}')
     b = default_collate(batch[:8])
     k = len(batch[:8])
     shapes = {key: tuple(b[key].shape) for key in ('video', 'action', 'past_action', 'proprio', 'proprio_dim_is_pad')}
     check(shapes == {'video': (k, 3, 2, 224, 448), 'action': (k, 16, 75), 'past_action': (k, 16, 75),
-                     'proprio': (k, 16, 109), 'proprio_dim_is_pad': (k, 109)}, f'batch shapes {shapes}')
-    check(bool(torch.isfinite(b['proprio']).all()) and b['video'].min() >= -1 and b['video'].max() <= 1
-          and b['proprio'][..., 78:].abs().max() <= 5, 'finite proprio, video in [-1,1], velocity in [-5,5]')
+                     'proprio': (k, 16, 78), 'proprio_dim_is_pad': (k, 78)}, f'batch shapes {shapes}')
+    check(bool(torch.isfinite(b['proprio']).all()) and b['video'].min() >= -1 and b['video'].max() <= 1,
+          'finite proprio, video in [-1,1]')
 
 
 def main():

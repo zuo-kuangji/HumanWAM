@@ -1,5 +1,10 @@
 """One-time CPU preparation of the ImageWAM Delta-flow 40-epoch runs (B6 / A3 / A7, 100 episodes each, aug v2).
 
+NO joint velocity (user rule 2026-11-10): the model input is 44-D (body 29 + hands 12 + gravity 3), exactly like the
+reference HF humanoid-benchmark/b6-imagewam-deltaflow76 real30-from-sim60-20261108 (proprio_dim = action_state_dim
+= 44, velocity_channels []). The previous run's YAML is a 73-D (velocity) config: its velocity keys are removed and
+the model dims are set to 44; no velocity cache or statistics are produced, and no_velocity() rejects any leftover.
+
 Run on node 0 (no GPU needed), after deploying this directory to $G/hb_deltaflow:
     $P/venv/bin/python $G/hb_deltaflow/prepare_deltaflow.py            # all of b6 a3 a7 a18
     $P/venv/bin/python $G/hb_deltaflow/prepare_deltaflow.py b6         # one task
@@ -144,35 +149,31 @@ def build_code():
         source=str(SRC_CODE), hb_aug_v2_source=str(AUG_SRC), created=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
         changes=['wholebody.py: train exactly episodes 0-99 ("first_100"), later episodes shelved',
                  'hb_aug_v2.py: unchanged copy of the shared spec-v2 implementation',
-                 'wholebody_hbaug.py: WholeBodyHBAugV2LeRobotDataset (visual aug -> hb_aug_v2)',
+                 'wholebody_hbaug.py: WholeBodyHBAugV2LeRobotDataset(WholeBodyRobustLeRobotDataset), visual aug -> '
+                 'hb_aug_v2, 44-D proprio, NO joint velocity (wholebody_velocity.py stays in the tree, unused)',
                  'train_deltaflow.py: 40-epoch entry, full state at every save, --resume'],
         sha256={rel: sha(tmp / rel) for rel in files}))
     tmp.rename(CODE)
     log('code copy built:', CODE)
 
 
-def compute_velocity(root, train, names):
-    velocities = {}
-    for episode in train:
-        path = root / f'data/chunk-{episode // 1000:03d}/episode_{episode:06d}.parquet'
-        table = pq.read_table(path, columns=['observation.state', 'timestamp', 'frame_index'])
-        q = np.asarray(table['observation.state'].to_pylist(), dtype=np.float64)[:, :29]
-        dt = np.diff(table['timestamp'].to_numpy().astype(np.float64))
-        if table['frame_index'].to_pylist() != list(range(len(q))) or not (dt > 0).all():
-            raise SystemExit(f'Bad frame index / timestamps in {path}')
-        velocity = np.zeros_like(q, dtype=np.float32)
-        velocity[1:] = np.diff(q, axis=0) / dt[:, None]
-        if not np.isfinite(velocity).all():
-            raise SystemExit(f'Non-finite velocity in {path}')
-        velocities[episode] = velocity
-    valid = np.concatenate([v[1:] for v in velocities.values()])
-    mean = valid.mean(axis=0)
-    scale = np.maximum(valid.std(axis=0), 0.05)
-    meta = dict(order=names, mean=mean.tolist(), std=scale.tolist(), std_floor_rad_s=0.05,
-                training_noise_std_rad_s=0.05, normalized_clip=5, train_episode_ids=list(train),
-                method='(q[t] - q[t-1]) / (timestamp[t] - timestamp[t-1])', first_frame='normalized zero',
-                peak_abs_velocity_rad_s=float(np.abs(valid).max()))
-    return velocities, mean, scale, meta
+PROPRIO_DIM = 44   # body 29 + hands 12 + gravity 3 (NO velocity)
+
+
+def no_velocity(cfg, where):
+    """Reject any joint-velocity remnant in a training config (user rule 2026-11-10)."""
+    def walk(value, path):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if 'velocity' in str(key).lower() and item not in ([], None, False, 0):
+                    raise SystemExit(f'{where}: velocity setting left in the config: {path}.{key}={item!r}')
+                walk(item, f'{path}.{key}')
+        elif isinstance(value, list):
+            for i, item in enumerate(value):
+                walk(item, f'{path}[{i}]')
+        elif isinstance(value, str) and 'velocity' in value.lower() and 'no velocity' not in value.lower():
+            raise SystemExit(f'{where}: velocity reference left in the config: {path}={value!r}')
+    walk(cfg, 'cfg')
 
 
 def prepare_task(task, wb):
@@ -216,12 +217,6 @@ def prepare_task(task, wb):
             or stats['train_frames'] != frames or stats['schema'] != wb.STATS_SCHEMA):
         raise SystemExit(f'{task}: statistics do not cover exactly episodes 0-99')
 
-    log(task, 'joint velocity cache / statistics')
-    names = meta['info']['features']['observation.state']['names'][:29]
-    velocities, mean, scale, vmeta = compute_velocity(Path(D), train, names)
-    np.savez(R / 'stats/velocity.npz', mean=mean, scale=scale, **{f'episode_{i}': v for i, v in velocities.items()})
-    dump(R / 'stats/velocity-normalization.json', vmeta)
-
     u = math.ceil(frames / (WORLD * MICRO))
     if u != math.ceil(math.ceil(frames / MICRO) / WORLD):
         raise SystemExit('updates_per_epoch mismatch')
@@ -245,22 +240,28 @@ def prepare_task(task, wb):
     d = cfg['data']['train']
     d.update(_target_=DATASET_TARGET, dataset_dir=str(D), stats_path=str(R / 'stats/dataset_stats.json'),
              qwen_text_cache_dir=str(R / 'qwen-text'), split_manifest_path=str(R / 'split-manifest.json'),
-             velocity_cache=str(R / 'stats/velocity.npz'), velocity_noise_std=0.05, train_split_mode='first_100')
+             train_split_mode='first_100')
+    for key in [k for k in d if 'velocity' in k]:   # the previous run's 73-D loader keys (velocity_cache, noise)
+        del d[key]
     d['image_augmentation'] = augmentation_config()
     pa = d['proprio_augmentation']
-    pa.update(control_hz=spec['control_hz'], recording_hz=30)
+    pa.update(control_hz=spec['control_hz'], recording_hz=30, velocity_channels=[])
     for key, value in dict(enabled=True, joint_bias_degrees=2.0, joint_noise_std_degrees=0.25, delay_probability=0.15,
                            max_delay_control_cycles=2, history_drop_probability=0.15,
                            affected_angle_channels=list(range(29)), bias_scope='fixed_per_episode').items():
         if pa.get(key) != value:
             raise SystemExit(f'{task}: proprio_augmentation.{key}={pa.get(key)!r} differs from spec v2 ({value!r})')
     m = cfg['model']
-    if (m['proprio_dim'], m['action_state_dim'], m['expected_action_dim'], m['expected_action_horizon']) != (73, 73, 76, 16):
-        raise SystemExit(f'{task}: model is not the 73-D state / 76-D action Delta-flow')
+    if (m['proprio_dim'], m['action_state_dim'], m['expected_action_dim'], m['expected_action_horizon']) not in (
+            (73, 73, 76, 16), (44, 44, 76, 16)):
+        raise SystemExit(f'{task}: source model is not the 76-D action / horizon-16 Delta-flow')
+    m.update(proprio_dim=PROPRIO_DIM, action_state_dim=PROPRIO_DIM)   # = reference real30-from-sim60 (no velocity)
     c = cfg['wholebody_contract']
+    for key in [k for k in c if 'velocity' in k]:
+        del c[key]
     c.update(stats_schema=wb.STATS_SCHEMA, statistics_sha256=sha(R / 'stats/dataset_stats.json'),
              smoke_output_dir=None, production_output_dir=str(R / 'run/production'), updates_per_epoch=u,
-             velocity_statistics_sha256=sha(R / 'stats/velocity.npz'), augmentation=AUG_VERSION,
+             augmentation=AUG_VERSION, proprio_layout='body29 + hands12 + gravity3 = 44 (no velocity)',
              train_episode_ids='0-99', shelved_episode_ids=(f'{shelved[0]}-{shelved[-1]}' if shelved else 'none'))
     c['measured_loader'].update(dataset_frames=frames, raw_loader_batches=math.ceil(frames / MICRO),
                                 per_rank_microbatches=u, world_size=WORLD, microbatch=MICRO)
@@ -276,6 +277,7 @@ def prepare_task(task, wb):
         elif isinstance(value, str) and (value.startswith(old_prefix) or value == str(old)):
             raise SystemExit(f'{task}: config still points into the old experiment: {value}')
     walk(cfg)
+    no_velocity(cfg, task)
     c['source_config'] = str(source_yaml)
     (R / 'run/production.yaml').write_text(yaml.safe_dump(cfg, sort_keys=False), encoding='utf-8')
 
@@ -283,7 +285,7 @@ def prepare_task(task, wb):
         task=task, dataset_dir=str(D), total_episodes_in_collection=len(ids), episodes=EPISODES,
         train_episode_ids=train, shelved_episode_ids=shelved, frames=frames, updates_per_epoch=u, epochs=EPOCHS,
         max_steps=total, warmup_steps=WARMUP_EPOCHS * u, save_steps=save_steps, control_hz=spec['control_hz'],
-        recording_hz=30, statistics_sha256=c['statistics_sha256'], velocity_statistics_sha256=c['velocity_statistics_sha256'],
+        recording_hz=30, statistics_sha256=c['statistics_sha256'], proprio_dim=PROPRIO_DIM, joint_velocity=False,
         augmentation=AUG_VERSION, code=str(CODE), code_record_sha256=sha(CODE / 'deltaflow-code.json')))
 
     log(task, 'loading two real augmented samples (CPU)')
@@ -294,8 +296,8 @@ def prepare_task(task, wb):
         raise SystemExit(f'{task}: dataset length {len(dataset)} / episodes differ from {frames} / 0-99')
     import torch
     first, sample = dataset[0], dataset[min(20, len(dataset) - 1)]
-    if (tuple(first['video'].shape) != (3, 2, 224, 448) or tuple(first['proprio'].shape) != (16, 73)
-            or tuple(sample['action'].shape) != (16, 76) or torch.any(first['proprio'][:, -29:])
+    if (tuple(first['video'].shape) != (3, 2, 224, 448) or tuple(first['proprio'].shape) != (16, PROPRIO_DIM)
+            or tuple(sample['proprio'].shape) != (16, PROPRIO_DIM) or tuple(sample['action'].shape) != (16, 76)
             or not torch.isfinite(sample['proprio']).all() or dataset.last_augmentation['visual']['boost'] is None):
         raise SystemExit(f'{task}: sample schema check failed')
     dump(R / 'prepared.ok', dict(frames=frames, updates_per_epoch=u, max_steps=total, save_steps=save_steps))

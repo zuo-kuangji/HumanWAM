@@ -13,8 +13,9 @@ ENV=$G/envs/groot-py312
 NODE=${RANK:?DLC RANK missing}
 MASTER=${MASTER_ADDR:?DLC MASTER_ADDR missing}
 [ "${WORLD_SIZE:?}" = 4 ]
-OUT=$G/groot-runs/$TASK/$PHASE
-LOGD=$G/groot-runs/$TASK/logs
+GRUNS=${HB_GROOT_RUNS:-$G/groot-runs-bmax}
+OUT=$GRUNS/$TASK/$PHASE
+LOGD=$GRUNS/$TASK/logs
 mkdir -p "$OUT" "$LOGD"
 exec > >(tee -a "$LOGD/$PHASE-node-$NODE.log") 2>&1
 date -u; hostname
@@ -23,13 +24,17 @@ if ! ldconfig -p | grep -q 'libavutil.so.56'; then
   apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
     libavcodec58 libavformat58 libavutil56 libswscale5 libswresample3 libavdevice58 libavfilter7
 fi
+for _ in $(seq 36); do  # up to 3 min for processes of a previous (e.g. OOM) probe to release the GPUs
+  test -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" && break
+  sleep 5
+done
 test -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" || { echo GPU_NODE_BUSY; echo 65 > "$LOGD/$PHASE-node-$NODE.exit"; exit 65; }
 unset RANK WORLD_SIZE LOCAL_RANK GROUP_RANK ROLE_RANK LOCAL_WORLD_SIZE
 # /usr/local/bin/python3.12 is a static build (no libpython3.12.so); torchcodec's custom-ops lib has it as DT_NEEDED,
 # so an empty stub with that soname satisfies the loader (symbols come from the executable).
 export LD_LIBRARY_PATH="$ENV/lib/hbstub:${LD_LIBRARY_PATH:-}"
 export PATH="$ENV/bin:$PATH" PYTHONPATH="$GR:$H" GROOT_SRC="$GR" HF_HOME="$G/hf-home" HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
-export HB_AUG_LOG="$LOGD/aug-$PHASE-node-$NODE" OMP_NUM_THREADS=4 TOKENIZERS_PARALLELISM=false WANDB_MODE=disabled
+export HB_AUG_LOG="$LOGD/aug-$PHASE-node-$NODE" HB_PEAK_FILE="$LOGD/peak-$PHASE" OMP_NUM_THREADS=4 TOKENIZERS_PARALLELISM=false WANDB_MODE=disabled
 export NCCL_SOCKET_IFNAME=eth GLOO_SOCKET_IFNAME=eth0 NCCL_DEBUG=WARN CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 cd "$GR"
 set +e

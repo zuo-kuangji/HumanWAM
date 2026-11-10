@@ -33,6 +33,8 @@
   - 自动探测显存，batch 取能放下的最大值；
   - 续训状态（优化器、调度器、RNG）只保留最新一个 checkpoint 的。
 - **Delta Flow**：训 40 个 epoch。
+- **本体输入不含关节速度**（2026-11-10 用户规定，适用于所有模型和以后所有训练）：G1 为 44 维（29 关节 + 12 双手 + 3 重力），H2 为 78 维（75 关节 + 3 重力）。Delta Flow 以 HF `humanoid-benchmark/b6-imagewam-deltaflow76` 的 `real30-from-sim60-20261108` 为准（proprio_dim 44、velocity_channels 为空）。
+- **batch**：每个模型都用显存允许的最大每卡 batch，峰值显存不超过 92%。GR00T 从 320 往下试（输出在 `groot-runs-bmax/`），DiT4DiT 从 64 往下试。
 - **数据增强**：统一用 Humanoid Benchmark 数据增强规范 v2，各模型原生的图像增强全部关闭。
   - 实现：`hb_groot/hb_aug_v2.py`（`hb_pi05` 里有一份相同的拷贝）；
   - 规范说明：`hb_groot/TRAINING_DEFAULTS_v2.md`。
