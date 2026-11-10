@@ -6,8 +6,9 @@ motion-token and joint-reference training modes with distinct action and checkpo
 
 - [G1 training modes and reproducible commands](docs/TRAINING_MODES.md)
 - [G1 deployment: model services, HTTP clients and SONIC v1.1](docs/G1_DEPLOYMENT.md)
-- [Training augmentation v2: paired RGB, probabilistic state noise and conditioning dropout](docs/DATA_AUGMENTATION.md)
-- [Augmentation v2 verification: 456 CPU checks](docs/policies/AUGMENTATION_V2_VALIDATION_20261110.md)
+- [Training augmentation v3: paired RGB noise, JPEG, jitter and state conditioning](docs/DATA_AUGMENTATION.md)
+- [Augmentation v3 verification: 588 CPU checks](docs/policies/AUGMENTATION_V3_VALIDATION_20261110.md)
+- [Historical augmentation v2 verification: 456 CPU checks](docs/policies/AUGMENTATION_V2_VALIDATION_20261110.md)
 - [Historical augmentation v1 verification: 431 CPU checks](docs/policies/AUGMENTATION_VALIDATION_20261110.md)
 - [Two-route CPU validation and limitations](docs/policies/TRAINING_ROUTES_VALIDATION_20261110.md)
 - [Installation, repository structure and maintenance](docs/POLICY_MAINTENANCE.md)

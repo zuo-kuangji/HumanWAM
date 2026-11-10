@@ -4,8 +4,9 @@
 
 - [两种G1训练方式、初始化与完整复现命令](docs/TRAINING_MODES.md)
 - [G1部署：模型服务、HTTP客户端与SONIC v1.1接线](docs/G1_DEPLOYMENT.md)
-- [训练增强v2：配对图像、概率state噪声与整份条件dropout](docs/DATA_AUGMENTATION.md)
-- [增强v2验证：456项CPU检查](docs/policies/AUGMENTATION_V2_VALIDATION_20261110.md)
+- [训练增强v3：配对像素噪声、JPEG、抖动与state条件增强](docs/DATA_AUGMENTATION.md)
+- [增强v3验证：588项CPU检查](docs/policies/AUGMENTATION_V3_VALIDATION_20261110.md)
+- [历史增强v2验证：456项CPU检查](docs/policies/AUGMENTATION_V2_VALIDATION_20261110.md)
 - [历史增强v1验证：431项CPU检查](docs/policies/AUGMENTATION_VALIDATION_20261110.md)
 - [两条路线的295项CPU验证及验证范围](docs/policies/TRAINING_ROUTES_VALIDATION_20261110.md)
 

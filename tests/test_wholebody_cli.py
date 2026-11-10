@@ -160,15 +160,31 @@ def test_new_builder_defaults_to_the_shared_enabled_profile_and_binds_both_confi
     receipt, production, smoke = build_fixture(tmp_path)
     shared = normalize_augmentation(
         OmegaConf.to_container(
-            OmegaConf.load(ROOT / "configs/wholebody/augmentation_v2.yaml"),
+            OmegaConf.load(ROOT / "configs/wholebody/augmentation_v3.yaml"),
             resolve=True,
         )
     )
     assert shared == default_augmentation()
     assert receipt["training_augmentation"] == shared
     assert receipt["training_augmentation_sha256"] == augmentation_sha256(shared)
-    assert Path(receipt["training_augmentation_profile"]).name == "augmentation_v2.yaml"
+    assert Path(receipt["training_augmentation_profile"]).name == "augmentation_v3.yaml"
     assert production.data.train.augmentation == smoke.data.train.augmentation == shared
+
+
+def test_explicit_v2_profile_keeps_its_existing_schema_digest_and_training_support(
+    tmp_path,
+):
+    from imagewam.augmentation_config import PREVIOUS_SCHEMA
+
+    profile = ROOT / "configs/wholebody/augmentation_v2.yaml"
+    receipt, production, smoke = build_fixture(tmp_path, augmentation_config=profile)
+    assert production.data.train.augmentation.schema == PREVIOUS_SCHEMA
+    assert smoke.data.train.augmentation.schema == PREVIOUS_SCHEMA
+    assert (
+        receipt["training_augmentation_sha256"]
+        == "bfe4f655f81d282e15fcb0e6e6aaf6899a75a482c3b5724adbdbe88facb62d7e"
+    )
+    assert Path(receipt["training_augmentation_profile"]).name == "augmentation_v2.yaml"
 
 
 def test_builder_explicit_opt_out_keeps_full_disabled_provenance(tmp_path):
@@ -390,8 +406,14 @@ def test_dataset_epoch_is_published_before_first_prefetch_and_epoch_rollover():
     importlib.util.find_spec("torch") is None,
     reason="Native smoke schema needs CPU PyTorch",
 )
-def test_joint_smoke_uses_prediction40_and_unexpanded_history16_and_current_state_once():
+@pytest.mark.parametrize(
+    "profile_name", ["augmentation_v2.yaml", "augmentation_v3.yaml"]
+)
+def test_joint_smoke_uses_prediction40_and_unexpanded_history16_and_current_state_once(
+    profile_name,
+):
     import torch
+    from omegaconf import OmegaConf
 
     scalar = torch.zeros(1)
     cfg = {
@@ -406,7 +428,11 @@ def test_joint_smoke_uses_prediction40_and_unexpanded_history16_and_current_stat
         "text_hidden_states": scalar.expand(1, 128, 7680),
     }
     training.validate_smoke_sample(sample, cfg)
-    cfg["data"]["train"]["augmentation"] = default_augmentation()
+    cfg["data"]["train"]["augmentation"] = normalize_augmentation(
+        OmegaConf.to_container(
+            OmegaConf.load(ROOT / "configs/wholebody" / profile_name), resolve=True
+        )
+    )
     with pytest.raises(RuntimeError, match="state_condition_keep"):
         training.validate_smoke_sample(sample, cfg)
     for invalid in (

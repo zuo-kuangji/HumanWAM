@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from imagewam.augmentation_config import (
-    SCHEMA, LEGACY_SCHEMA, default_augmentation, normalize_augmentation,
+    SCHEMA, PREVIOUS_SCHEMA, LEGACY_SCHEMA, default_augmentation, normalize_augmentation,
     normalize_visual_config, normalize_proprio_config, augmentation_sha256,
 )
 
@@ -20,6 +20,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 
 def test_missing_config_preserves_legacy_while_explicit_profile_enables_training():
+    assert default_augmentation()["schema"] == SCHEMA
     assert normalize_augmentation(None) == default_augmentation(enabled=False)
     assert normalize_augmentation({}) == default_augmentation(enabled=True)
     assert normalize_augmentation({"enabled": False})["enabled"] is False
@@ -29,7 +30,7 @@ def test_missing_config_preserves_legacy_while_explicit_profile_enables_training
 
 def test_profile_yaml_and_hydra_nested_config_match_canonical_defaults():
     OmegaConf = pytest.importorskip("omegaconf").OmegaConf
-    profile = OmegaConf.load(REPO / "configs/wholebody/augmentation_v2.yaml")
+    profile = OmegaConf.load(REPO / "configs/wholebody/augmentation_v3.yaml")
     assert normalize_augmentation(profile) == default_augmentation()
     assert augmentation_sha256(profile) == augmentation_sha256(default_augmentation())
     assert normalize_visual_config(profile.visual) == default_augmentation()["visual"]
@@ -48,10 +49,16 @@ def test_updated_color_and_blur_defaults_keep_the_three_event_probabilities():
     assert config["visual"]["probability"] == 0.5
     assert config["proprio"]["noise_probability"] == 0.25
     assert config["proprio"]["state_dropout"] == {"probability": 0.1}
+    assert config["visual"]["pixel_noise"] == {"probability": 0.25, "std": [4 / 255, 8 / 255]}
+    assert config["visual"]["jpeg"] == {"probability": 0.25, "quality": [50, 80]}
+    assert config["visual"]["jitter"] == {
+        "probability": 0.4, "translation": 0.04,
+        "rotation_degrees": 3.0, "scale": [0.96, 1.04],
+    }
 
 
 def test_previous_complete_v2_profile_keeps_explicit_ranges_and_its_original_sha():
-    previous = default_augmentation()
+    previous = normalize_augmentation({"schema": PREVIOUS_SCHEMA})
     previous["visual"]["color"].update(
         contrast=[0.9, 1.1], saturation=[0.85, 1.15], hue=0.01,
     )
@@ -61,6 +68,38 @@ def test_previous_complete_v2_profile_keeps_explicit_ranges_and_its_original_sha
     assert augmentation_sha256(previous) == "a0d5efb8d3659022014f921fe1fe113a690192b5fd78a39a505c03cbe4f01aca"
     assert previous == saved
     assert augmentation_sha256(previous) != augmentation_sha256(default_augmentation())
+
+
+def test_previous_v2_profile_keeps_its_complete_canonical_config_and_hash():
+    OmegaConf = pytest.importorskip("omegaconf").OmegaConf
+    profile = OmegaConf.load(REPO / "configs/wholebody/augmentation_v2.yaml")
+    previous = normalize_augmentation(profile)
+    assert previous["schema"] == PREVIOUS_SCHEMA
+    assert "pixel_noise" not in previous["visual"] and "jpeg" not in previous["visual"]
+    assert previous["visual"]["jitter"]["translation"] == 0.02
+    assert augmentation_sha256(profile) == "bfe4f655f81d282e15fcb0e6e6aaf6899a75a482c3b5724adbdbe88facb62d7e"
+    previous["enabled"] = False
+    assert augmentation_sha256(previous) == "2b3d6059c95c5e03759d4994479db5aa395da4288ae41ec2dafec6b7aec4f8ba"
+    for key in ("pixel_noise", "jpeg"):
+        with pytest.raises(ValueError, match="Unknown"):
+            normalize_augmentation({"schema": PREVIOUS_SCHEMA, "visual": {key: {"probability": 0.25}}})
+
+
+def test_runtime_visual_normalization_does_not_enable_new_ops_on_previous_or_partial_inputs():
+    previous = normalize_augmentation({"schema": PREVIOUS_SCHEMA})["visual"]
+    for supplied in (previous, {}, {"color": {"hue": 0}}):
+        runtime = normalize_visual_config(supplied)
+        assert runtime["pixel_noise"]["probability"] == 0
+        assert runtime["jpeg"]["probability"] == 0
+        assert runtime["jitter"]["translation"] == 0.02
+    runtime = normalize_visual_config(previous)
+    assert {key: value for key, value in runtime.items() if key not in {"pixel_noise", "jpeg"}} == previous
+    for supplied_key, absent_key in (("pixel_noise", "jpeg"), ("jpeg", "pixel_noise")):
+        runtime = normalize_visual_config({supplied_key: {"probability": 0.6}})
+        assert runtime[supplied_key]["probability"] == 0.6
+        assert runtime[absent_key]["probability"] == 0
+    assert normalize_visual_config(None) == default_augmentation()["visual"]
+    assert normalize_augmentation({"visual": {}})["visual"] == default_augmentation()["visual"]
 
 
 def test_legacy_v1_profile_preserves_its_canonical_hash_for_checkpoint_provenance():
@@ -86,6 +125,7 @@ def test_config_and_normalized_result_are_fully_independent_deep_copies():
     normalized = normalize_augmentation(supplied)
     normalized["visual"]["exposure"]["gain"][0] = 0.11
     normalized["proprio"]["state_dropout"]["probability"] = 1
+    normalized["visual"]["jpeg"]["quality"][0] = 1
     assert supplied == saved
     assert default_augmentation() == saved
     supplied["visual"]["color"]["saturation"][0] = 0.12
@@ -100,7 +140,9 @@ def test_hash_is_order_independent_binds_full_profile_and_has_defined_json_encod
     canonical = json.dumps(normalize_augmentation(config), sort_keys=True, separators=(",", ":"), allow_nan=False)
     assert augmentation_sha256(config) == hashlib.sha256(canonical.encode()).hexdigest()
     for changed in ({"seed": 43}, {"visual": {"camera_mode": "shared"}},
-                    {"proprio": {"hand_noise_std": 0.01}}, {"enabled": False}):
+                    {"proprio": {"hand_noise_std": 0.01}}, {"enabled": False},
+                    {"visual": {"pixel_noise": {"std": [0.01, 0.02]}}},
+                    {"visual": {"jpeg": {"quality": [60, 90]}}}):
         assert augmentation_sha256(changed) != augmentation_sha256(config)
 
 
@@ -169,6 +211,21 @@ def test_unknown_and_non_string_fields_fail_with_clear_value_errors(invalid):
     {"visual": {"blur": {"kernel_size": 4}}},
     {"visual": {"blur": {"kernel_size": 33}}},
     {"visual": {"blur": {"kernel_size": True}}},
+    {"visual": {"pixel_noise": {"probability": True}}},
+    {"visual": {"pixel_noise": {"probability": 1.01}}},
+    {"visual": {"pixel_noise": {"std": [-0.01, 0.02]}}},
+    {"visual": {"pixel_noise": {"std": [0.02, 0.11]}}},
+    {"visual": {"pixel_noise": {"std": [0.03, 0.02]}}},
+    {"visual": {"pixel_noise": {"std": [0.01]}}},
+    {"visual": {"pixel_noise": {"std": [float("nan"), 0.02]}}},
+    {"visual": {"pixel_noise": {"std": [0.01, float("inf")]}}},
+    {"visual": {"jpeg": {"probability": -0.01}}},
+    {"visual": {"jpeg": {"quality": [0, 80]}}},
+    {"visual": {"jpeg": {"quality": [50, 101]}}},
+    {"visual": {"jpeg": {"quality": [80, 50]}}},
+    {"visual": {"jpeg": {"quality": [50.0, 80]}}},
+    {"visual": {"jpeg": {"quality": [True, 80]}}},
+    {"visual": {"jpeg": {"quality": [50]}}},
     {"proprio": {"body_noise_std": -0.01}},
     {"proprio": {"body_bias_std": 0.11}},
     {"proprio": {"hand_noise_std": 0.11}},
@@ -193,6 +250,15 @@ def test_zero_augmentation_strengths_and_zero_event_probabilities_are_valid():
     assert default_augmentation()["proprio"]["noise_probability"] == 0.25
     assert default_augmentation()["proprio"]["state_dropout"] == {"probability": 0.1}
     assert default_augmentation()["visual"]["probability"] == 0.5
+
+
+@pytest.mark.parametrize("quality", [[1, 1], [100, 100], [1, 100]])
+def test_jpeg_integer_quality_endpoints_and_zero_pixel_noise_are_supported(quality):
+    config = normalize_augmentation({"visual": {
+        "jpeg": {"quality": quality}, "pixel_noise": {"std": [0, 0]},
+    }})
+    assert config["visual"]["jpeg"]["quality"] == quality
+    assert config["visual"]["pixel_noise"]["std"] == [0.0, 0.0]
 
 
 def test_import_validation_and_hash_do_not_import_tensor_or_image_runtimes():

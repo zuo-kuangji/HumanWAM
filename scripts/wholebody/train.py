@@ -54,7 +54,7 @@ def expected_microbatches(loader_length, accumulation, optimizer_updates):
 
 def training_augmentation_contract(cfg, *, dataset=None):
     """Validate task-bound training settings; missing legacy fields mean disabled."""
-    from imagewam.augmentation_config import SCHEMA, augmentation_sha256, normalize_augmentation
+    from imagewam.augmentation_config import PREVIOUS_SCHEMA, SCHEMA, augmentation_sha256, normalize_augmentation
 
     ds, contract = cfg["data"]["train"], cfg["wholebody_contract"]
     present = ("augmentation" in ds, "training_augmentation" in contract,
@@ -63,7 +63,7 @@ def training_augmentation_contract(cfg, *, dataset=None):
             "Dataset augmentation and its complete config/SHA contract must be recorded together")
     try:
         canonical = normalize_augmentation(contract.get("training_augmentation"))
-        require(not canonical["enabled"] or canonical["schema"] == SCHEMA,
+        require(not canonical["enabled"] or canonical["schema"] in {SCHEMA, PREVIOUS_SCHEMA},
                 "Enabled training augmentation must use whole-state conditioning dropout, not legacy dimension masking")
         digest = augmentation_sha256(canonical)
         if any(present):
@@ -134,9 +134,9 @@ def validate_smoke_sample(sample, cfg):
             "Actual sample schema differs from target/history horizons")
     require(torch.equal(sample["proprio"], sample["proprio"][:, :1].expand_as(sample["proprio"])),
             "Dataset supplied future state instead of one augmented current state")
-    from imagewam.augmentation_config import SCHEMA, normalize_augmentation
+    from imagewam.augmentation_config import PREVIOUS_SCHEMA, SCHEMA, normalize_augmentation
     augmentation = normalize_augmentation(cfg["data"]["train"].get("augmentation"))
-    gate_enabled = (augmentation["enabled"] and augmentation["schema"] == SCHEMA
+    gate_enabled = (augmentation["enabled"] and augmentation["schema"] in {SCHEMA, PREVIOUS_SCHEMA}
                     and augmentation["proprio"]["enabled"]
                     and augmentation["proprio"]["state_dropout"]["probability"] > 0)
     summary = state_condition_keep_summary(sample, require_flag=gate_enabled)

@@ -252,6 +252,21 @@ def test_enabled_legacy_v1_is_provenance_only_and_cannot_train():
     assert disabled.sample_state_keep(None).item() is True
 
 
+def test_previous_v2_controller_keeps_original_jitter_and_disables_new_operations():
+    from imagewam.augmentation_config import PREVIOUS_SCHEMA
+    controller = TrainingAugmentation({"schema": PREVIOUS_SCHEMA})
+    assert controller.config["schema"] == PREVIOUS_SCHEMA
+    assert "pixel_noise" not in controller.config["visual"]
+    assert controller.visual.config["pixel_noise"]["probability"] == 0
+    assert controller.visual.config["jpeg"]["probability"] == 0
+    assert controller.visual.config["jitter"]["translation"] == 0.02
+    g = torch.Generator().manual_seed(12)
+    for _ in range(50):
+        params = controller.visual.sample_parameters(g)
+        assert params["pixel_noise"] is params["jpeg"] is None
+    assert controller.sample_state_keep(g).dtype is torch.bool
+
+
 @pytest.mark.parametrize("camera_mode", ["independent", "shared"])
 def test_global_visual_zero_event_is_noop_for_both_cameras_without_rng(camera_mode):
     config = enabled_config(proprio=False)

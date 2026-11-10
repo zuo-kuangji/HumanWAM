@@ -14,7 +14,7 @@ import numpy as np
 import torch
 
 from imagewam.augmentation_config import (
-    SCHEMA,
+    LEGACY_SCHEMA,
     normalize_augmentation,
     normalize_proprio_config,
 )
@@ -114,8 +114,8 @@ class TrainingAugmentation:
     def __init__(self, config=None, *, training=True):
         self.config = normalize_augmentation(config)
         self.enabled = self.config["enabled"]
-        if self.enabled and self.config["schema"] != SCHEMA:
-            raise ValueError("Legacy augmentation v1 is provenance-only; use the v2 training profile")
+        if self.enabled and self.config["schema"] == LEGACY_SCHEMA:
+            raise ValueError("Legacy augmentation v1 is provenance-only; use the v2 or v3 training profile")
         if self.enabled and training is not True:
             raise ValueError("Augmentation may only be enabled on the training dataset")
         self.seed = self.config["seed"]
@@ -167,7 +167,7 @@ class TrainingAugmentation:
             ):
                 # One event controls both cameras; explicit no-op parameters
                 # also prevent a second event draw during apply_video.
-                return {key: None for key in ("exposure", "overexposure", "color", "jitter", "blur")}
+                return self.visual.empty_parameters()
             if self.visual.camera_mode == "shared":
                 return self.visual.sample_parameters(generator, apply_probability=False)
         return None

@@ -10,7 +10,7 @@ import torch
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/"src"))
 from imagewam.datasets.wholebody_augmentation import (
-    DEFAULT_VISUAL_AUGMENTATION, WholeBodyVisualAugmenter,
+    DEFAULT_VISUAL_AUGMENTATION, VISUAL_OPERATIONS, WholeBodyVisualAugmenter,
 )
 
 
@@ -27,7 +27,7 @@ def camera_pair():
 def only(operation,**overrides):
     cfg=copy.deepcopy(DEFAULT_VISUAL_AUGMENTATION)
     cfg["probability"]=1
-    for key in ("exposure","overexposure","color","jitter","blur"):cfg[key]["probability"]=0
+    for key in VISUAL_OPERATIONS:cfg[key]["probability"]=0
     cfg[operation].update(probability=1,**overrides)
     return cfg
 
@@ -35,7 +35,7 @@ def only(operation,**overrides):
 def all_operations():
     cfg=copy.deepcopy(DEFAULT_VISUAL_AUGMENTATION)
     cfg["probability"]=1
-    for key in ("exposure","overexposure","color","jitter","blur"):cfg[key]["probability"]=1
+    for key in VISUAL_OPERATIONS:cfg[key]["probability"]=1
     return cfg
 
 
@@ -74,7 +74,7 @@ def test_small_geometric_jitter_does_not_mirror_left_and_right():
     for seed in (1,42,571):
         output=aug.apply(original,generator=generator(seed))
         assert output[0,0,:,:4].mean()<output[0,0,:,-4:].mean()
-        assert float((output-original).abs().max())<.15
+        assert float((output-original).abs().max())<.3
 
 
 def test_controlled_overexposure_really_clips_highlights():
@@ -181,7 +181,7 @@ def test_disabled_and_all_zero_probabilities_are_exact_copies_without_rng_draws(
     original=camera_pair().double()
     zero=copy.deepcopy(DEFAULT_VISUAL_AUGMENTATION)
     zero["probability"]=1
-    for key in ("exposure","overexposure","color","jitter","blur"):zero[key]["probability"]=0
+    for key in VISUAL_OPERATIONS:zero[key]["probability"]=0
     for cfg in ({"enabled":False},zero):
         g=generator();before=g.get_state().clone()
         output=WholeBodyVisualAugmenter(cfg).apply(original,generator=g)
@@ -237,3 +237,93 @@ def test_invalid_image_contracts_are_rejected(invalid):
     {"blur":{"kernel_size":4}},{"blur":{"sigma":[float("nan"),1]}},{"camera_mode":"unknown"}])
 def test_invalid_configuration_is_rejected_early(config):
     with pytest.raises(ValueError):WholeBodyVisualAugmenter(config)
+
+
+def test_pixel_noise_replays_private_seed_across_pair_without_rng_or_cache_mutation():
+    original = torch.full((2, 3, 64, 64), 0.5)
+    saved = original.clone()
+    aug = WholeBodyVisualAugmenter(only("pixel_noise", std=[8 / 255, 8 / 255]))
+    params = aug.sample_parameters(generator(12))
+    supplied = copy.deepcopy(params)
+    g = generator(55)
+    before = g.get_state().clone()
+    global_before = torch.get_rng_state().clone()
+    output = aug.apply(original, generator=g, parameters=params)
+    repeated = aug.apply(original, generator=generator(88), parameters=params)
+    assert torch.equal(output, repeated) and torch.equal(output[0], output[1])
+    torch.testing.assert_close(output[0].sub(0.5).std(), torch.tensor(8 / 255), rtol=0.04, atol=0)
+    assert not torch.equal(output[0, 0], output[0, 1])
+    assert torch.equal(g.get_state(), before) and torch.equal(torch.get_rng_state(), global_before)
+    assert torch.equal(original, saved) and params == supplied
+    next_params = aug.sample_parameters(generator(13))
+    assert not torch.equal(output, aug.apply(original, generator=g, parameters=next_params))
+
+
+def test_jpeg_matches_per_frame_codec_with_shared_quality_and_no_future_dependence():
+    from io import BytesIO
+    import numpy as np
+    from PIL import Image
+
+    original = torch.rand((2, 3, 32, 32), generator=generator(17))
+    original[1] = original[0]
+    aug = WholeBodyVisualAugmenter(only("jpeg", quality=[50, 50]))
+    params = aug.sample_parameters(generator(18))
+    output = aug.apply(original, generator=generator(), parameters=params)
+    with BytesIO() as stream:
+        pixels = (original[0] * 255).round().to(torch.uint8).permute(1, 2, 0).numpy()
+        Image.fromarray(pixels).save(stream, format="JPEG", quality=50, subsampling=0)
+        stream.seek(0)
+        with Image.open(stream) as decoded:
+            reference = torch.from_numpy(np.array(decoded.convert("RGB"), copy=True)).permute(2, 0, 1).float() / 255
+    torch.testing.assert_close(output[0], reference, rtol=0, atol=0)
+    assert torch.equal(output[0], output[1]) and not torch.equal(output, original)
+    changed_future = original.clone()
+    changed_future[1] = 1 - original[1]
+    other = aug.apply(changed_future, generator=generator(), parameters=params)
+    assert torch.equal(other[0], output[0]) and not torch.equal(other[1], output[1])
+
+
+def test_new_operation_ranges_and_actual_event_frequencies_include_global_gate():
+    aug = WholeBodyVisualAugmenter()
+    g = generator(33)
+    noise_stds, qualities, jitter = [], [], []
+    for _ in range(5000):
+        params = aug.sample_parameters(g)
+        if params["pixel_noise"] is not None:
+            noise_stds.append(params["pixel_noise"]["std"])
+        if params["jpeg"] is not None:
+            qualities.append(params["jpeg"]["quality"])
+        if params["jitter"] is not None:
+            jitter.append(params["jitter"])
+    assert 500 < len(noise_stds) < 750  # 50% global * 25% child
+    assert 500 < len(qualities) < 750
+    assert 850 < len(jitter) < 1150  # 50% global * 40% child
+    assert all(4 / 255 <= std <= 8 / 255 for std in noise_stds)
+    assert set(qualities) == set(range(50, 81))
+    assert all(type(quality) is int for quality in qualities)
+    assert all(abs(p["translation_x"]) <= 0.04 and abs(p["translation_y"]) <= 0.04
+               and abs(p["rotation_degrees"]) <= 3 and 0.96 <= p["scale"] <= 1.04 for p in jitter)
+
+
+def test_previous_five_operation_parameters_never_implicitly_enable_new_effects():
+    original = camera_pair()
+    params = dict.fromkeys(VISUAL_OPERATIONS[:5])
+    g = generator(12)
+    before = g.get_state().clone()
+    output = WholeBodyVisualAugmenter().apply(original, generator=g, parameters=params)
+    assert torch.equal(output, original) and torch.equal(before, g.get_state())
+
+
+@pytest.mark.parametrize("operation,value", [
+    ("pixel_noise", {"std": float("nan"), "seed": 0}),
+    ("pixel_noise", {"std": 0.2, "seed": 0}),
+    ("pixel_noise", {"std": 0.02, "seed": True}),
+    ("pixel_noise", {"std": 0.02, "seed": -1}),
+    ("jpeg", {"quality": True}), ("jpeg", {"quality": 50.0}),
+    ("jpeg", {"quality": 0}), ("jpeg", {"quality": 101}),
+])
+def test_invalid_explicit_corruption_parameters_fail(operation, value):
+    params = WholeBodyVisualAugmenter.empty_parameters()
+    params[operation] = value
+    with pytest.raises(ValueError, match="noise|JPEG"):
+        WholeBodyVisualAugmenter().apply(camera_pair(), generator=generator(), parameters=params)

@@ -5,14 +5,16 @@ Run commands from the repository root, using the dedicated ImageWAM environment.
 The lightweight `humanwam` package does not install FLUX.2 or the training dependencies.
 For checkpoint files, persistent inference services and SONIC integration, see the
 [deployment guide](G1_DEPLOYMENT.md).
-New generated training configs apply paired RGB augmentation with a 50% sample-level gate
+New generated training configs use augmentation v3, adding paired Gaussian pixel noise,
+JPEG compression and larger affine-jitter ranges. A 50% sample-level gate controls RGB augmentation,
 shared by both cameras. Transform probabilities are conditional on that gate; each camera
 otherwise samples its own parameters, shared between its current and future frames.
 Current-state noise has probability 0.25, and a single state-conditioning dropout gate has
 probability 0.1. The state gate zeros the complete projected feature, including its bias;
 FM and IC share it, and raw measurements, labels, history and the root anchor stay unchanged. Use
 `--no-augmentation` for a clean-input ablation or `--augmentation-config PATH` for a custom
-v2 profile. Legacy configs without this field remain disabled; enabled v1 training is rejected
+v2 or v3 profile. Explicit v2 profiles remain trainable with their original jitter ranges and
+without pixel noise or JPEG. Legacy configs without this field remain disabled; enabled v1 training is rejected
 rather than reinterpreted, while its checkpoint provenance remains readable. See the
 [augmentation settings](DATA_AUGMENTATION.md) for exact probabilities and separate
 Delta-flow source noise settings. Inference does not apply training augmentation.

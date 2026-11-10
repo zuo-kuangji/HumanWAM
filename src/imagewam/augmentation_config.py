@@ -6,7 +6,8 @@ import hashlib
 import json
 import math
 
-SCHEMA = "wholebody_training_augmentation_v2"
+SCHEMA = "wholebody_training_augmentation_v3"
+PREVIOUS_SCHEMA = "wholebody_training_augmentation_v2"
 LEGACY_SCHEMA = "wholebody_training_augmentation_v1"
 
 _VISUAL_V1 = {
@@ -24,10 +25,14 @@ _VISUAL_V1 = {
     },
     "blur": {"probability": 0.12, "sigma": [0.2, 0.8], "kernel_size": 5},
 }
-_VISUAL = copy.deepcopy(_VISUAL_V1)
-_VISUAL["probability"] = 0.5
-_VISUAL["color"].update(contrast=[0.85, 1.15], saturation=[0.8, 1.2], hue=5.0 / 360.0)
-_VISUAL["blur"].update(sigma=[0.4, 1.2], kernel_size=9)
+_VISUAL_V2 = copy.deepcopy(_VISUAL_V1)
+_VISUAL_V2["probability"] = 0.5
+_VISUAL_V2["color"].update(contrast=[0.85, 1.15], saturation=[0.8, 1.2], hue=5.0 / 360.0)
+_VISUAL_V2["blur"].update(sigma=[0.4, 1.2], kernel_size=9)
+_VISUAL = copy.deepcopy(_VISUAL_V2)
+_VISUAL["pixel_noise"] = {"probability": 0.25, "std": [4.0 / 255.0, 8.0 / 255.0]}
+_VISUAL["jpeg"] = {"probability": 0.25, "quality": [50, 80]}
+_VISUAL["jitter"].update(translation=0.04, rotation_degrees=3.0, scale=[0.96, 1.04])
 _PROPRIO_V1 = {
     "enabled": True,
     "body_noise_std": 0.01,
@@ -88,21 +93,22 @@ def _number(value, name, *, minimum=0.0, maximum=None, strict_min=False):
     return float(value)
 
 
-def _range(value, name, *, positive=False):
+def _range(value, name, *, positive=False, maximum=None):
     if not isinstance(value, list) or len(value) != 2:
         raise ValueError(f"{name} must contain two ordered bounds")
-    lo = _number(value[0], name, strict_min=positive)
-    hi = _number(value[1], name, strict_min=positive)
+    lo = _number(value[0], name, strict_min=positive, maximum=maximum)
+    hi = _number(value[1], name, strict_min=positive, maximum=maximum)
     if hi < lo:
         raise ValueError(f"{name} bounds must be ordered")
     return [lo, hi]
 
 
-def _normalize_visual(config, *, legacy=False):
-    result = _merge(_VISUAL_V1 if legacy else _VISUAL,
+def _normalize_visual(config, *, schema=SCHEMA):
+    defaults = {LEGACY_SCHEMA: _VISUAL_V1, PREVIOUS_SCHEMA: _VISUAL_V2, SCHEMA: _VISUAL}[schema]
+    result = _merge(defaults,
                     _plain({} if config is None else config), "augmentation.visual")
     _boolean(result["enabled"], "visual.enabled")
-    if not legacy:
+    if schema != LEGACY_SCHEMA:
         result["probability"] = _number(result["probability"], "visual.probability", maximum=1)
     if result["camera_mode"] not in ("independent", "shared"):
         raise ValueError("visual.camera_mode must be independent or shared")
@@ -121,12 +127,37 @@ def _normalize_visual(config, *, legacy=False):
     kernel = result["blur"]["kernel_size"]
     if type(kernel) is not int or kernel < 1 or kernel > 31 or kernel % 2 != 1:
         raise ValueError("blur.kernel_size must be an odd integer in1..31")
+    if schema == SCHEMA:
+        for key in ("pixel_noise", "jpeg"):
+            result[key]["probability"] = _number(result[key]["probability"], key + ".probability", maximum=1)
+        result["pixel_noise"]["std"] = _range(result["pixel_noise"]["std"], "pixel_noise.std", maximum=0.1)
+        quality = result["jpeg"]["quality"]
+        if (not isinstance(quality, list) or len(quality) != 2
+                or any(type(value) is not int or not 1 <= value <= 100 for value in quality)
+                or quality[1] < quality[0]):
+            raise ValueError("jpeg.quality must contain two ordered integer bounds in1..100")
     return result
 
 
 def normalize_visual_config(config=None):
-    """Validate v2 visual settings, including the one-per-sample event gate."""
-    return _normalize_visual(config)
+    """Validate runtime visual settings without enabling new operations on old inputs.
+
+    Full v3 profiles explicitly contain both new blocks. An older visual mapping
+    has neither block, so it retains the v2 defaults and receives disabled blocks.
+    A mapping that supplies just one new block does not implicitly enable the other.
+    Historical profile hashing uses its schema-specific validator separately.
+    """
+    if config is None:
+        return _normalize_visual(None)
+    supplied = _plain(config)
+    if not isinstance(supplied, Mapping):
+        raise ValueError("augmentation.visual must be a configuration mapping")
+    defaults = copy.deepcopy(_VISUAL if any(key in supplied for key in ("pixel_noise", "jpeg")) else _VISUAL_V2)
+    for key in ("pixel_noise", "jpeg"):
+        if key not in supplied:
+            defaults[key] = copy.deepcopy(_VISUAL[key])
+            defaults[key]["probability"] = 0.0
+    return _normalize_visual(_merge(defaults, supplied, "augmentation.visual"))
 
 
 def _normalize_proprio(config, *, legacy=False):
@@ -149,7 +180,7 @@ def _normalize_proprio(config, *, legacy=False):
 
 
 def normalize_proprio_config(config=None):
-    """Validate the v2 noise and whole-embedding dropout configuration."""
+    """Validate the v2/v3 noise and whole-embedding dropout configuration."""
     return _normalize_proprio(config)
 
 
@@ -157,7 +188,7 @@ def default_augmentation(*, enabled=True):
     _boolean(enabled, "augmentation.enabled")
     return {
         "schema": SCHEMA, "enabled": enabled, "seed": 42,
-        "visual": normalize_visual_config(), "proprio": normalize_proprio_config(),
+        "visual": _normalize_visual(None), "proprio": normalize_proprio_config(),
     }
 
 
@@ -166,17 +197,20 @@ def normalize_augmentation(config=None):
     if config is None:
         return default_augmentation(enabled=False)
     supplied = _plain(config)
-    legacy = isinstance(supplied, Mapping) and supplied.get("schema") == LEGACY_SCHEMA
-    default = (dict(schema=LEGACY_SCHEMA, enabled=True, seed=42,
-                    visual=_normalize_visual(None, legacy=True), proprio=_normalize_proprio(None, legacy=True))
-               if legacy else default_augmentation())
-    result = _merge(default, supplied, "augmentation")
-    if result["schema"] not in (SCHEMA, LEGACY_SCHEMA):
+    if not isinstance(supplied, Mapping):
+        raise ValueError("augmentation must be a configuration mapping")
+    schema = supplied.get("schema", SCHEMA)
+    if schema not in (SCHEMA, PREVIOUS_SCHEMA, LEGACY_SCHEMA):
         raise ValueError("Unknown training augmentation schema")
+    legacy = schema == LEGACY_SCHEMA
+    default = dict(schema=schema, enabled=True, seed=42,
+                   visual=_normalize_visual(None, schema=schema),
+                   proprio=_normalize_proprio(None, legacy=legacy))
+    result = _merge(default, supplied, "augmentation")
     _boolean(result["enabled"], "augmentation.enabled")
     if type(result["seed"]) is not int or not 0 <= result["seed"] < 2**63:
         raise ValueError("augmentation.seed must be a nonnegative signed64-bit integer")
-    result["visual"] = _normalize_visual(result["visual"], legacy=legacy)
+    result["visual"] = _normalize_visual(result["visual"], schema=schema)
     result["proprio"] = _normalize_proprio(result["proprio"], legacy=legacy)
     return result
 
