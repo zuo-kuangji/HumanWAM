@@ -1,0 +1,11 @@
+# 2026-11-10 user: GR00T and pi0.5 retrained with global batch 696 (87 x 8 GPUs), one node per job; B6 first for both models, then longest first
+j01 pi05 b6 87
+j02 groot b6 87
+j03 pi05 a18 87
+j04 pi05 trolley 87
+j05 pi05 a7 87
+j06 pi05 a3 87
+j07 groot a18 87
+j08 groot trolley 87
+j09 groot a7 87
+j10 groot a3 87
