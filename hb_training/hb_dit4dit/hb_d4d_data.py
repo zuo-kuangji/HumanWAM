@@ -11,11 +11,14 @@ One training sample = exactly the dict the native LeRobotMixtureDataset.__getite
                Resize: 480x640 -> 224x224 bilinear (F.interpolate, align_corners=False, no antialias, = native
                _to_img_tensor), done once in dit4dit_prepare.py and cached as uint8.
   lang         str (meta/tasks.jsonl)
-  state        float16 [1, S]: state of row t (native observation_indices [0]), S = raw dims = G1 44 / H2 78.
-               Every dim -> native min_max to [-1, 1] (StateActionTransform 'min_max'). No sin/cos expansion and no
-               joint velocity: user rule 2026-11-10, every model gets exactly the 44 (G1) / 78 (H2) state dims of HF
-               humanoid-benchmark/b6-imagewam-deltaflow76 real30-from-sim60-20261108. (The native G1 recipe
-               UnitreeG1DataConfig applied StateActionSinCosTransform, which would give 73 / 109 dims - not used.)
+  state        float16 [1, S_enc]: encoded state of row t (native observation_indices [0]).
+               Benchmark input = the raw 44 (G1) / 78 (H2) dims, no joint velocity (same for every model; HF
+               humanoid-benchmark/b6-imagewam-deltaflow76 real30-from-sim60-20261108). Model-internal encoding follows
+               the native DiT4DiT G1 recipe (UnitreeG1DataConfig: StateActionSinCosTransform on joint-angle state
+               keys): every joint angle -> [sin | cos]; non-angle dims (G1 inspire hands = 0..1 opening, projected
+               gravity) -> native min_max to [-1, 1].  G1: 29 joints -> 58 + 15 = 73;  H2: 75 joints (body 31 incl.
+               head + Sharpa hands 44, all radians) -> 150 + gravity 3 = 153.  (User decision 2026-11-10 evening:
+               benchmark interface identical, model-internal preprocessing native.)
   action       float16 [16, A]: rows t..t+15 (clamped to the episode's last row = native "first_last" padding),
                native min_max normalisation per dim to [-1, 1] (constant dims -> 0), statistics of the training view.
   action_mask  bool [16, A] all True;  state_mask bool [1, S_enc] all True  (no padding: max dims = real dims)
@@ -26,7 +29,7 @@ Augmentation (training only, CLAUDE.md v2):
   proprio  p=0.15 the whole state is taken from 1-2 control periods earlier (round(k*fps/control_hz) rows, not before
            the episode start); then the n_body joints (g1 29 body, h2 31 = body + head) get a per-trajectory bias
            U(+-2 deg) drawn from (HB_AUG_SEED, loader pass, episode) and per-sample N(0, 0.25 deg) noise clipped at
-           3 sigma, BEFORE the min_max normalisation. History drop / joint velocity: DiT4DiT has neither input.
+           3 sigma, BEFORE the sin/cos encoding. History drop / joint velocity: DiT4DiT has neither input.
   Labels (actions) and statistics always use the raw values.
 The loader pass reaches the workers through the index: HBLoader yields i + pass * N.
 """
@@ -73,18 +76,19 @@ class Layout:
         return sum((2 if k == "sincos" else 1) * (b - a) for k, a, b in self.segments)
 
 
-STATE_DIMS = {"g1": 44, "h2": 78}  # user rule 2026-11-10: model state input == these raw dims, no velocity, no sin/cos
+STATE_DIMS = {"g1": 44, "h2": 78}  # benchmark state input (raw, no joint velocity) - identical for every model
+ENCODED_DIMS = {"g1": 73, "h2": 153}  # native DiT4DiT sin/cos on joint angles, min_max on the non-angle dims
 LAYOUTS = {
-    "g1": Layout("g1", 44, 76, ("ego_view", "chest"), 29, (("minmax", 0, 44),),
+    "g1": Layout("g1", 44, 76, ("ego_view", "chest"), 29, (("sincos", 0, 29), ("minmax", 29, 44)),
                  "body29(observation.state by name) | inspire_left6 | inspire_right6 | projected_gravity3",
                  "action.motion_token64 | inspire_left6 | inspire_right6 (same-row measured hands)"),
-    "h2": Layout("h2", 78, 75, ("head", "chest"), 31, (("minmax", 0, 78),),
+    "h2": Layout("h2", 78, 75, ("head", "chest"), 31, (("sincos", 0, 75), ("minmax", 75, 78)),
                  "observation.state75 (legs12|waist3|arms14|head2|hands44) | projected_gravity3",
                  "action.body_target31 | action.hands44"),
 }
 for _k, _L in LAYOUTS.items():
-    assert _L.raw_state_dim == _L.state_dim == STATE_DIMS[_k] and all(s[0] == "minmax" for s in _L.segments), (
-        f"{_k}: model state must be the raw {STATE_DIMS[_k]} dims (no sin/cos, no velocity)")
+    assert _L.raw_state_dim == STATE_DIMS[_k] and _L.state_dim == ENCODED_DIMS[_k], (
+        f"{_k}: raw state must be {STATE_DIMS[_k]} (no velocity), encoded {ENCODED_DIMS[_k]} (native sin/cos)")
 G1_BODY = ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint",
            "left_ankle_roll_joint", "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
            "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint", "waist_yaw_joint", "waist_roll_joint",
@@ -162,7 +166,8 @@ def encode_state(raw, layout: Layout, smin, smax):
         else:
             parts.append(minmax(x, np.asarray(smin)[a:b], np.asarray(smax)[a:b]))
     out = np.concatenate(parts, axis=-1)
-    assert out.shape[-1] == layout.state_dim == STATE_DIMS[layout.name], (out.shape, layout.state_dim)
+    assert raw.shape[-1] == STATE_DIMS[layout.name], (raw.shape, "raw state must be 44 / 78 (no velocity)")
+    assert out.shape[-1] == layout.state_dim == ENCODED_DIMS[layout.name], (out.shape, layout.state_dim)
     return out
 
 

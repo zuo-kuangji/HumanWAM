@@ -5,7 +5,7 @@
 H=$(dirname "$(realpath "$0")")
 G=$(dirname "$H")
 T=${1:?usage: groot_relay.sh <task>}
-case $T in b6) i=0 ;; a3) i=1 ;; a7) i=2 ;; a18) i=3 ;; *) echo "unknown task $T"; exit 64 ;; esac
+case $T in b6) i=0 ;; a3) i=1 ;; a7) i=2 ;; a18) i=3 ;; trolley) i=4 ;; *) echo "unknown task $T"; exit 64 ;; esac
 ls "$G/models/groot-n17-base"/*.safetensors > /dev/null 2>&1 || { echo "GR00T base weights missing at $G/models/groot-n17-base"; exit 4; }
 R2=$G/hf-home/hub/models--nvidia--Cosmos-Reason2-2B
 [ "$(cat "$R2/refs/main" 2>/dev/null)" = 9ce19a195e423419c349abfc86fd07178b230561 ] \

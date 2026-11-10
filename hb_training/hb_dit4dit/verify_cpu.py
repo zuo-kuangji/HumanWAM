@@ -3,8 +3,8 @@
   python verify_cpu.py --task a18            # uses the prepared view $HB_D4D_DATA/a18 (dit4dit_prepare.py a18)
   python verify_cpu.py --task a18 --mini     # first builds a 2-episode view in a temp dir (no full prep needed)
   python verify_cpu.py --task b6 --forward   # + full DiT4DiT (Cosmos 2B + 7B text encoder) CPU forward, ~25 GB RAM, slow
-Checks: sample vs parquet (state/action rows, chunk + video clamp), native sample schema/dtypes, state = raw 44 (G1) /
-78 (H2) dims with min_max (no velocity, no sin/cos) and action min_max round trip, images = cached frames side by side, visual augmentation (images change, labels
+Checks: sample vs parquet (state/action rows, chunk + video clamp), native sample schema/dtypes, raw state 44 (G1) /
+78 (H2) without velocity, encoded natively (sin/cos on joint angles -> 73 / 153) and action min_max round trip, images = cached frames side by side, visual augmentation (images change, labels
 untouched, sensor effects only on the observation frame), proprio augmentation (delay <= 2 control periods in-episode, per-trajectory
 bias, per-sample noise, only n_body joints), rank-sharded per-pass batches + exact resume position, step plan + launch
 files, upstream contract (AST of the pinned files we patch), action head forward with our dims, Cosmos pipeline dir.
@@ -97,12 +97,15 @@ def main():
     # 3. encodings
     enc = D.encode_state(ds.state[5], L, ds.smin, ds.smax)
     nb = L.n_body
-    want = D.STATE_DIMS[L.name]
-    check(L.raw_state_dim == L.state_dim == enc.shape[-1] == ds.state.shape[1] == len(ds.smin) == want
-          and s["state"].shape == (1, want),
-          f"model state = raw {want} dims (G1 44 / H2 78: no velocity, no sin/cos)")
-    mm = D.minmax(ds.state[5], ds.smin, ds.smax)
-    check(np.allclose(enc, mm) and np.abs(mm).max() <= 1 + 1e-9, "state encoding: every dim -> native min_max [-1,1]")
+    raw_d, enc_d = D.STATE_DIMS[L.name], D.ENCODED_DIMS[L.name]
+    (_, _, na), (_, a0, b0) = L.segments  # ("sincos", 0, n_angles), ("minmax", n_angles, raw)
+    check(L.raw_state_dim == ds.state.shape[1] == len(ds.smin) == raw_d and L.state_dim == enc.shape[-1] == enc_d
+          and s["state"].shape == (1, enc_d) and b0 == raw_d,
+          f"raw state {raw_d} (no velocity) -> encoded {enc_d} (native sin/cos on {na} joint angles)")
+    check(np.allclose(enc[:na], np.sin(ds.state[5, :na]), atol=1e-6) and np.allclose(enc[na:2 * na], np.cos(ds.state[5, :na]), atol=1e-6),
+          f"state encoding: {na} joint angles -> [sin | cos]")
+    mm = D.minmax(ds.state[5, a0:], ds.smin[a0:], ds.smax[a0:])
+    check(np.allclose(enc[2 * na:], mm) and np.abs(mm).max() <= 1 + 1e-9, f"state encoding: {raw_d - na} non-angle dims -> min_max [-1,1]")
     check(np.allclose(s["state"][0].astype(np.float64), enc, atol=2e-3), "sample state == encode_state(raw row)")
     act = s["action"].astype(np.float64)
     check(np.abs(act).max() <= 1.0 + 1e-3, f"normalised actions within [-1,1] (max {np.abs(act).max():.4f})")

@@ -7,7 +7,7 @@ script (examples/Real_G1/train_files/run_real_robot.sh) and of the released DiT4
   conditional_frame_timestep 1e-4, action_video_freq_ratio 2, repeated_diffusion_steps 4,
   lr: backbone_interface 1e-5 / action_model 1e-4 / base 3e-5, cosine_with_min_lr (min_lr 5e-7), AdamW (0.9, 0.95),
   eps 1e-8, wd 1e-8, grad clip 1.0, DeepSpeed ZeRO-2 bf16 (DiT4DiT/config/deepseeds/ds_config.yaml values).
-HB changes: dims (G1 A76/S44, H2 A75/S78; no padding, no sin/cos, no velocity), base_model = local Cosmos dir, 20-epoch budget
+HB changes: dims (G1 A76/S73, H2 A75/S153 = native sin/cos of the raw 44 / 78 state; no padding, no velocity), base_model = local Cosmos dir, 20-epoch budget
 (steps = ceil(20*frames/global_batch), warmup = 5% like native 5000/100000), checkpoints at epoch 10 + last step,
 no in-loop action eval (it consumes a training batch), explicit DeepSpeed micro batch.
 
@@ -35,8 +35,9 @@ DEVIATIONS = [
     "per-trajectory joint bias is fixed per (loader pass, episode) and redrawn every pass (same as pi0.5 / Psi-Zero)",
     "native image augmentation: none in the native G1 data config (UnitreeG1DataConfig has no video transforms)",
     "cameras: two views side by side [cam0|cam1] 224x448 (native multi-view concat path); native G1 recipe used ego only",
-    "state input: the raw 44 (G1) / 78 (H2) dims, native min_max on every dim; no sin/cos expansion (native G1 recipe: "
-    "sin/cos on every state key -> 73 / 109) and no joint velocity (user rule 2026-11-10: same state dims for every model)",
+    "state: benchmark input = raw 44 (G1) / 78 (H2) dims without joint velocity (same for every model); encoded as in the "
+    "native G1 recipe (sin/cos on joint-angle keys): sin/cos on every joint angle, min_max on the non-angle dims that "
+    "the native G1 data has no counterpart for (G1 inspire hands 0..1, projected gravity) -> 73 (G1) / 153 (H2)",
     "sampling: per-pass permutation without replacement (native: with-replacement hash sampling, same order every pass)",
     "no in-loop action eval (native eval_interval consumes a training batch); prompt embeddings memoised (same values)",
     "Cosmos-Predict2.5-2B transformer weights from the official gated repo (user's HF token), converted with the official recipe",

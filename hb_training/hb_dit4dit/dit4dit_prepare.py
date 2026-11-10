@@ -15,7 +15,7 @@ Output per task in $HB_D4D_DATA/<task>/:
   h2 (a18)     : state 78 = observation.state75 | gravity3;                     action 75 = body_target31 | hands44
 B6 always uses the fixed first 100 episodes (episode_index 0-99, CLAUDE.md).
 Statistics follow the native calculate_dataset_statistics (datasets.py:71): per column over all rows of the view
-(mean/std/min/max/q01/q99); the model uses min/max (native min_max mode) for actions and for all 44 / 78 state dims.
+(mean/std/min/max/q01/q99); the model uses min/max (native min_max mode) for actions and the non-angle state dims.
 """
 import argparse
 import json

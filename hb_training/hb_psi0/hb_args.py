@@ -21,7 +21,7 @@ from pathlib import Path
 
 H = Path(__file__).resolve().parent
 G = Path(os.environ.get("G", H.parent))
-TASKS = ("b6", "basket", "a3", "a7", "a18")
+TASKS = ("b6", "basket", "a3", "a7", "a18", "trolley")
 WORLD = int(os.environ.get("HB_WORLD", "32"))          # 4 nodes x 8 GPUs
 EPOCHS, SAVE_EPOCH, WARMUP_FRAC = 20, 10, 0.025        # warmup: native 1000/40000 = 2.5 %
 HORIZON = 30

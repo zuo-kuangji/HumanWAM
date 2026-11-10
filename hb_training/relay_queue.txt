@@ -31,10 +31,29 @@ cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/pre
 # 2026-11-10 15:00 Delta Flow re-prepared WITHOUT joint velocity (G1 44-D, H2 78-D), verify_cpu VERIFY_OK; items released
 # 2026-11-10 17:46 Delta Flow b6/a3 failed at model build (HumanWAM factory requires proprio_dim 73); a7/a18 held. DiT4DiT moved ahead: state now raw 44 (G1) / 78 (H2), no sin/cos, PET_* unset for the probe
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_b6.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_a3.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_a7.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_a18.sh
+# dropped 2026-11-10 evening (44-D state, replaced by native encoding): cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_a3.sh
+# dropped 2026-11-10 evening (44-D state, replaced by native encoding): cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_a7.sh
+# dropped 2026-11-10 evening (44-D state, replaced by native encoding): cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_a18.sh
 # 2026-11-10 17:55 Delta Flow G1 wholebody_delta.py replaced by the real30-from-sim60-20261108 copy (state44, sha 52324426); model config identical to the reference; re-queued after DiT4DiT
+# 2026-11-10 evening, user: DiT4DiT with its NATIVE state encoding (sin/cos on joint angles: G1 73, H2 153; input raw 44/78), chain hb1110n, per-GPU batch 3 tried first; DiT4DiT before Delta Flow
+# 2026-11-10 19:53 user: new task trolley (HF humanoid-benchmark/trolley-push-expert-v1 @ef9024a, fixed first 100 of 103 episodes) for GR00T, pi0.5, Psi-Zero BEFORE DiT4DiT / Delta Flow; same recipe as the other tasks
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_groot/groot_trolley.sh
+# 2026-11-10 20:07: workers held GPUs (stale DiT4DiT processes) when GR00T trolley started; retry if it did not complete
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_groot/groot_trolley_retry.sh
+pi05 trolley
+# 2026-11-10 21:55 user: GR00T + pi0.5 retrain on all 5 tasks, global batch 696 (87 x 8), ONE node per job, 4 jobs in parallel (task pool b696, B6 first); old 4-node pi0.5 trolley (bs 96) stopped
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_pool_b696.sh
+psi0 trolley
+# 2026-11-10 user: ACT after the trolley trio (max per-GPU batch like the other unchanged models)
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_b6.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_a3.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_a7.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_a18.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_trolley.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_b6.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_a3.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_a7.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_a18.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_b6.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a3.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a7.sh

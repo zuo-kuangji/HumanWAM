@@ -46,6 +46,7 @@ OUT = Path(os.environ.get("HB_DATA_ROOT", G / "psi0-data"))
 TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "b6": (P / "b6-v5t7-ready-start-60ep-20261109/data/deliveries/g1/b6-v5t7-ready-start-20261109", 100, "g1"),
     "basket": (P / "g1-basket-transfer-ed77719-40epochs/dataset", None, "g1"),
+    "trolley": (P / "trolley-push-expert-v1-20261110/data/trolley_push", 100, "g1"),  # HF trolley-push-expert-v1 @ef9024a: fixed first 100 of 103
     "a3": (P / "a3-a7-20261109/a3-fridge-open-expert-v1/780fcf1e4bd7db947a8c2d8f7b92e61f24f71b45", None, "g1"),
     "a7": (P / "a3-a7-20261109/a7-cabinet-close-expert-v1/1935a98e8f55d4d1d2d1615ddb97c2679713595c", None, "g1"),
     "a18": (P / "a18-h2-dataset-audit-8e956a10/dataset", None, "h2"),
