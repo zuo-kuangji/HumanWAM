@@ -32,6 +32,38 @@ docs/policies/          每类policy的原生依赖、数据、部署约定
 和[SONIC离线参考桥接](policies/SONIC_JOINT_REFERENCE.md)。新增joint路径尚无已训练模型或真机验证。
 47D姿态目标还需按数据审计处理录制器fallback，不能将所有保存的单位四元数都当作有效未来姿态；具体监督有效性规则以关节训练文档为准。
 
+## 当前G1任务支持范围
+
+统一registry、命令和接口检查不代表所有policy已经能用同一份G1数据训练或部署。
+截至2026-11-10，当前main保留如下区别：
+
+| 路线 | 输入state / 输出action / 预测窗口 | 当前完成范围 |
+|---|---|---|
+| ImageWAM motion Δ-flow | 44 / 76 / 新H16，历史H40另保留 | 已有靠垫、垃圾桶、衣服release的真实推理检查；新增强配置不代表已重训这些模型 |
+| ImageWAM joint47 v2 | 44，另有当前root与时钟 / 47 / H40、执行16 | 训练、损失、配对数据与SONIC离线导出检查；尚无该配方已训练权重 |
+| GR00T默认stock SONIC | 46 / 78 / H40 | 原生接口；须匹配SONIC checkpoint，不能将通用基座当已训练SONIC策略 |
+| GR00T自有feedback76 | 44 / 76 / H16 | 独立NEW_EMBODIMENT数据映射与训练配方；尚未验证此统一入口的匹配完整任务checkpoint |
+| π₀.₅ | LIBERO 8 / 7 / H10 | Gaussian与JAX LoRA Δ-flow；未适配G1的44/76，R1Lite Torch发布runtime另保留 |
+| Fast-WAM | LIBERO 8 / 7或RoboTwin 14 / 14，H32 | 原生Gaussian FM；没有G1/SONIC76、A2A或IC实现，也没有真实GPU推理检查 |
+| Psi-Zero无颈部 | 43 / 78 / 默认H30 | 原生手部14D，没有neck/gravity；元数据与权重header已核对，未适配ImageWAM的44/76 |
+| DiT4DiT | 按checkpoint编码、归一化和padding；原生G1配置action32或36、state64 | 原生入口与CPU接口；没有我们SONIC76的训练/控制映射或真实GPU检查 |
+
+GR00T stock的手部state是实测7+7，动作手部是teleop指令7+7；feedback76采用实测Inspire6+6。
+这两套G1配方、π₀.₅ LIBERO配方与Fast-WAM上述配方没有追加29维身体关节速度或neck输入。
+这不是对任意上游embodiment/checkpoint的通用断言。
+Fast-WAM保留官方把当前state编码进text context的行为，视觉与动作都可使用它；
+ImageWAM Δ-flow的state仅进动作分支是其独立实现约束。
+同样，augmentation v3目前接在ImageWAM的全身训练数据集上，
+其他policy保留各自原生增强，不会因加入registry而自动应用同一组概率。
+
+2026-11-10的入口审计补充了两项拒绝检查。π₀.₅ Δ-flow只接受JAX `params/`目录，
+拒绝会触发原生Torch优先加载的混合`model.safetensors`目录；Fast-WAM训练入口拒绝
+不支持的method和顶层推理profile/维度字段，避免用户以为训练选项生效。
+对应接口测试不代表新增G1数据映射、训练模型或真机成功率。
+本轮原生CPU环境的178项policy测试及129个subtest全部通过，无skip。
+其中GR00T、π₀.₅和Fast-WAM的40项接口检查及50个subtest通过；
+这些边界检查使用合成/注入模型。已有真实模型检查仍以各policy的运行验证记录为准。
+
 ## 安装和检查
 
 ```bash

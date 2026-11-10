@@ -42,10 +42,17 @@ def validate_config(config: dict[str, Any], *, require_checkpoint: bool = True) 
             )
         if not (checkpoint / "assets").is_dir():
             raise FileNotFoundError("Checkpoint normalization assets/ are required")
-        if method == "delta_flow" and not (checkpoint / "params").exists():
-            raise ValueError(
-                "The maintained A2A patch supports JAX params checkpoints; not an arbitrary Torch release"
-            )
+        if method == "delta_flow":
+            if not (checkpoint / "params").is_dir():
+                raise ValueError(
+                    "The maintained A2A patch supports JAX params directories; not an arbitrary Torch release"
+                )
+            if (checkpoint / "model.safetensors").exists():
+                # Native OpenPI prioritizes this filename over params/. That
+                # route does not implement this maintained JAX A2A recipe.
+                raise ValueError(
+                    "Delta-flow needs a JAX-only checkpoint directory; model.safetensors would select the native Torch loader"
+                )
         config["checkpoint_dir"] = str(checkpoint.resolve())
     config.update(
         method=method, num_steps=steps, action_horizon=10, action_dim=7, schema=LIBERO_SCHEMA

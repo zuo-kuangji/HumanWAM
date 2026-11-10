@@ -31,6 +31,19 @@ def _overrides(values):
 
 def build_train_command(config, source_dir):
     root = _root(source_dir)
+    if config.get("method", "gaussian_fm") != "gaussian_fm":
+        raise ValueError(
+            "FastWAM training maintains native Gaussian FM; Delta-flow requires a separate audited implementation"
+        )
+    inference_fields = {"profile", "action_schema", "action_dim", "state_dim", "horizon"}
+    unsupported = sorted(inference_fields.intersection(config))
+    if unsupported:
+        raise ValueError(
+            "FastWAM training does not accept top-level inference settings: "
+            + ", ".join(unsupported)
+            + "; select a native task and explicit Hydra overrides instead. "
+            "Custom overrides do not establish a supported G1/SONIC training recipe."
+        )
     task = config.get("task", "libero_uncond_2cam224_1e-4")
     if not isinstance(task, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", task):
         raise ValueError("task must name a native configs/task YAML")

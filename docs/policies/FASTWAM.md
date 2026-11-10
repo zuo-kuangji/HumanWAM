@@ -156,6 +156,13 @@ initializer是从Wan video DiT线性插值并缩放得到的动作共享backbone
 `FASTWAM_TEXT_CACHE`。命令构建器保留上游cwd和配置层级，使用argv而非shell，
 默认拒绝覆盖已有非空output目录。只构建命令不申请GPU或启动训练。
 
+训练入口仅接受`method="gaussian_fm"`，其他方法明确报错。
+顶层`profile`、`action_schema`、`action_dim`、`state_dim`和`horizon`是推理配置字段，
+即使数值与原任务相符也不能放入训练options，以免被静默忽略。
+训练配方由`task`和原生Hydra `overrides`确定。自定义overrides仍会转交原生入口，
+但不因此获得新的受支持profile；变更动作/state维度或时间窗口，还需自己的数据映射、
+统计、初始化及对应验证。当前没有G1/SONIC76/state44训练配方。
+
 ## 本次验证边界
 
 已完成源码固定、公开HF metadata/两份小统计核验、CPU契约测试、真实Hydra配置compose

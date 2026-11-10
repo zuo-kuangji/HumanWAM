@@ -86,6 +86,37 @@ class AdapterTests(unittest.TestCase):
             p.predict(obs)
         self.assertEqual(self.factory.call_args.kwargs["sample_kwargs"], {"num_steps": 10})
 
+    def test_delta_rejects_mixed_torch_and_jax_release_before_native_import(self):
+        marker = self.root / "model.safetensors"
+        marker.write_bytes(b"not-loaded")
+        (self.root / "src/openpi/training").mkdir(parents=True)
+        (self.root / "src/openpi/training/config.py").touch()
+        with self.modules as importer:
+            with self.assertRaisesRegex(ValueError, "JAX-only"):
+                Pi05Policy(self.config)
+            with self.assertRaisesRegex(ValueError, "JAX-only"):
+                build_serve_command(dict(self.config, source_dir=str(self.root)))
+        importer.assert_not_called()
+        self.factory.assert_not_called()
+        self.assertEqual(marker.read_bytes(), b"not-loaded")
+
+    def test_delta_params_must_be_a_directory(self):
+        (self.root / "params").rmdir()
+        (self.root / "params").write_bytes(b"not-a-params-directory")
+        with self.assertRaisesRegex(ValueError, "JAX params directories"):
+            Pi05Policy(self.config)
+
+    def test_gaussian_native_checkpoint_format_selection_remains_available(self):
+        (self.root / "params").rmdir()
+        (self.root / "model.safetensors").write_bytes(b"native-format-marker")
+        self.training.model.a2a_enabled = False
+        observation = {key: value for key, value in self.obs.items()
+                       if key not in {"past_actions", "past_action_valid_mask"}}
+        with self.modules:
+            result = Pi05Policy(dict(self.config, method="gaussian", config_name="pi05_libero")).predict(observation)
+        self.assertEqual(result["actions"].shape, (10, 7))
+        self.factory.assert_called_once()
+
     def test_reject_wrong_method_and_sonic_dimensions(self):
         for changes in [
             dict(schema="sonic76"),
