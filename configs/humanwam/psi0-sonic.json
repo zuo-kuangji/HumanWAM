@@ -6,7 +6,10 @@
   "options": {
     "run_dir": "${PSI0_RUN_DIR}",
     "ckpt_step": 40000,
-    "raw_state_dim": 45,
+    "embodiment_profile": "g1_neckless43_action78",
+    "raw_state_dim": 43,
+    "action_dim": 78,
+    "horizon": 30,
     "action_schema": "psi0_sonic_native",
     "device": "cuda:0",
     "host": "127.0.0.1",

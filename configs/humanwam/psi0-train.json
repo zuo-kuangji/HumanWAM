@@ -4,6 +4,12 @@
   "source_dir": "${HUMANWAM_ROOT}/third_party/Psi0",
   "python": "${PSI0_PYTHON}",
   "options": {
+    "embodiment_profile": "g1_neckless43_action78",
+    "raw_state_dim": 43,
+    "action_dim": 78,
+    "horizon": 30,
+    "action_keys": ["action.body_token_v1_1", "action[:14]"],
+    "state_keys": ["observation.state"],
     "native_args_file": "${PSI0_NATIVE_ARGS}",
     "native_config": "finetune_sonic_psi0_config",
     "num_processes": 8

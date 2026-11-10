@@ -10,7 +10,7 @@
 | ImageWAM Δ-flow | FLUX.2 klein-base-4B、FLUX.2-dev AE、Qwen3-4B，生成基础模型派生的动作共享初始化 | 任务 MoT 权重、model config、统计、文本缓存，以及 factory 所需基础文件 | motion76默认预测16；joint47 v2历史16、预测40含前瞻尾、执行16。历史motion H40和joint v1必须使用各自协议 |
 | Fast-WAM | Wan2.2-TI2V-5B video DiT、原始VAE/T5及Wan tokenizer，生成动作共享backbone初始化 | 官方任务完整MoT`.pt`＋对应统计，另需VAE/T5/tokenizer | 官方HF revision `8eaceeb24c3cc92ff2a9c9a9d266a4941b836705`；LIBERO A7/S8/H32、RoboTwin A14/S14/H32，原生Gaussian FM |
 | DiT4DiT | Cosmos-Predict2.5-2B，原生 recipe 构造动作专家 | 任务 `.pt`、上级 run 目录的 `config.yaml` 与 `dataset_statistics.json`，另需 Cosmos pipeline | 官方 LIBERO checkpoint 为 A8 / state16 / H8。Cosmos 是 gated 模型，当前账号访问核验为 HTTP403 |
-| Ψ₀ / Psi Zero | 官方 human-video VLM，再用 SONIC VLM＋action expert 初始化微调 | 完整 run 目录、指定 step 的 safetensors、统计和 CLIP 缓存 | 公开完整 SONIC run 实际为 A80 / raw state45 / H30，不能套用本项目 76D 或旧 43D state |
+| Ψ₀ / Psi Zero | 官方 human-video VLM或SONIC VLM，动作Transformer按匹配维度初始化微调 | 与无颈部profile匹配的完整run、指定step的safetensors、统计和CLIP缓存 | 默认`g1_neckless43_action78`为原生state43/action78/H30，hands14且无gravity；历史带neck的45/80 run不能直接部署 |
 
 ## 使用前先区分三件事
 
@@ -107,17 +107,34 @@ hf download mondo-robotics/dit4dit-model --revision 46237aebd3df427fcfb6a8ddc5ba
 
 ## 5. Ψ₀ / Psi Zero
 
-官方 [Psi0](https://github.com/physical-superintelligence-lab/Psi0) 固定 commit `cda3fdfafe47cb6fa75400d013de1bd36e3cea05`，权重统一来自 [USC-PSI-Lab/psi-model](https://huggingface.co/USC-PSI-Lab/psi-model)，本次 metadata 固定 revision `74d7abaa61b51dfe4e95f539a83738c276ce27b2`。以下三者用途不同，按需要下载其中一组，保持其目录结构。
+官方 [Psi0](https://github.com/physical-superintelligence-lab/Psi0) 固定 commit `cda3fdfafe47cb6fa75400d013de1bd36e3cea05`，权重统一来自 [USC-PSI-Lab/psi-model](https://huggingface.co/USC-PSI-Lab/psi-model)，本次 metadata 固定 revision `74d7abaa61b51dfe4e95f539a83738c276ce27b2`。HumanWAM模板默认使用`g1_neckless43_action78`，即原生身体29D＋手部14D state，以及motion token64D＋手部14D action，不含neck或projected gravity。它不是ImageWAM的state44/action76，后者尚未做Psi0适配。
+
+以下两组用于预训练初始化，按需要下载，保持其目录结构。它们不等于已经完成当前无颈部任务训练的完整run。
 
 ```bash
 hf download USC-PSI-Lab/psi-model --revision 74d7abaa61b51dfe4e95f539a83738c276ce27b2 --include 'psi0/pre.fast.2605160748.ckpt.ego390k/*' --local-dir "$MODEL_ROOT/psi0"
 hf download USC-PSI-Lab/psi-model --revision 74d7abaa61b51dfe4e95f539a83738c276ce27b2 --include 'psi0/postpre.sonic1.1.unifolm.2609181726.40k/*' --local-dir "$MODEL_ROOT/psi0"
-hf download USC-PSI-Lab/psi-model --revision 74d7abaa61b51dfe4e95f539a83738c276ce27b2 --include 'psi0/sonic-checkpoints/multi-task.psi-dream.2609092156/*' --local-dir "$MODEL_ROOT/psi0"
 ```
 
-`pre.fast...` 是 human-video VLM，`model.safetensors` 约 4.26 GB，没有完整任务动作专家。`postpre.sonic...40k` 是已导出的 SONIC 初始化目录，VLM 文件约 8.53 GB，另有约 2.70 GB 的 `action_header.safetensors`。微调原生 `finetune_sonic_psi0_config` 时分别传 `--model.model_name_or_path=POST_DIR` 和 `--model.pretrained-action-header-path=POST_DIR`，无需把这个已导出目录再假装转换成 run checkpoint。
+`pre.fast...` 是 human-video VLM，`model.safetensors` 约 4.26 GB，没有完整任务动作专家。`postpre.sonic...40k` 是已导出的 SONIC 初始化目录，VLM 文件约 8.53 GB，另有约 2.70 GB 的 `action_header.safetensors`。微调原生 `finetune_sonic_psi0_config` 时分别传 `--model.model_name_or_path=POST_DIR` 和 `--model.pretrained-action-header-path=POST_DIR`，无需把这个已导出目录再假装转换成 run checkpoint。如果原action维度或chunk不匹配，原生训练器仅加载动作头`transformer_blocks`，相关投影新初始化；必须记录实际加载与新初始化的层，不能称为无缝resume或直接裁切旧权重。
 
-`multi-task.psi-dream.2609092156` 则是完整任务 run，部署指定 `checkpoints/ckpt_40000/model.safetensors`，约 11.22 GB，并保留 `argv.txt`、`run_config.json`、`dataset_statistics.json` 和 `clip_pooled_cache.pt`。真实 metadata 明确 A80 / raw state45 / H30，后两维 neck state 的统计非零，不能传 43D 再补零。adapter 将配置与实际 normalization 长度交叉检查，禁止无声丢失 state。
+部署当前无颈部profile时，`PSI0_RUN_DIR`必须是实际按state43/action78训练的完整任务run，并保留`argv.txt`、`run_config.json`、指定step的checkpoint、任务统计与文本缓存。只改模板或维度不产生可用的新权重。
+
+已核对的无颈部官方完整run为`sonic-wbcbox.neckle.flow1000.cosine.lr1.0e-04.b256.gpus8.2608260223`。
+可用下列命令准备默认示例，随后将`PSI0_RUN_DIR`设为下载出的完整run目录：
+
+```bash
+hf download USC-PSI-Lab/psi-model --revision 74d7abaa61b51dfe4e95f539a83738c276ce27b2 --include 'psi0/simple-checkpoints/sonic-wbcbox.neckle.flow1000.cosine.lr1.0e-04.b256.gpus8.2608260223/*' --local-dir "$MODEL_ROOT/psi0"
+export PSI0_RUN_DIR="$MODEL_ROOT/psi0/psi0/simple-checkpoints/sonic-wbcbox.neckle.flow1000.cosine.lr1.0e-04.b256.gpus8.2608260223"
+```
+
+它是官方carry-box任务示例，不是本项目其他任务的新训练权重。checkpoint40000为state43/action78/H30、observation horizon1，camera为`observation.images.egocentric`，resize/crop240×320，43/78维统计嵌入run配置；state保留原始字段顺序，动作按保存的repack顺序读取。远端权重声明为6,254,227,440字节，header中的state/action投影与H30位置参数尺寸也匹配，尚未下载整文件验证其哈希。详见[无颈部模型验证记录](policies/PSI0_NECKLESS_VALIDATION_20261110.md)。
+
+这是SONIC v1的`action.body_token`权重，不能当作v1.1的`action.body_token_v1_1`权重；相同64D宽度不代表token语义相同。其保存配置`model.rtc=false`，服务的`--rtc`只是test-time guidance，不是RTC训练记录。本次只核对metadata、header与加载路径，未进行该权重的GPU推理或真机验证。
+
+此前核对的`multi-task.psi-dream.2609092156`是带neck的历史完整run，约11.22GB，真实metadata为A80/raw state45/H30。它仅用于说明不兼容，不是当前模板的默认权重。不能裁切其权重/输出、补零state，或改配置后冒充43/78模型。adapter会交叉检查当前profile、run配置与实际normalization布局。
+
+新训练模板默认`action.body_token_v1_1 + action[:14]`、`observation.state`，并同时绑定model、repack、field的43/78维度和horizon。v1数据须显式改`options.action_keys`为`["action.body_token", "action[:14]"]`；已正确组装的78维`action`列可设`["action"]`。统计字段顺序必须同步，launcher拒绝受管参数冲突或重复。详见[Psi0训练参数](policies/PSI0.md#训练)。
 
 原生加载还用 `Qwen/Qwen3-VL-2B-Instruct` 的 AutoConfig/AutoProcessor，新 instruction 的 CLIP cache miss 也需要其原生文本编码器资产。分别准备原生所需缓存并记录版本，不可用 Qwen3-4B 或其他 policy 的 tokenizer 替代。原生部署入口为 `python -m psi.deploy.serve_psi0_sonic --policy psi --rtc --run-dir RUN --ckpt-step 40000`，详见 [Ψ₀ 文档](policies/PSI0.md) 与 [官方 SONIC 说明](https://github.com/physical-superintelligence-lab/Psi0/blob/cda3fdfafe47cb6fa75400d013de1bd36e3cea05/examples/psi0_for_sonic.md)。
 

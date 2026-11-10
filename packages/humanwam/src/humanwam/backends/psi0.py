@@ -9,10 +9,22 @@ from typing import Any
 
 UPSTREAM_COMMIT = "cda3fdfafe47cb6fa75400d013de1bd36e3cea05"
 ACTION_SPACE = "psi0_sonic_native"
+NECKLESS_PROFILE = "g1_neckless43_action78"
+NATIVE_PROFILE = "checkpoint_native"
 
 
 def validate_config(config: dict, *, checkpoint: bool = True) -> dict:
     config = dict(config)
+    profile = config.get("embodiment_profile", NECKLESS_PROFILE)
+    if not isinstance(profile, str) or profile not in {NECKLESS_PROFILE, NATIVE_PROFILE}:
+        raise ValueError("Unknown Psi-Zero embodiment_profile")
+    config["embodiment_profile"] = profile
+    if profile == NECKLESS_PROFILE:
+        for key, expected in (("raw_state_dim", 43), ("action_dim", 78)):
+            value = config.get(key, expected)
+            if type(value) is not int or value != expected:
+                raise ValueError("The neckless G1 profile requires state43/action78; not ImageWAM44/76 or neck45/80")
+            config[key] = expected
     if config.get("action_schema", ACTION_SPACE) != ACTION_SPACE:
         raise ValueError("Psi-Zero native SONIC actions are not ImageWAM feedback76")
     if checkpoint:
@@ -32,6 +44,23 @@ def validate_config(config: dict, *, checkpoint: bool = True) -> dict:
         for key in ("action_dim", "action_chunk_size", "odim"):
             if type(model.get(key)) is not int or model[key] < 1:
                 raise ValueError("Saved Psi-Zero model config lacks positive " + key)
+        if profile == NECKLESS_PROFILE:
+            if (model["odim"], model["action_dim"]) != (43, 78):
+                raise ValueError("The neckless G1 profile needs a trained state43/action78 checkpoint; neck45/action80 weights cannot be relabeled or cropped")
+            transforms = saved.get("data", {}).get("transform", {})
+            for section, keys in (("repack", ("action_keys", "state_keys")),
+                                  ("field", ("stat_action_keys", "stat_state_keys"))):
+                for key in keys:
+                    declared = transforms.get(section, {}).get(key, [])
+                    if not isinstance(declared, list) or any(not isinstance(v, str) for v in declared):
+                        raise ValueError("Checkpoint modality keys must be string lists")
+                    if any("neck" in value.lower() for value in declared):
+                        raise ValueError("The neckless G1 checkpoint cannot declare neck input or action channels")
+            field = transforms.get("field", {})
+            for key, width in (("state_min", 43), ("state_max", 43),
+                               ("action_min", 78), ("action_max", 78)):
+                if key in field and (not isinstance(field[key], list) or len(field[key]) != width):
+                    raise ValueError("Neckless checkpoint normalization must match state43/action78: " + key)
         for requested, key in (
             ("action_dim", "action_dim"),
             ("horizon", "action_chunk_size"),
@@ -66,6 +95,8 @@ def validate_config(config: dict, *, checkpoint: bool = True) -> dict:
     if type(steps) is not int or steps < 1:
         raise ValueError("num_inference_steps must be a positive exact integer")
     config["num_inference_steps"] = steps
+    if "horizon" in config and (type(config["horizon"]) is not int or config["horizon"] < 1):
+        raise ValueError("horizon must be a positive integer")
     return config
 
 
@@ -135,6 +166,8 @@ class Psi0Policy:
             self.config["horizon"],
         ):
             raise ValueError("Loaded native Psi-Zero dimensions differ from run_config.json")
+        if getattr(server.launch_cfg.model, "odim", None) != self.config["model_state_dim"]:
+            raise ValueError("Loaded native Psi-Zero state dimension differs from run_config.json")
         keys = list(server.launch_cfg.data.transform.repack.image_keys)
         if len(keys) != 1:
             raise ValueError(
@@ -183,6 +216,10 @@ class Psi0Policy:
         # Preserve exact native state normalization, checkpoint image transforms
         # and optional pooled text embeddings, with inference augmentation OFF.
         prepared = server._parse_obs_payload(message.serialize())
+        prepared_state = np.asarray(prepared["obs"])
+        if (prepared_state.shape != (1, 1, self.config["model_state_dim"])
+                or not np.isfinite(prepared_state).all()):
+            raise ValueError("Native preprocessed state shape/values differ from the checkpoint state dimension")
         normalized = np.asarray(
             self._inference(server, prepared, self.config["num_inference_steps"])
         )
@@ -199,6 +236,7 @@ class Psi0Policy:
             horizon=self.config["horizon"],
             native=dict(
                 action_dim=self.config["action_dim"],
+                embodiment_profile=self.config["embodiment_profile"],
                 raw_state_dim=self.config["raw_state_dim"],
                 checkpoint_step=self.config["ckpt_step"],
                 upstream_commit=UPSTREAM_COMMIT,
