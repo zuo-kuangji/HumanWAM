@@ -1,0 +1,14 @@
+# Training queue (user plan 2026-11-10): per task pi0.5 then Psi-Zero; 100 episodes each, 20 epochs, save at 10/20,
+# max per-GPU batch (probed), CLAUDE.md augmentation v2. Basket postponed. Later: DiT4DiT, then Delta Flow 40 epochs.
+pi05 b6
+psi0 b6
+pi05 a3
+psi0 a3
+pi05 a7
+psi0 a7
+pi05 a18
+psi0 a18
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_b6.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a3.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a7.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a18.sh
