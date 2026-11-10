@@ -25,7 +25,7 @@ from imagewam.models.backbones.imagewam import ImageWAM
 
 
 CHECKPOINT_FORMAT = "wholebody_inspire76_p25_flux2_b6chunk16_v1"
-SCHEMA_ID = "wholebody.inspire_action76.state73.p25.b6chunk16.v1"
+SCHEMA_ID = "wholebody.inspire_action76.state44.p25.b6chunk16.v1"
 NORMALIZATION_STRATEGY = "fit_wholebody_motion64_body29_gravity3_fixed_inspire_hands"
 IMAGE_RESIDUAL_SCALE = 1.0 / math.sqrt(3.0)
 UPSTREAM_SHA256 = {
@@ -77,7 +77,7 @@ _CURRENT_ACTION_STATE: ContextVar[_ActionStateScope | None] = ContextVar(
 
 
 class StateOnlyActionDiTFlux2(ActionDiTFlux2):
-    """One registered Linear(73, hidden), without a reference to the parent."""
+    """One registered Linear(44, hidden), without a reference to the parent."""
 
     def pre_dit(self, action_tokens, timestep, context=None, context_mask=None):
         scope = _CURRENT_ACTION_STATE.get()
@@ -107,10 +107,10 @@ class StateOnlyDeltaImageWAM(ImageWAM):
                 and self.mot.mixtures["action"] is self.action_expert
                 and self.mot.mixtures["video"] is self.video_expert and self.dit is self.mot,
                 "The conditioned action expert must be registered inside the optimized/saved MoT")
-        require(self.action_state_dim == 73 and self.action_expert.action_state_dim == 73
+        require(self.action_state_dim == 44 and self.action_expert.action_state_dim == 44
                 and self.action_expert.action_dim == 76 and self.expected_action_horizon == 16,
-                "Whole-body policy requires action76/current-state73/horizon16")
-        require(self.action_expert.state_encoder.in_features == 73
+                "Whole-body policy requires action76/current-state44/horizon16")
+        require(self.action_expert.state_encoder.in_features == 44
                 and self.action_expert.state_encoder.out_features == self.action_expert.hidden_dim,
                 "Wrong action-side state projection")
         require(self.action_expert.max_action_horizon >= 16, "Action expert horizon is shorter than forty")
@@ -138,7 +138,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
 
     def state_only_protocol(self):
         return {"format": CHECKPOINT_FORMAT, "schema_id": self.state_only_schema_id,
-                "action_dim": 76, "current_state_dim": 73, "action_horizon": 16,
+                "action_dim": 76, "current_state_dim": 44, "action_horizon": 16,
                 "input_size": [224, 448], "state_source": "measured_current_normalized",
                 "state_index": 0, "visual_state_route": "none", "text_state_route": "none",
                 "action_state_route": "additive_hidden_linear", "detach_measured_state": True,
@@ -181,8 +181,8 @@ class StateOnlyDeltaImageWAM(ImageWAM):
             value = value[:, 0, :]
         elif inference and value.ndim == 1:
             value = value.unsqueeze(0)
-        require(value.ndim == 2 and value.shape[-1] == 73 and value.shape[0] > 0,
-                "State must be current [B,73]; training may supply [B,T,73], inference never a future sequence")
+        require(value.ndim == 2 and value.shape[-1] == 44 and value.shape[0] > 0,
+                "State must be current [B,44]; training may supply [B,T,44], inference never a future sequence")
         if inference:
             require(value.shape[0] == 1, "Native FLUX.2 action inference uses one observation at a time")
         require(bool(torch.isfinite(value).all()), "Current state contains NaN/Inf")
@@ -411,7 +411,7 @@ class StateOnlyDeltaImageWAM(ImageWAM):
         return payload
 
 
-def adopt_state_only_delta(model, *, action_state_dim=73, expected_action_dim=76,
+def adopt_state_only_delta(model, *, action_state_dim=44, expected_action_dim=76,
                            expected_action_horizon=16, state_only_init_seed=42,
                            state_only_schema_id=SCHEMA_ID):
     """Register only new input/output/state projections in an initialized MoT."""
@@ -419,13 +419,13 @@ def adopt_state_only_delta(model, *, action_state_dim=73, expected_action_dim=76
             "Only the unchanged native ImageWAM and ActionDiTFlux2 can be adopted")
     require(model.proprio_encoder is None and model.proprio_dim is None and not model.pack_proprio_after_text,
             "The base factory must construct a state-free visual branch from the start")
-    require((int(action_state_dim), int(expected_action_dim), int(expected_action_horizon)) == (73, 76, 16),
-            "This task fixes action76/state73/horizon16")
+    require((int(action_state_dim), int(expected_action_dim), int(expected_action_horizon)) == (44, 76, 16),
+            "This task fixes action76/state44/horizon16")
     require(model.action_expert.action_dim == 76, "Configure the native action expert for76 dimensions before adoption")
     parameter = next(model.action_expert.parameters())
     model.__class__ = StateOnlyDeltaImageWAM
     model.action_expert.__class__ = StateOnlyActionDiTFlux2
-    model.action_state_dim = model.action_expert.action_state_dim = 73
+    model.action_state_dim = model.action_expert.action_state_dim = 44
     model.expected_action_horizon = 16
     model.state_only_schema_id = str(state_only_schema_id)
     model.state_only_init_seed = int(state_only_init_seed)
@@ -436,7 +436,7 @@ def adopt_state_only_delta(model, *, action_state_dim=73, expected_action_dim=76
         torch.random.default_generator.manual_seed(int(state_only_init_seed))
         model.action_expert.action_encoder = nn.Linear(76, hidden)
         model.action_expert.head.linear = nn.Linear(hidden, 76, bias=False)
-        model.action_expert.state_encoder = nn.Linear(73, hidden)
+        model.action_expert.state_encoder = nn.Linear(44, hidden)
         # The canonical FLUX.2 partial initializer has no output modulation.
         # Initialize it explicitly, not from the base factory's incidental RNG
         # stream. Complete7D/14D initializers overwrite it with their shared key.
@@ -503,8 +503,8 @@ def load_compatible_action_initializer(model, path, *, expected_sha256):
     require(all(isinstance(key, str) for key in state), "Initializer contains a non-string tensor key")
     require({key.split(".", 1)[0] for key in state} <= allowed,
             "Base initializer contains a non-shared/task-specific tensor")
-    require(model.action_expert.action_dim == 76 and model.action_expert.action_state_dim == 73
-            and model.state_only_init_seed == 42, "Expected the freshly seeded action76/state73 expert")
+    require(model.action_expert.action_dim == 76 and model.action_expert.action_state_dim == 44
+            and model.state_only_init_seed == 42, "Expected the freshly seeded action76/state44 expert")
     expected = model.action_expert.state_dict()
     require(set(expected) - set(state) == set(PARTIAL_NEW_ACTION_KEYS)
             and not set(state) - set(expected),
@@ -540,7 +540,7 @@ def load_compatible_action_initializer(model, path, *, expected_sha256):
         "source": str(source), "source_sha256": actual_sha256,
         "expected_sha256": expected_sha256,
         "source_format": "flux2_shared_partial_initializer_v1", "source_action_dim": None,
-        "target_action_dim": 76, "current_state_dim": 73,
+        "target_action_dim": 76, "current_state_dim": 44,
         "retained_keys": sorted(state), "retained_tensor_count": 114,
         "ignored_source_projections": [], "newly_initialized": sorted(PARTIAL_NEW_ACTION_KEYS),
         "new_parameter_shapes": {key: list(actual[key].shape) for key in sorted(PARTIAL_NEW_ACTION_KEYS)},
@@ -556,7 +556,7 @@ def load_compatible_action_initializer(model, path, *, expected_sha256):
     return audit
 
 
-def create_imagewam_flux2_wholebody_delta(*, action_initializer_sha256, action_state_dim=73, expected_action_dim=76,
+def create_imagewam_flux2_wholebody_delta(*, action_initializer_sha256, action_state_dim=44, expected_action_dim=76,
         expected_action_horizon=16, state_only_init_seed=42,
         state_only_schema_id=SCHEMA_ID, **kwargs):
     """Fresh FLUX.2 base video + base-derived shared action layers, no parent task."""
@@ -574,7 +574,7 @@ def create_imagewam_flux2_wholebody_delta(*, action_initializer_sha256, action_s
     require(kwargs.get("variant") == "klein-base-4b", "Use the FLUX.2-klein-base-4B base variant")
     require(Path(str(kwargs.get("flux2_model_path"))).name == "flux-2-klein-base-4b.safetensors",
             "Initialize video from the FLUX.2 base safetensors, not a trained task checkpoint")
-    require(kwargs.get("proprio_dim") in (None, 73), "proprio_dim must represent the real73D current state")
+    require(kwargs.get("proprio_dim") in (None, 44), "proprio_dim must represent the real44D current state")
     require(not bool(kwargs.get("pack_proprio_after_text", False)), "State text-packing must be disabled")
     require(not bool(kwargs.get("zero_init_action_head", False)) and float(kwargs.get("action_head_init_scale", 1.0)) == 1.0,
             "New whole-body output head must use its recorded nonzero initialization")

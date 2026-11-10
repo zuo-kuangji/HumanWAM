@@ -11,9 +11,11 @@ One training sample = exactly the dict the native LeRobotMixtureDataset.__getite
                Resize: 480x640 -> 224x224 bilinear (F.interpolate, align_corners=False, no antialias, = native
                _to_img_tensor), done once in dit4dit_prepare.py and cached as uint8.
   lang         str (meta/tasks.jsonl)
-  state        float16 [1, S_enc]: encoded state of row t (native observation_indices [0]).
-               Encoding (native G1 recipe UnitreeG1DataConfig: StateActionSinCosTransform on joint states, no state
-               normalisation): joint angles -> [sin | cos]; non-angle dims (hands, gravity) -> native min_max to [-1, 1].
+  state        float16 [1, S]: state of row t (native observation_indices [0]), S = raw dims = G1 44 / H2 78.
+               Every dim -> native min_max to [-1, 1] (StateActionTransform 'min_max'). No sin/cos expansion and no
+               joint velocity: user rule 2026-11-10, every model gets exactly the 44 (G1) / 78 (H2) state dims of HF
+               humanoid-benchmark/b6-imagewam-deltaflow76 real30-from-sim60-20261108. (The native G1 recipe
+               UnitreeG1DataConfig applied StateActionSinCosTransform, which would give 73 / 109 dims - not used.)
   action       float16 [16, A]: rows t..t+15 (clamped to the episode's last row = native "first_last" padding),
                native min_max normalisation per dim to [-1, 1] (constant dims -> 0), statistics of the training view.
   action_mask  bool [16, A] all True;  state_mask bool [1, S_enc] all True  (no padding: max dims = real dims)
@@ -24,7 +26,7 @@ Augmentation (training only, CLAUDE.md v2):
   proprio  p=0.15 the whole state is taken from 1-2 control periods earlier (round(k*fps/control_hz) rows, not before
            the episode start); then the n_body joints (g1 29 body, h2 31 = body + head) get a per-trajectory bias
            U(+-2 deg) drawn from (HB_AUG_SEED, loader pass, episode) and per-sample N(0, 0.25 deg) noise clipped at
-           3 sigma, BEFORE the sin/cos encoding. History drop / joint velocity: DiT4DiT has neither input.
+           3 sigma, BEFORE the min_max normalisation. History drop / joint velocity: DiT4DiT has neither input.
   Labels (actions) and statistics always use the raw values.
 The loader pass reaches the workers through the index: HBLoader yields i + pass * N.
 """
@@ -71,14 +73,18 @@ class Layout:
         return sum((2 if k == "sincos" else 1) * (b - a) for k, a, b in self.segments)
 
 
+STATE_DIMS = {"g1": 44, "h2": 78}  # user rule 2026-11-10: model state input == these raw dims, no velocity, no sin/cos
 LAYOUTS = {
-    "g1": Layout("g1", 44, 76, ("ego_view", "chest"), 29, (("sincos", 0, 29), ("minmax", 29, 44)),
+    "g1": Layout("g1", 44, 76, ("ego_view", "chest"), 29, (("minmax", 0, 44),),
                  "body29(observation.state by name) | inspire_left6 | inspire_right6 | projected_gravity3",
                  "action.motion_token64 | inspire_left6 | inspire_right6 (same-row measured hands)"),
-    "h2": Layout("h2", 78, 75, ("head", "chest"), 31, (("sincos", 0, 31), ("minmax", 31, 78)),
+    "h2": Layout("h2", 78, 75, ("head", "chest"), 31, (("minmax", 0, 78),),
                  "observation.state75 (legs12|waist3|arms14|head2|hands44) | projected_gravity3",
                  "action.body_target31 | action.hands44"),
 }
+for _k, _L in LAYOUTS.items():
+    assert _L.raw_state_dim == _L.state_dim == STATE_DIMS[_k] and all(s[0] == "minmax" for s in _L.segments), (
+        f"{_k}: model state must be the raw {STATE_DIMS[_k]} dims (no sin/cos, no velocity)")
 G1_BODY = ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint",
            "left_ankle_roll_joint", "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
            "right_knee_joint", "right_ankle_pitch_joint", "right_ankle_roll_joint", "waist_yaw_joint", "waist_roll_joint",
@@ -156,7 +162,7 @@ def encode_state(raw, layout: Layout, smin, smax):
         else:
             parts.append(minmax(x, np.asarray(smin)[a:b], np.asarray(smax)[a:b]))
     out = np.concatenate(parts, axis=-1)
-    assert out.shape[-1] == layout.state_dim, (out.shape, layout.state_dim)
+    assert out.shape[-1] == layout.state_dim == STATE_DIMS[layout.name], (out.shape, layout.state_dim)
     return out
 
 

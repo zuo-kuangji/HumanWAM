@@ -45,6 +45,9 @@ probe() {  # master only; local 8-GPU DeepSpeed run, real model + data, no check
     echo "$(date -u) probe $lay ($t) per_gpu_batch=$b"
     test -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" || abort "GPU busy before probe"
     ( unset RANK WORLD_SIZE LOCAL_RANK GROUP_RANK ROLE_RANK LOCAL_WORLD_SIZE MASTER_ADDR MASTER_PORT
+      # DLC also sets PET_NNODES=4 / PET_NODE_RANK / PET_MASTER_* ...; torch.distributed.run takes PET_* as argument
+      # defaults, so a single-node probe would wait for 4 machines (2026-11-10: "1/4 clients joined" after 900 s).
+      unset $(compgen -e | grep -E '^PET_') NPROC_PER_NODE WORLD_SIZE_WITH_STANDBY TORCHELASTIC_RUN_ID
       export CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 OMP_NUM_THREADS=4 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
       export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 NCCL_DEBUG=WARN
       "$HB_ENV/bin/python" "$H/hb_d4d_config.py" launch-files --task "$t" --batch "$b" --world 8 --machines 1 --out "$lf"

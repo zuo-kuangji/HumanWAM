@@ -15,6 +15,9 @@ exec > >(tee -a "$OUT/logs/train-node-$NODE.log") 2>&1
 date -u; hostname; echo "task=$TASK bs=$BS port=$PORT out=$OUT node=$NODE master=$MASTER"
 test -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" || { echo GPU_NODE_BUSY; exit 65; }
 unset RANK WORLD_SIZE LOCAL_RANK GROUP_RANK ROLE_RANK LOCAL_WORLD_SIZE MASTER_ADDR MASTER_PORT
+# DLC PET_* (PET_NNODES, PET_NODE_RANK, PET_MASTER_ADDR/PORT, PET_NPROC_PER_NODE ...) are torch.distributed.run argument
+# defaults; the explicit accelerate arguments below must be the only source of the rendezvous settings.
+unset $(compgen -e | grep -E '^PET_') NPROC_PER_NODE WORLD_SIZE_WITH_STANDBY TORCHELASTIC_RUN_ID
 export NCCL_SOCKET_IFNAME=eth GLOO_SOCKET_IFNAME=eth0 NCCL_DEBUG=WARN CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7
 export OMP_NUM_THREADS=4 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HB_AUG_LOG="$OUT/logs/aug-node$NODE"

@@ -36,6 +36,10 @@ OLD_B6 = P / 'b6-v5t7-ready-start-60ep-20261109'
 OLD_A = P / 'a3-a7-20261109'
 SRC_CODE = OLD_B6 / 'HumanWAM'
 AUG_SRC = G / 'hb_groot' / 'hb_aug_v2.py'
+# The B6 60-epoch copy's wholebody_delta.py hard-codes the 73-D (44 + 29 joint velocity) state; the 44-D reference run
+# real30-from-sim60-20261108 (HF humanoid-benchmark/b6-imagewam-deltaflow76) used the same file with 44 instead.
+REF_DELTA = P / 'real30-from-sim60-20261108' / 'HumanWAM' / 'src/imagewam/wholebody_delta.py'
+REF_DELTA_SHA256 = '523244263496679f7046035f5df3d34590b7086e25173938d8a175dad963b9f3'
 ROOT = G / 'deltaflow-runs'
 CODE = ROOT / 'HumanWAM'
 
@@ -127,6 +131,8 @@ def build_code():
             raise SystemExit(f'Source code differs from the reviewed copy: {SRC_CODE / rel}')
     if sha(AUG_SRC) != AUG_SHA256:
         raise SystemExit(f'{AUG_SRC} differs from the reviewed hb_aug_v2 ({AUG_SHA256[:12]})')
+    if sha(REF_DELTA) != REF_DELTA_SHA256:
+        raise SystemExit(f'{REF_DELTA} differs from the reviewed state44 reference ({REF_DELTA_SHA256[:12]})')
     ROOT.mkdir(parents=True, exist_ok=True)
     tmp = ROOT / f'.HumanWAM.tmp{os.getpid()}'
     shutil.copytree(SRC_CODE, tmp, symlinks=True, ignore=shutil.ignore_patterns('__pycache__', '*.pyc'))
@@ -141,7 +147,8 @@ def build_code():
     loader.write_text(text, encoding='utf-8')
     added = {'src/imagewam/datasets/hb_aug_v2.py': AUG_SRC,
              'src/imagewam/datasets/wholebody_hbaug.py': H / 'wholebody_hbaug.py',
-             'scripts/wholebody/train_deltaflow.py': H / 'train_deltaflow.py'}
+             'scripts/wholebody/train_deltaflow.py': H / 'train_deltaflow.py',
+             'src/imagewam/wholebody_delta.py': REF_DELTA}
     for rel, source in added.items():
         shutil.copyfile(source, tmp / rel)
     files = ['src/imagewam/datasets/wholebody.py', *added, *[k for k in SOURCE_SHA256 if k != 'src/imagewam/datasets/wholebody.py']]
@@ -151,7 +158,9 @@ def build_code():
                  'hb_aug_v2.py: unchanged copy of the shared spec-v2 implementation',
                  'wholebody_hbaug.py: WholeBodyHBAugV2LeRobotDataset(WholeBodyRobustLeRobotDataset), visual aug -> '
                  'hb_aug_v2, 44-D proprio, NO joint velocity (wholebody_velocity.py stays in the tree, unused)',
-                 'train_deltaflow.py: 40-epoch entry, full state at every save, --resume'],
+                 'train_deltaflow.py: 40-epoch entry, full state at every save, --resume',
+                 'wholebody_delta.py: the state44 copy of real30-from-sim60-20261108 (the B6 60-epoch copy hard-codes '
+                 'the 73-D velocity state)'],
         sha256={rel: sha(tmp / rel) for rel in files}))
     tmp.rename(CODE)
     log('code copy built:', CODE)

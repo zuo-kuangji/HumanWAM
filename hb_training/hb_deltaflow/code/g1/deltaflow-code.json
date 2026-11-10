@@ -6,7 +6,8 @@
     "wholebody.py: train exactly episodes 0-99 (\"first_100\"), later episodes shelved",
     "hb_aug_v2.py: unchanged copy of the shared spec-v2 implementation",
     "wholebody_hbaug.py: WholeBodyHBAugV2LeRobotDataset(WholeBodyRobustLeRobotDataset), visual aug -> hb_aug_v2, 44-D proprio, NO joint velocity (wholebody_velocity.py stays in the tree, unused)",
-    "train_deltaflow.py: 40-epoch entry, full state at every save, --resume"
+    "train_deltaflow.py: 40-epoch entry, full state at every save, --resume",
+    "2026-11-10 17:55: wholebody_delta.py replaced by the state44 copy of real30-from-sim60-20261108 (the B6 60-epoch copy hard-codes the 73-D velocity state; DF b6/a3 failed at model build)"
   ],
   "sha256": {
     "src/imagewam/datasets/wholebody.py": "ac789e8da0d85beef3b33fe60d082642ec1efbaedf1cd317013231848204803d",
@@ -18,7 +19,7 @@
     "src/imagewam/datasets/wholebody_augmented.py": "641bb399f54206fe1c923c4b24fd1b9797787616154915523f10a9480daf7da3",
     "src/imagewam/trainer.py": "cdcd48e09d1d7b81cae3a829bd415ed4b53ff1b290aacac1ce2217876f475b1a",
     "src/imagewam/runtime.py": "3ebc45f61b0c22fb659012a7d76bea671a42e1e528b5c917ae1e8827e88b890b",
-    "src/imagewam/wholebody_delta.py": "20135b5a6cc0378c76d3eb8d958cbc4c3aeb773909b1453081f4fcd6238d36ea",
+    "src/imagewam/wholebody_delta.py": "523244263496679f7046035f5df3d34590b7086e25173938d8a175dad963b9f3",
     "scripts/wholebody/train_a3a7.py": "2cf154f91de516f96da9b93f4b8e235fab13344461b2aeb5d048e4f78a63dec8",
     "scripts/accelerate_configs/accelerate_zero1_ds.yaml": "5b9e24f38c199fdff6bbd17981d86e2624f855f707660094c99f711efc8e0833"
   }

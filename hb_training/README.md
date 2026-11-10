@@ -34,6 +34,7 @@
   - 续训状态（优化器、调度器、RNG）只保留最新一个 checkpoint 的。
 - **Delta Flow**：训 40 个 epoch。
 - **本体输入不含关节速度**（2026-11-10 用户规定，适用于所有模型和以后所有训练）：G1 为 44 维（29 关节 + 12 双手 + 3 重力），H2 为 78 维（75 关节 + 3 重力）。Delta Flow 以 HF `humanoid-benchmark/b6-imagewam-deltaflow76` 的 `real30-from-sim60-20261108` 为准（proprio_dim 44、velocity_channels 为空）。
+- **本体维度对齐**（2026-11-10 用户规定）：所有模型送进网络的 state 都正好是 G1 44 维 / H2 78 维，只做逐维归一化。DiT4DiT 不用原生 G1 配方的 sin/cos 展开（那样会变成 73 / 109 维），改为 44 / 78 维逐维 min_max；Delta Flow G1 的 `wholebody_delta.py` 换成参照版本 real30-from-sim60-20261108 的 state44 副本（B6 60 轮那份代码把 73 写死了）。batch 不同不重训，维度不对齐必须改。
 - **batch**：每个模型都用显存允许的最大每卡 batch，峰值显存不超过 92%。GR00T 从 320 往下试（输出在 `groot-runs-bmax/`），DiT4DiT 从 64 往下试。
 - **数据增强**：统一用 Humanoid Benchmark 数据增强规范 v2，各模型原生的图像增强全部关闭。
   - 实现：`hb_groot/hb_aug_v2.py`（`hb_pi05` 里有一份相同的拷贝）；

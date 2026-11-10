@@ -30,6 +30,8 @@ CODE_H2 = G / 'deltaflow-runs' / 'HumanWAM-h2'
 ROOT = G / 'deltaflow-runs'
 CONTROL_HZ = {'b6': 50, 'a3': 30, 'a7': 30}
 TOTAL_EPISODES = {'b6': 149, 'a3': 100, 'a7': 100}
+# src/imagewam/wholebody_delta.py of the 44-D reference run $P/real30-from-sim60-20261108/HumanWAM
+REF_DELTA_SHA256 = '523244263496679f7046035f5df3d34590b7086e25173938d8a175dad963b9f3'
 FAILURES = []
 
 
@@ -206,6 +208,18 @@ def check_task(task, A, samples):
           'model 44-D state (no velocity) / 76-D action, as reference real30-from-sim60-20261108')
     check(d['_target_'].endswith('WholeBodyHBAugV2LeRobotDataset') and not d['proprio_augmentation'].get('velocity_channels'),
           'loader = WholeBodyRobust-based HB aug v2, velocity_channels empty')
+    # the model factory itself (2026-11-10: config + data said 44 but the factory of the B6 60-epoch copy required 73)
+    import hashlib
+    import inspect
+    import re
+    import imagewam.wholebody_delta as model_module
+    src = Path(model_module.__file__).read_bytes()
+    sig = inspect.signature(model_module.create_imagewam_flux2_wholebody_delta)
+    check(cfg['model']['_target_'] == 'imagewam.wholebody_delta.create_imagewam_flux2_wholebody_delta'
+          and sig.parameters['action_state_dim'].default == 44 and 'state44' in model_module.SCHEMA_ID
+          and b'(None, 44)' in src and re.search(rb'\b73\b', src) is None
+          and hashlib.sha256(src).hexdigest() == REF_DELTA_SHA256,
+          'model factory wholebody_delta.py = state44 copy of real30-from-sim60-20261108 (no 73 anywhere)')
 
     dataset = instantiate(OmegaConf.load(R / 'run/production.yaml').data.train)
     check(len(dataset) == frames and list(dataset.episode_ids) == train, f'dataset = episodes 0-99, {len(dataset)} samples')
