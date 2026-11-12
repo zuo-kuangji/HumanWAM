@@ -1,11 +1,30 @@
 # 2026-11-10 user: GR00T and pi0.5 retrained with global batch 696 (87 x 8 GPUs), one node per job; B6 first for both models, then longest first
+# 2026-11-10 22:05 user: queue order always by model priority GR00T > pi0.5 > Psi-Zero > ACT > Delta Flow -> all GR00T jobs before the pi0.5 jobs
 j01 pi05 b6 87
 j02 groot b6 87
 j03 pi05 a18 87
 j04 pi05 trolley 87
-j05 pi05 a7 87
-j06 pi05 a3 87
 j07 groot a18 87
 j08 groot trolley 87
 j09 groot a7 87
 j10 groot a3 87
+j11 groot basket 87
+j12 groot a17 87
+# 2026-11-11 00:40: pi0.5 jobs longest first (a17 13 h on one node) so the pool tail is shortest
+j14 pi05 a17 87
+j13 pi05 basket 87
+j05 pi05 a7 87
+j06 pi05 a3 87
+# 2026-11-11 user: nodes the pool leaves idle run ACT, global batch 696 (87 x 8), one node per job, every task; GPU trial
+# first inside each job. Written as "groot act:<task>": groot_single.sh dispatches them to hb_act/act_single.sh.
+j15 groot act:b6 87
+j16 groot act:a17 87
+j17 groot act:a18 87
+j18 groot act:trolley 87
+j19 groot act:basket 87
+j20 groot act:a7 87
+j21 groot act:a3 87
+# 2026-11-11 15:30: fill the pool tail (one node idle ~16:17-17:33): Psi-Zero batch probes ahead of the 4-node runs
+j22 groot psi0probe:trolley 0
+j23 groot psi0probe:basket 0
+j24 groot psi0probe:a17 0

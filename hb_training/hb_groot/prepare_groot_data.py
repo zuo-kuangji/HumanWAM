@@ -16,13 +16,18 @@ P = G.parent
 OUT = G / "groot-data"
 TASKS = {
     "b6": (P / "b6-v5t7-ready-start-60ep-20261109/data/deliveries/g1/b6-v5t7-ready-start-20261109", 100),
-    "basket": (P / "g1-basket-transfer-ed77719-40epochs/dataset", None),
+    "basket": (P / "basket-current-dynamics-100-v21-b0ff522/data", None),  # HF basket-transfer-expert-v1 @current-dynamics-100-v21 b0ff522 (old ed77719 retired)
     "trolley": (P / "trolley-push-expert-v1-20261110/data/trolley_push", 100),  # HF trolley-push-expert-v1 @ef9024a: fixed first 100 of 103
+    "b7": (P / "b7-black-clothes-hamper-v1-1bb002a/data", 100),  # HF b7-black-clothes-hamper-expert-v1 @1bb002a, first 100 of 107
+    "a6": (P / "a6-door-pull-v1-cf3ee9b/data/door_pull", None),  # HF door-pull-expert-v1 @cf3ee9b (A6)
+    "c6t": (P / "c6-test8-06c231d/data", None),  # c6 8-episode adaptation test only
+    "c6": (P / "c6-bathroom-door-fetch-v1-3afba69/data", None),  # HF c6-bathroom-door-fetch-expert-v1 @3afba69 (C6)
     "a3": (P / "a3-a7-20261109/a3-fridge-open-expert-v1/780fcf1e4bd7db947a8c2d8f7b92e61f24f71b45", None),
     "a7": (P / "a3-a7-20261109/a7-cabinet-close-expert-v1/1935a98e8f55d4d1d2d1615ddb97c2679713595c", None),
     "a18": (P / "a18-h2-dataset-audit-8e956a10/dataset", None),
+    "a17": (P / "a17-unscrew-bottle-v1-407e6e2/data", None),  # HF a17-unscrew-bottle-expert-v1 @407e6e2
 }
-CONFIG = {"a18": "h2_body31_hand44_h16.py"}
+CONFIG = {"a18": "h2_body31_hand44_h16.py", "a17": "h2_body31_hand44_h16.py"}
 H2_GROUPS = {"left_leg": (0, 6), "right_leg": (6, 12), "waist": (12, 15), "left_arm": (15, 22), "right_arm": (22, 29),
              "head": (29, 31), "left_hand": (31, 53), "right_hand": (53, 75)}
 

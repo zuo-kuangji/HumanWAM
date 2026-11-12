@@ -43,18 +43,56 @@ cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/pre
 pi05 trolley
 # 2026-11-10 21:55 user: GR00T + pi0.5 retrain on all 5 tasks, global batch 696 (87 x 8), ONE node per job, 4 jobs in parallel (task pool b696, B6 first); old 4-node pi0.5 trolley (bs 96) stopped
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_pool_b696.sh
+# 2026-11-11 user: B7 by model priority (GR00T + pi0.5 before every Psi-Zero item); waits until stage 1 is ready
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b7/b7_s1_wait.sh
 psi0 trolley
-# 2026-11-10 user: ACT after the trolley trio (max per-GPU batch like the other unchanged models)
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_b6.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_a3.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_a7.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_a18.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_trolley.sh
+# 2026-11-11 18:30 user: pi0.5 B7 (nodes 0-2, 3x8x29=696) in parallel with ACT B7 (node 3, 8x87=696); stage 1 failed at 17:49
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b7/b7_s1b.sh
+# 2026-11-11 20:27 user: batch 512 for every not-yet-started GR00T/pi0.5/Psi-Zero run; Psi-Zero two tasks in parallel on 2 nodes each
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/b512_stage.sh
+# 2026-11-12 user: batch GR00T/pi0.5/DF 256, Psi-Zero 512; A6 door-pull + A7/A3 b256 re-trains (+ c6 when 100 ep ready); ACT cancelled
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b256/stage256_wait.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b256/pi05_quad_a3.sh
+# 2026-11-12 11:3x user: every C6 run (any model) moved behind all other new runs, right before the aligned re-trains; ACT (when added) goes after the re-trains
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_a6.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_b6.sh
+# 2026-11-12 15:4x user: GR00T 256 re-trains of b6/a17/b7/a18/trolley/basket (pool, b6 first) right after Delta Flow b6
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_groot/groot_pool256.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a3.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a7.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a18.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_trolley.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_basket.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a17.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_b7.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a6.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_b6.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_a3.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_a7.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_a18.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_b6.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a3.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a7.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a18.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_trolley.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_basket.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_a17.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_b7.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_a6.sh
+# ---- C6 block (all models): after every other new run, before the aligned re-trains ----
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b256/pi05_quad_c6.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_c6.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_c6.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_dit4dit/dit4dit_native_c6.sh
+# 2026-11-12 user: ALIGNED RE-TRAINS (pi0.5 b256, Psi-Zero 512) of runs that used proprio delay / history drop - after the C6 block; new non-C6 tasks go above the C6 block
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b256/pi05_quad_b6.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b256/pi05_quad_a18.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b256/pi05_quad_trolley.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b256/pi05_quad_basket.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b256/pi05_quad_a17.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b256/pi05_quad_b7.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_aligned_b6.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_aligned_a3.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_aligned_a7.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_aligned_a18.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_aligned_trolley.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_aligned_a17.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_aligned_basket.sh
+# ---- ACT block (least urgent, after the aligned re-trains) ----
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_act/act_pool256.sh

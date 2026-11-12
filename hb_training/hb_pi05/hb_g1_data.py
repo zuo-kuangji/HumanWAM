@@ -42,7 +42,7 @@ except ImportError:  # fallback: GR00T folder next to us
     import hb_aug_v2 as aug
 
 HORIZON, IMG, MODEL_ACTION_DIM = 16, 224, 76  # one 76-D pi05 init checkpoint for all robots
-BIAS_DEG, NOISE_DEG, DELAY_P = 2.0, 0.25, 0.15
+BIAS_DEG, NOISE_DEG, DELAY_P = 2.0, 0.25, 0.0  # 2026-11-12 user: align with GR00T A20 (hb_launch.py): no proprio delay, per-sample bias+noise via hb_aug_v2.perturb_joints
 
 
 @dataclass(frozen=True)
@@ -89,10 +89,16 @@ TASKS = {
     "b6": Task(P / "b6-v5t7-ready-start-60ep-20261109/data/deliveries/g1/b6-v5t7-ready-start-20261109", 100, 100, None, "g1", 50.0),
     # trolley push (HF humanoid-benchmark/trolley-push-expert-v1 @ef9024a, 103 eps): fixed first 100; same exporter as B6 -> 50 Hz
     "trolley": Task(P / "trolley-push-expert-v1-20261110/data/trolley_push", 100, 100, 68102, "g1", 50.0),
-    "basket": Task(P / "g1-basket-transfer-ed77719-40epochs/dataset", None, 100, 54337, "g1", 30.0),
+    "b7": Task(P / "b7-black-clothes-hamper-v1-1bb002a/data", 100, 100, 87417, "g1", 50.0),  # HF b7-black-clothes-hamper-expert-v1 @1bb002a, first 100 of 107 (user 2026-11-11)
+    "a6": Task(P / "a6-door-pull-v1-cf3ee9b/data/door_pull", None, 100, 73243, "g1", 50.0),  # HF door-pull-expert-v1 @cf3ee9b (A6), 100 episodes
+    "c6t": Task(P / "c6-test8-06c231d/data", None, 8, 18291, "g1", 50.0),  # HF c6-bathroom-door-fetch-expert-v1 @06c231d, 8-episode adaptation test only
+    "c6": Task(P / "c6-bathroom-door-fetch-v1-3afba69/data", None, 100, 221805, "g1", 50.0),  # HF c6-bathroom-door-fetch-expert-v1 @3afba69 (C6), 100 episodes
+    # basket: HF basket-transfer-expert-v1 @current-dynamics-100-v21 (b0ff522), SONIC expert like B6 -> 50 Hz; old ed77719 retired 2026-11-10
+    "basket": Task(P / "basket-current-dynamics-100-v21-b0ff522/data", None, 100, 55879, "g1", 50.0),
     "a3": Task(P / "a3-a7-20261109/a3-fridge-open-expert-v1/780fcf1e4bd7db947a8c2d8f7b92e61f24f71b45", None, 100, 28180, "g1", 30.0),
     "a7": Task(P / "a3-a7-20261109/a7-cabinet-close-expert-v1/1935a98e8f55d4d1d2d1615ddb97c2679713595c", None, 100, 30664, "g1", 30.0),
     "a18": Task(P / "a18-h2-dataset-audit-8e956a10/dataset", None, 100, 72752, "h2", 30.0),
+    "a17": Task(P / "a17-unscrew-bottle-v1-407e6e2/data", None, 100, 115333, "h2", 30.0),  # HF a17-unscrew-bottle-expert-v1 @407e6e2 (H2, like a18)
 }
 
 
@@ -189,7 +195,7 @@ class HBCachedDataset(torch.utils.data.Dataset):
         j = max(i - d, int(self.ep_start[i]))
         state = self.state[j].copy()
         nb = self.layout.n_body
-        state[:nb] += (trajectory_bias(self.seed, epoch, self.episode[i], nb) + joint_noise(self._rng, nb)).astype(np.float32)
+        state[:nb] = aug.perturb_joints(state[:nb], self._rng).astype(state.dtype)  # 2026-11-12 user: align with GR00T A20 (hb_launch.py): no proprio delay, per-sample bias+noise via hb_aug_v2.perturb_joints
         return state, i - j
 
     def __getitem__(self, index):

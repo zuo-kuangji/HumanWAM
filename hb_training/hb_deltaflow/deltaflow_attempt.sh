@@ -10,7 +10,7 @@ H=$(dirname "$(realpath "$0")")
 G=$(dirname "$H")
 P=$(dirname "$G")
 C=$G/deltaflow-runs/HumanWAM
-[ "$(basename "$R")" != a18 ] || C=$G/deltaflow-runs/HumanWAM-h2   # H2 code tree (own imagewam package)
+case "$(basename "$R")" in a18|a17) C=$G/deltaflow-runs/HumanWAM-h2 ;; esac   # H2 code tree (own imagewam package)
 PY=$P/venv/bin/python
 node_rank="${RANK:?DLC node rank missing}"
 num_nodes="${WORLD_SIZE:?DLC node count missing}"

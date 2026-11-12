@@ -94,9 +94,14 @@ class HBDataConfig(_config.DataConfigFactory):
         )
 
 
-def model_config(layout: str = "g1", **kw) -> pi0_config.Pi0Config:
+# 2026-11-12: A6 door-pull has a ~90-token instruction; prompt + 44 discretized state values reach 257 tokens, so its
+# sequence capacity is raised (no parameter changes, only padding length; every other task keeps its layout value).
+TASK_MAX_TOKEN_LEN = {"a6": 320}
+
+
+def model_config(layout: str = "g1", max_token_len: int | None = None, **kw) -> pi0_config.Pi0Config:
     return pi0_config.Pi0Config(pi05=True, action_dim=D.MODEL_ACTION_DIM, action_horizon=D.HORIZON,
-                                max_token_len=D.LAYOUTS[layout].max_token_len, **kw)
+                                max_token_len=max_token_len or D.LAYOUTS[layout].max_token_len, **kw)
 
 
 def make_train_config(task: str, *, exp_name: str = "default", batch_size: int = 32 * 32, num_train_steps: int = 1000,
@@ -112,7 +117,7 @@ def make_train_config(task: str, *, exp_name: str = "default", batch_size: int =
     return _config.TrainConfig(
         name=D.config_name(task),
         exp_name=exp_name,
-        model=model_config(L.name),
+        model=model_config(L.name, max_token_len=TASK_MAX_TOKEN_LEN.get(task)),
         data=HBDataConfig(repo_id=D.repo_id(task), layout=L.name,
                           assets=_config.AssetsConfig(assets_dir=str(D.task_dir(task) / "assets"), asset_id=D.asset_id(task))),
         pytorch_weight_path=pytorch_weight_path,

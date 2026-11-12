@@ -7,13 +7,19 @@
 # - training through deltaflow_supervise.py (3 attempts, resume from the newest saved state);
 # - exit 0 only after deltaflow_check_final.py verified the epoch 10/20/30/40 weights and the final state.
 set -uo pipefail
-TASK=${1:?usage: deltaflow_task.sh <b6|a3|a7|a18> [master_port_base]}
+TASK=${1:?usage: deltaflow_task.sh <b6|a3|a7|a18|trolley|basket|a17|b7|a6|c6> [master_port_base]}
 case $TASK in
   b6) DEFAULT_PORT=29800 ;;
   a3) DEFAULT_PORT=29830 ;;
   a7) DEFAULT_PORT=29860 ;;
   a18) DEFAULT_PORT=29890 ;;
-  *) echo "deltaflow_task: unsupported task '$TASK' (b6|a3|a7|a18)"; exit 64 ;;
+  trolley) DEFAULT_PORT=29920 ;;
+  basket) DEFAULT_PORT=29950 ;;
+  a17) DEFAULT_PORT=29980 ;;
+  b7) DEFAULT_PORT=30010 ;;
+  a6) DEFAULT_PORT=30040 ;;
+  c6) DEFAULT_PORT=30070 ;;
+  *) echo "deltaflow_task: unsupported task '$TASK'"; exit 64 ;;
 esac
 PORT_BASE=${2:-$DEFAULT_PORT}
 H=$(dirname "$(realpath "$0")")

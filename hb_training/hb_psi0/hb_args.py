@@ -21,7 +21,7 @@ from pathlib import Path
 
 H = Path(__file__).resolve().parent
 G = Path(os.environ.get("G", H.parent))
-TASKS = ("b6", "basket", "a3", "a7", "a18", "trolley")
+TASKS = ("b6", "basket", "a3", "a7", "a18", "trolley", "a17", "b7", "a6", "c6t", "c6")
 WORLD = int(os.environ.get("HB_WORLD", "32"))          # 4 nodes x 8 GPUs
 EPOCHS, SAVE_EPOCH, WARMUP_FRAC = 20, 10, 0.025        # warmup: native 1000/40000 = 2.5 %
 HORIZON = 30
@@ -73,7 +73,8 @@ def build_args(task, batch, steps, save, warmup, out, ts, workers, resume=True):
         "--data.transform.repack.instruction-key=task",
         f"--data.transform.repack.action-chunk-size={HORIZON}",
         "--data.transform.repack.state-temporal-jitter=0",
-        "--data.transform.repack.hb-delay-prob=0.15", "--data.transform.repack.hb-delay-max-frames=2",
+        # 2026-11-12 user: align with GR00T A20 -> no proprio delay (Psi0 has no action-history input, so no history drop)
+        "--data.transform.repack.hb-delay-prob=0.0", "--data.transform.repack.hb-delay-max-frames=2",
         f"--data.transform.repack.hb-body-dims={NB}", "--data.transform.repack.hb-bias-seed=292285",
         f"--data.transform.field.stat-path={stats}", "--data.transform.field.state-noise-std=0.0",
         "--data.transform.field.stat-action-keys", AK,

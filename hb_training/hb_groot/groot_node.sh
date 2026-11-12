@@ -5,7 +5,7 @@ set -euo pipefail
 TASK=$1 PHASE=$2 BS=$3 STEPS=$4 SAVE=$5 PORT=$6
 CFG=g1_feedback76_h16.py
 export HB_BODY_STATE_KEYS=left_leg,right_leg,waist,left_arm,right_arm
-if [ "$TASK" = a18 ]; then CFG=h2_body31_hand44_h16.py; export HB_BODY_STATE_KEYS=left_leg,right_leg,waist,left_arm,right_arm,head; fi
+if [[ $TASK = a1[78] ]]; then CFG=h2_body31_hand44_h16.py; export HB_BODY_STATE_KEYS=left_leg,right_leg,waist,left_arm,right_arm,head; fi
 H=$(dirname "$(realpath "$0")")
 G=$(dirname "$H")
 GR=$G/HumanWAM/third_party/Isaac-GR00T

@@ -7,9 +7,9 @@ normalization file format (q01/q99 of state78 = 75 joints + gravity3, action75 =
 same 16-step action chunk / history and t+16 image target. Changes:
   - visual: hb_aug_v2.augment on [T=2, V=2, 3, 224, 224] (15 effects, one boosted to 1.5x per sample, colour shared,
     rotation/light/WB per camera on t and t+16, sensor/optics only on the observation frame t);
-  - proprio (spec section 3, H2 body = state[0:31] incl. waist and head): per-episode fixed +-2 deg bias, N(0, 0.25 deg)
-    noise clipped at 3 sigma, 15 % delay of 1-2 control cycles (30 Hz -> 1-2 frames) applied to the whole
-    observation and the action history, 15 % history drop; hands, gravity and every label untouched.
+  - proprio (2026-11-12, aligned with GR00T A20; H2 body = state[0:31] incl. waist and head):
+    hb_aug_v2.perturb_joints per sample (+-2 deg bias + N(0, 0.25 deg) noise clipped at 3 sigma), no delay,
+    no history drop; hands, gravity and every label untouched.
 Model input: proprio[16, 78] = normalized(75 joints + gravity 3), exactly the state of the original H2 model
 (h2_pour_delta.py, HF g1-basket-transfer-imagewam-deltaflow76 h2-a18-pour-water/epoch-040: proprio_dim 78).
 User rule 2026-11-10: no joint-velocity channels in any training; any velocity argument is an error.
@@ -28,9 +28,12 @@ from .wholebody import window_indices
 
 BODY = 31
 SPEC_VERSION = "hb-aug-v2-20261109"
+# 2026-11-12 (user): proprio aligned with GR00T's A20 basket-transfer training (hb_groot/hb_launch.py):
+# hb_aug_v2.perturb_joints on the 31 body joints per sample, no delay, no history drop.
 PROPRIO_SPEC = {"enabled": True, "joint_bias_degrees": 2.0, "joint_noise_std_degrees": 0.25,
-                "delay_probability": 0.15, "max_delay_control_cycles": 2, "control_hz": 30, "recording_hz": 30,
-                "history_drop_probability": 0.15, "bias_scope": "fixed_per_episode"}
+                "delay_probability": 0.0, "max_delay_control_cycles": 0, "control_hz": 30, "recording_hz": 30,
+                "history_drop_probability": 0.0, "bias_scope": "per_sample",
+                "implementation": "hb_aug_v2.perturb_joints"}
 if STATE_DIM != 78:
     raise ImportError(f"H2 state must be 78-D (75 joints + gravity 3), h2_pour says {STATE_DIM}")
 
@@ -73,37 +76,15 @@ class H2HBAugV2Dataset(H2PourDataset):
         return self._aug_rng
 
     def augment_numeric(self, episode, anchor, state, past, pad, rng):
-        policy = self.proprio_policy
-        delay = 0
-        if anchor > 0 and rng.random() < policy["delay_probability"]:
-            cycles = int(rng.integers(1, policy["max_delay_control_cycles"] + 1))
-            delay = max(1, round(cycles * policy["recording_hz"] / policy["control_hz"]))
-        frame = max(0, anchor - delay)
-        raw = state[frame].copy()                                   # 75 joints + gravity 3, radians
-        bias_rng = np.random.default_rng(np.random.SeedSequence([int(policy["seed"]), int(episode), 3719]))
-        limit = math.radians(policy["joint_bias_degrees"])
-        bias = bias_rng.uniform(-limit, limit, BODY)
-        sigma = math.radians(policy["joint_noise_std_degrees"])
-        noise = np.clip(rng.normal(0, sigma, BODY), -3 * sigma, 3 * sigma)
-        raw[:BODY] = (raw[:BODY] + bias + noise).astype(np.float32)
+        raw = state[anchor].copy()                                  # 75 joints + gravity 3, radians; no delay
+        before = raw[:BODY].astype(np.float64)
+        raw[:BODY] = hb_aug_v2.perturb_joints(raw[:BODY], rng)      # per-sample bias +-2 deg + noise 0.25 deg
         proprio = self.normalize(raw, "state").astype(np.float32)
         if proprio.shape != (STATE_DIM,):
             raise ValueError(f"proprio must be {STATE_DIM}-D (no velocity), got {proprio.shape}")
-        if delay:
-            shifted, shift_pad = torch.zeros_like(past), torch.ones_like(pad)
-            if delay < len(past):
-                shifted[delay:], shift_pad[delay:] = past[:-delay], pad[:-delay]
-            past, pad = shifted, shift_pad
-        dropped = []
-        if rng.random() < policy["history_drop_probability"]:
-            candidates = [i for i in range(1, len(past)) if not bool(pad[i - 1]) and not bool(pad[i])]
-            if candidates:
-                i = int(rng.choice(candidates))
-                past[i], pad[i] = past[i - 1], pad[i - 1]
-                dropped.append(i)
-        past[pad] = 0
-        info = dict(delay_recorded_frames=delay, state_frame=frame, bias_degrees=np.degrees(bias).tolist(),
-                    noise_degrees=np.degrees(noise).tolist(), history_drop_rows=dropped)
+        past[pad] = 0                                               # unchanged history, no drop
+        info = dict(delay_recorded_frames=0, state_frame=anchor, anchor_frame=anchor, history_drop_rows=[],
+                    joint_perturbation_degrees=np.degrees(raw[:BODY].astype(np.float64) - before).tolist())
         return proprio, past, pad, info
 
     def __getitem__(self, index):

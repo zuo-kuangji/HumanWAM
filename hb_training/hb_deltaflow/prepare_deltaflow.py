@@ -55,7 +55,42 @@ TASKS = {
                control_hz=30, total_episodes=100),
     'a7': dict(data=OLD_A / 'a7-cabinet-close-expert-v1/1935a98e8f55d4d1d2d1615ddb97c2679713595c', old=OLD_A / 'a7',
                control_hz=30, total_episodes=100),
+    # 2026-11-12: tasks without a previous Delta-flow experiment. Template config = the A3 run (same G1 model / loader);
+    # split manifest and instruction cache are generated here. Datasets are aligned with basket-transfer-expert-v1
+    # (identical 41 features / modality, 30 FPS); the fixed first 100 episodes are trained, later ones shelved.
+    'trolley': dict(data=P / 'trolley-push-expert-v1-20261110/data/trolley_push', old=None, control_hz=50,
+                    total_episodes=None, source='trolley-push-expert-v1 @ef9024a'),
+    'basket': dict(data=P / 'basket-current-dynamics-100-v21-b0ff522/data', old=None, control_hz=50,
+                   total_episodes=None, source='basket-transfer-expert-v1 @b0ff522 (current-dynamics-100-v21)'),
+    'b7': dict(data=P / 'b7-black-clothes-hamper-v1-1bb002a/data', old=None, control_hz=50,
+               total_episodes=None, source='b7-black-clothes-hamper-expert-v1 @1bb002a'),
+    'a6': dict(data=P / 'a6-door-pull-v1-cf3ee9b/data/door_pull', old=None, control_hz=50,
+               total_episodes=None, source='door-pull-expert-v1 @cf3ee9b'),
+    'c6': dict(data=P / 'c6-bathroom-door-fetch-v1-3afba69/data', old=None, control_hz=50,
+               total_episodes=None, source='c6-bathroom-door-fetch-expert-v1 @3afba69e'),
 }
+TEMPLATE = OLD_A / 'a3'
+QWEN3 = P / 'hf-inputs/Qwen3-4B'
+FLUX2_SRC = P / 'HumanWAM/third_party/flux2'
+H2_TASKS = ('a18', 'a17')
+# 2026-11-12 (user): every model aligned with GR00T's A20 basket-transfer training (hb_groot/hb_launch.py).
+ALIGNED_PROPRIO = dict(delay_probability=0.0, max_delay_control_cycles=0, history_drop_probability=0.0,
+                       bias_scope='per_sample', implementation='hb_aug_v2.perturb_joints',
+                       aligned_with='GR00T A20 basket-transfer recipe (hb_groot/hb_launch.py), user 2026-11-12')
+
+
+def new_manifest(task, spec, meta, ids):
+    D = spec['data']
+    names = meta['info']['features']['observation.state'].get('names') or []
+    hashes = {rel: sha(D / rel) for rel in ('meta/info.json', 'meta/episodes.jsonl', 'meta/source_episodes.jsonl')
+              if (D / rel).is_file()}
+    stem = spec['source'].split(' ')[0]
+    return dict(train_episode_ids=ids[:EPISODES], validation_episode_ids=ids[EPISODES:], seed=42,
+                provenance_reviewed=True,
+                provenance_note=(f'generated 2026-11-12 by prepare_deltaflow.py for HF {spec["source"]}; one source '
+                                 'group per episode; dataset format checked against basket-transfer-expert-v1'),
+                split_basis='', source_group_by_episode={str(i): f'{stem}-{i:06d}' for i in ids},
+                expected_body_joint_names=list(names[:29]), source_metadata_sha256=hashes)
 # Files of the last B6 Delta-flow code copy that this package builds on (hashes of the reviewed copy).
 SOURCE_SHA256 = {
     'src/imagewam/datasets/wholebody.py': 'e6460388758187180a28515cb15b666d948387b1b6aff7b026baa2f2e9402ccc',
@@ -86,6 +121,8 @@ LOADER_PATCHES = [
      '    if train_split_mode != "first_100" or list(meta["train"]) != list(range(100)):\n'
      '        raise ValueError("Require the fixed first-100 training partition (episodes 0-99)")\n', 1),
     ('"all_149"', '"first_100"', 7),
+    ('if not np.allclose(columns["timestamp"], np.arange(n) / 30.0, rtol=0, atol=3e-6):',
+     'if not np.allclose(columns["timestamp"], np.arange(n) / 30.0, rtol=1e-7, atol=3e-6):  # float32 timestamps of long (75 s) C6 episodes', 1),
 ]
 
 
@@ -157,7 +194,8 @@ def build_code():
         changes=['wholebody.py: train exactly episodes 0-99 ("first_100"), later episodes shelved',
                  'hb_aug_v2.py: unchanged copy of the shared spec-v2 implementation',
                  'wholebody_hbaug.py: WholeBodyHBAugV2LeRobotDataset(WholeBodyRobustLeRobotDataset), visual aug -> '
-                 'hb_aug_v2, 44-D proprio, NO joint velocity (wholebody_velocity.py stays in the tree, unused)',
+                 'hb_aug_v2, 44-D proprio, NO joint velocity (wholebody_velocity.py stays in the tree, unused); '
+                 'proprio aligned with GR00T A20 (per-sample perturb_joints, no delay, no history drop; 2026-11-12)',
                  'train_deltaflow.py: 40-epoch entry, full state at every save, --resume',
                  'wholebody_delta.py: the state44 copy of real30-from-sim60-20261108 (the B6 60-epoch copy hard-codes '
                  'the 73-D velocity state)'],
@@ -203,17 +241,22 @@ def prepare_task(task, wb):
     ids = [int(e['episode_index']) for e in meta['episodes']]
     lengths = {int(e['episode_index']): int(e['length']) for e in meta['episodes']}
     train = list(range(EPISODES))
-    if len(ids) != spec['total_episodes'] or ids[:EPISODES] != train:
+    if ((spec['total_episodes'] is not None and len(ids) != spec['total_episodes']) or len(ids) < EPISODES
+            or ids[:EPISODES] != train):
         raise SystemExit(f'{task}: expected {spec["total_episodes"]} episodes 0..N-1, found {len(ids)}')
     shelved = ids[EPISODES:]
-    old_manifest = json.loads((old / 'split-manifest.json').read_text())
-    if sorted(old_manifest['train_episode_ids'] + old_manifest['validation_episode_ids']) != ids:
-        raise SystemExit(f'{task}: previous split manifest does not cover this dataset')
+    if old is None:
+        old_manifest = new_manifest(task, spec, meta, ids)
+    else:
+        old_manifest = json.loads((old / 'split-manifest.json').read_text())
+        if sorted(old_manifest['train_episode_ids'] + old_manifest['validation_episode_ids']) != ids:
+            raise SystemExit(f'{task}: previous split manifest does not cover this dataset')
     basis = ('Fixed first 100 episodes (episode_index 0-99) per project rule 2026-11-09; '
              + (f'episodes {shelved[0]}-{shelved[-1]} are shelved (listed as validation ids, never trained, '
                 'no validation run)' if shelved else 'the collection has exactly 100 episodes'))
     manifest = dict(old_manifest, train_episode_ids=train, validation_episode_ids=shelved, shelved_episode_ids=shelved,
-                    split_basis=basis, previous_manifest=str(old / 'split-manifest.json'))
+                    split_basis=basis,
+                    previous_manifest=(str(old / 'split-manifest.json') if old is not None else 'none (generated)'))
     dump(R / 'split-manifest.json', manifest)
     wb.apply_split(meta, str(R / 'split-manifest.json'))     # provenance hashes, joint names, groups
 
@@ -232,20 +275,27 @@ def prepare_task(task, wb):
     total = EPOCHS * u
     save_steps = [e * u for e in range(SAVE_EVERY_EPOCHS, EPOCHS + 1, SAVE_EVERY_EPOCHS)]
 
-    shutil.copytree(old / 'qwen-text', R / 'qwen-text')
     prompt = wb.DEFAULT_PROMPT.format(task=meta['tasks'][0]['task'])
+    qinfo = None
+    if old is not None:
+        shutil.copytree(old / 'qwen-text', R / 'qwen-text')
+    else:
+        import qwen_cache
+        ref_prompt = wb.DEFAULT_PROMPT.format(task=wb.load_metadata(TASKS['a3']['data'])['tasks'][0]['task'])
+        _, qinfo = qwen_cache.make(prompt, R / 'qwen-text', CODE, QWEN3, FLUX2_SRC, ref_prompt, TEMPLATE / 'qwen-text')
+        log(task, 'qwen cache computed', qinfo)
     cache = R / 'qwen-text' / f'{hashlib.sha256(prompt.encode()).hexdigest()}.qwen3_flux2_len128.pt'
     if not cache.is_file():
         raise SystemExit(f'{task}: instruction cache missing in copied qwen-text: {cache.name}')
 
-    source_yaml = old / 'run/production.yaml'
+    source_yaml = (old if old is not None else TEMPLATE) / 'run/production.yaml'
     cfg = yaml.safe_load(source_yaml.read_text())
     cfg.update(output_dir=str(R / 'run/production'), num_epochs=EPOCHS, max_steps=total,
                lr_scheduler_total_steps=total, warmup_steps=WARMUP_EPOCHS * u, save_every=0, save_steps=save_steps,
                save_at_end=True, keep_latest_weights=4, keep_latest_state_only=True, resume=None, eval_every=0)
     if cfg['batch_size'] != MICRO or cfg['gradient_accumulation_steps'] != 1 or cfg['data']['val'] is not None:
         raise SystemExit(f'{task}: unexpected batch / accumulation / validation in {source_yaml}')
-    cfg['wandb'].update(enabled=False, mode='disabled', name=f'deltaflow-{task}-40ep-augv2')
+    cfg['wandb'].update(enabled=False, mode='disabled', name=f'deltaflow-{task}-40ep-augv2-aligned')
     d = cfg['data']['train']
     d.update(_target_=DATASET_TARGET, dataset_dir=str(D), stats_path=str(R / 'stats/dataset_stats.json'),
              qwen_text_cache_dir=str(R / 'qwen-text'), split_manifest_path=str(R / 'split-manifest.json'),
@@ -260,6 +310,7 @@ def prepare_task(task, wb):
                            affected_angle_channels=list(range(29)), bias_scope='fixed_per_episode').items():
         if pa.get(key) != value:
             raise SystemExit(f'{task}: proprio_augmentation.{key}={pa.get(key)!r} differs from spec v2 ({value!r})')
+    pa.update(ALIGNED_PROPRIO)
     m = cfg['model']
     if (m['proprio_dim'], m['action_state_dim'], m['expected_action_dim'], m['expected_action_horizon']) not in (
             (73, 73, 76, 16), (44, 44, 76, 16)):
@@ -270,10 +321,11 @@ def prepare_task(task, wb):
         del c[key]
     c.update(stats_schema=wb.STATS_SCHEMA, statistics_sha256=sha(R / 'stats/dataset_stats.json'),
              smoke_output_dir=None, production_output_dir=str(R / 'run/production'), updates_per_epoch=u,
-             augmentation=AUG_VERSION, proprio_layout='body29 + hands12 + gravity3 = 44 (no velocity)',
+             augmentation=AUG_VERSION, proprio_augmentation='aligned with GR00T A20 (per-sample perturb_joints, no delay, no history drop)', proprio_layout='body29 + hands12 + gravity3 = 44 (no velocity)',
              train_episode_ids='0-99', shelved_episode_ids=(f'{shelved[0]}-{shelved[-1]}' if shelved else 'none'))
     c['measured_loader'].update(dataset_frames=frames, raw_loader_batches=math.ceil(frames / MICRO),
                                 per_rank_microbatches=u, world_size=WORLD, microbatch=MICRO)
+    old = old if old is not None else TEMPLATE
     old_prefix = str(old) + '/'
 
     def walk(value):
@@ -295,7 +347,9 @@ def prepare_task(task, wb):
         train_episode_ids=train, shelved_episode_ids=shelved, frames=frames, updates_per_epoch=u, epochs=EPOCHS,
         max_steps=total, warmup_steps=WARMUP_EPOCHS * u, save_steps=save_steps, control_hz=spec['control_hz'],
         recording_hz=30, statistics_sha256=c['statistics_sha256'], proprio_dim=PROPRIO_DIM, joint_velocity=False,
-        augmentation=AUG_VERSION, code=str(CODE), code_record_sha256=sha(CODE / 'deltaflow-code.json')))
+        augmentation=AUG_VERSION, proprio_augmentation=ALIGNED_PROPRIO, dataset_source=spec.get('source'),
+        qwen_cache=(qinfo or 'copied from the previous run'),
+        code=str(CODE), code_record_sha256=sha(CODE / 'deltaflow-code.json')))
 
     log(task, 'loading two real augmented samples (CPU)')
     from hydra.utils import instantiate
@@ -309,16 +363,28 @@ def prepare_task(task, wb):
             or tuple(sample['proprio'].shape) != (16, PROPRIO_DIM) or tuple(sample['action'].shape) != (16, 76)
             or not torch.isfinite(sample['proprio']).all() or dataset.last_augmentation['visual']['boost'] is None):
         raise SystemExit(f'{task}: sample schema check failed')
-    dump(R / 'prepared.ok', dict(frames=frames, updates_per_epoch=u, max_steps=total, save_steps=save_steps))
+    perturb = []
+    for i in range(0, frames, max(1, frames // 40)):
+        dataset[i]
+        num = dataset.last_augmentation['numeric']
+        if num['delay_recorded_frames'] != 0 or num['history_drop_rows']:
+            raise SystemExit(f'{task}: delay / history drop still active: {num}')
+        perturb.append(num['joint_perturbation_degrees'])
+    perturb = np.asarray(perturb)
+    if perturb.shape[1] != 29 or np.abs(perturb).max() > 2.0 + 0.75 + 1e-3 or perturb.std(axis=0).min() < 0.5:
+        raise SystemExit(f'{task}: joint perturbation is not per-sample +-2 deg + 0.25 deg noise')
+    dump(R / 'prepared.ok', dict(frames=frames, updates_per_epoch=u, max_steps=total, save_steps=save_steps,
+                                 proprio_check=dict(samples=len(perturb), max_abs_deg=float(np.abs(perturb).max()),
+                                                    std_deg=float(perturb.std()))))
     log(task, 'PREPARED', json.dumps(dict(frames=frames, updates_per_epoch=u, max_steps=total, save_steps=save_steps,
                                           warmup=WARMUP_EPOCHS * u, control_hz=spec['control_hz'])))
 
 
 def main():
-    tasks = sys.argv[1:] or [*TASKS, 'a18']
+    tasks = sys.argv[1:] or [*TASKS, *H2_TASKS]
     for task in tasks:
-        if task not in TASKS and task != 'a18':
-            raise SystemExit(f'unknown task {task}; choose from {[*TASKS, "a18"]}')
+        if task not in TASKS and task not in H2_TASKS:
+            raise SystemExit(f'unknown task {task}; choose from {[*TASKS, *H2_TASKS]}')
     g1 = [task for task in tasks if task in TASKS]
     if g1:
         build_code()
@@ -329,12 +395,13 @@ def main():
             raise SystemExit(f'imported the wrong imagewam: {wb.__file__}')
         for task in g1:
             prepare_task(task, wb)
-    if 'a18' in tasks:
+    h2 = [task for task in tasks if task in H2_TASKS]
+    if h2:
         # The H2 branch ships its own imagewam package: prepare it in a separate interpreter.
         import subprocess
-        rc = subprocess.call([sys.executable, str(H / 'prepare_deltaflow_a18.py')])
+        rc = subprocess.call([sys.executable, str(H / 'prepare_deltaflow_h2.py'), *h2])
         if rc != 0:
-            raise SystemExit(f'a18 preparation failed (rc {rc})')
+            raise SystemExit(f'H2 preparation failed (rc {rc})')
     log('PREPARE_DONE', ' '.join(tasks))
 
 

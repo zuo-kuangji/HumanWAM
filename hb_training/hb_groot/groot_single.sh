@@ -1,4 +1,7 @@
 #!/bin/bash
+# 2026-11-11: pool jobs "groot act:<task>" (hb_pool.sh knows only groot|pi05) run ACT single-node via hb_act/act_single.sh
+case ${1:-} in act:*) HB_G0=$(dirname "$(dirname "$(realpath "$0")")"); exec bash "$HB_G0/hb_act/act_single.sh" "${1#act:}" "$2" "$HB_G0/act-runs-b696" ;; esac
+case ${1:-} in psi0probe:*) HB_G0=$(dirname "$(dirname "$(realpath "$0")")"); exec bash "$HB_G0/hb_psi0/psi0_probe_single.sh" "${1#psi0probe:}" ;; esac
 # Single-node GR00T 20-epoch production on THIS node's 8 GPUs (torchrun --standalone), for the task pool (hb_pool.sh).
 # Usage: groot_single.sh <task> <per_gpu_batch> <runs_root>      e.g. groot_single.sh b6 87 $G/groot-runs-b696
 # Same recipe as groot_node.sh (lr 1e-4, warmup 5 %, wd 1e-5, HB aug v2, 20 epochs, saves at epoch 10 and 20) except
@@ -7,7 +10,7 @@ set -euo pipefail
 TASK=$1 BS=$2 GRUNS=$3
 CFG=g1_feedback76_h16.py
 export HB_BODY_STATE_KEYS=left_leg,right_leg,waist,left_arm,right_arm
-if [ "$TASK" = a18 ]; then CFG=h2_body31_hand44_h16.py; export HB_BODY_STATE_KEYS=left_leg,right_leg,waist,left_arm,right_arm,head; fi
+if [[ $TASK = a1[78] ]];then CFG=h2_body31_hand44_h16.py;export HB_BODY_STATE_KEYS=left_leg,right_leg,waist,left_arm,right_arm,head;fi
 H=$(dirname "$(realpath "$0")")
 G=$(dirname "$H")
 GR=$G/HumanWAM/third_party/Isaac-GR00T

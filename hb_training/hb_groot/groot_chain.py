@@ -106,7 +106,7 @@ def prune_resume_state(out):
 
 
 def batch_for(task):
-    layout = "h2" if task == "a18" else "g1"
+    layout = "h2" if task in ("a17", "a18") else "g1"
     decision = RUNS / f"batch-decision-{layout}.json"
     if decision.is_file():
         return json.loads(decision.read_text())["per_gpu_batch"]

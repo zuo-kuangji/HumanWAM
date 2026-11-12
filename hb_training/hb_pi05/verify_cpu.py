@@ -133,7 +133,7 @@ def main():
     check(_config.get_config(D.config_name(a.task)).name == cfg.name, f"config {cfg.name} registered")
     m = cfg.model
     check(m.pi05 and m.action_dim == 76 and m.action_horizon == 16 and m.discrete_state_input
-          and m.max_token_len == L.max_token_len, f"model {m}")
+          and m.max_token_len == C.TASK_MAX_TOKEN_LEN.get(a.task, L.max_token_len), f"model {m}")
     dc = cfg.data.create(cfg.assets_dirs, cfg.model)
     check(dc.use_quantile_norm, "pi05 uses quantile norm")
     ns = dc.norm_stats or {}
@@ -181,7 +181,7 @@ def main():
     # 7. model structure (meta device) + init checkpoint header
     import openpi.models_pytorch.pi0_pytorch as p0
 
-    mcfg = C.model_config(L.name, dtype="float32", pytorch_compile_mode=None)
+    mcfg = C.model_config(L.name, max_token_len=C.TASK_MAX_TOKEN_LEN.get(a.task), dtype="float32", pytorch_compile_mode=None)
     with torch.device("meta"):
         net = p0.PI0Pytorch(mcfg)
     check(tuple(net.action_in_proj.weight.shape) == (1024, 76) and tuple(net.action_out_proj.weight.shape) == (76, 1024),

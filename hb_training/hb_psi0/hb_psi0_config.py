@@ -139,7 +139,7 @@ class HbSonicRepackTransform(ps.SonicRepackTransform):
             s = out["states"]
             sigma = math.radians(NOISE_DEG)
             noise = np.clip(hb_rng().normal(0.0, sigma, size=s[..., :nb].shape), -3 * sigma, 3 * sigma)
-            s[..., :nb] = (s[..., :nb] + traj_bias(self.hb_bias_seed, get_epoch(), ep, nb) + noise).astype(np.float32)
+            s[..., :nb] = (s[..., :nb] + hb_rng().uniform(-math.radians(2.0), math.radians(2.0), size=nb) + noise).astype(np.float32)  # 2026-11-12 user: per-sample bias like GR00T A20 (hb_aug_v2.perturb_joints)
         return out
 
 
