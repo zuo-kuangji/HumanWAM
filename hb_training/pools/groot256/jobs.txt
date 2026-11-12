@@ -8,7 +8,7 @@ g09 groot256 a6 32
 g02 groot256 a17 32
 g04 groot256 a18 32
 g03 groot256 b7 32
-g05 groot256 trolley 32
+# removed 2026-11-12 user (trolley paused): g05 groot256 trolley 32
 g06 groot256 basket 32
 g10 groot256 c6 32
 g11 groot256 a14 32

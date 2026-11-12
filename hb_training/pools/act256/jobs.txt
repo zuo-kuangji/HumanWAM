@@ -4,7 +4,7 @@ a01 act a17 32
 a02 act b7 32
 a03 act a6 32
 a04 act b6 32
-a05 act trolley 32
+# removed 2026-11-12 user (trolley paused): a05 act trolley 32
 a06 act a18 32
 a07 act basket 32
 a08 act a7 32
