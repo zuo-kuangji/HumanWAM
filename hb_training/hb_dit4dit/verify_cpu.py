@@ -192,7 +192,8 @@ def main():
     # 8. plan + launch files
     pl = C.plan(a.task, 8, 32, frames=n)
     gb = 8 * 32
-    check(pl["steps"] == math.ceil(20 * n / gb) and pl["save_steps"] == sorted({math.ceil(10 * n / gb), pl["steps"]}),
+    check((pl["steps"] == C.FIXED_STEPS and pl["save_steps"] == [C.FIXED_STEPS - 2000, C.FIXED_STEPS]) if pl.get("fixed_steps")
+          else (pl["steps"] == math.ceil(20 * n / gb) and pl["save_steps"] == sorted({math.ceil(10 * n / gb), pl["steps"]})),
           f"plan: steps {pl['steps']}, saves {pl['save_steps']}, warmup {pl['warmup_steps']} (B=8, 32 GPUs)")
     tmpd = Path(tempfile.mkdtemp(prefix="hb_d4d_launch_"))
     C.write_launch_files(a.task, 8, 32, 4, tmpd)

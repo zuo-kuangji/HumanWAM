@@ -174,7 +174,9 @@ def rd(p):
 
 # ---------------------------------------------------------------- preserve epoch-10 checkpoints of running jobs
 def preserve():
-    for root in sorted((G / "act-runs-b696").glob("*")) + sorted((G / "psi0-runs").glob("*/hb1110")) + sorted((G / "psi0-runs").glob("*/b512")):
+    for root in (sorted((G / "act-runs-b696").glob("*")) + sorted((G / "act-runs-b256").glob("*"))
+                 + sorted((G / "psi0-runs").glob("*/hb1110")) + sorted((G / "psi0-runs").glob("*/b512"))
+                 + sorted((G / "psi0-runs").glob("*/aligned"))):
         dec = root / "decision.json"
         if not dec.is_file():
             continue
@@ -200,7 +202,10 @@ def collect_psi_like(model, task, root, done):
         src = run / "checkpoints" / f"ckpt_{step}" / "model.safetensors"
         if not src.is_file():
             src = root / "preserved" / f"ckpt_{step}" / "model.safetensors"
-        eps.append(dict(epoch=ep, step=step, files={"model.safetensors": src} if src.is_file() else None))
+        e = dict(epoch=ep, step=step, files={"model.safetensors": src} if src.is_file() else None)
+        if dec.get("fixed_steps"):  # 2026-11-12: fixed-step runs -> step-XXXXXX folders (never overwrite epoch- ones)
+            e.update(epoch=None, name=f"step-{step:06d}")
+        eps.append(e)
     common = {n: run / n for n in ("run_config.json", "dataset_statistics.json", "clip_pooled_cache.pt", "argv.txt",
                                    "hb_init_report.json", "hb_metrics.jsonl", "envs.txt") if (run / n).is_file()}
     common["training_plan.json"] = root / "decision.json"
@@ -208,7 +213,8 @@ def collect_psi_like(model, task, root, done):
                    ("train_args.txt", root / "train_args.txt")):
         if src.is_file() and n not in common:
             common[n] = src
-    proto = dict(epochs=dec["epochs"], total_steps=dec["steps"], save_steps=dec["save_steps"],
+    proto = dict(epochs=dec.get("epochs"), epochs_equivalent=dec.get("epochs_equivalent"), total_steps=dec["steps"],
+                 save_steps=dec["save_steps"],
                  global_batch=dec["global_batch"], per_gpu_batch=dec["per_gpu_batch"],
                  num_gpus=dec["global_batch"] // dec["per_gpu_batch"], warmup_steps=dec.get("warmup_steps"),
                  frames=dec["frames"], state_dim=dec.get("state_dim"), action_dim=dec.get("action_dim"),
@@ -257,6 +263,10 @@ def collect_deltaflow(task):
     u = int(rd(R / "data-verified.json")["updates_per_epoch"])
     W = R / "run" / "production" / "checkpoints" / "weights"
     eps = [dict(epoch=e, step=e * u, files={"model.pt": W / f"step_{e * u:06d}.pt"}) for e in (30, 40)]
+    dv = rd(R / "data-verified.json")
+    if dv.get("fixed_steps"):  # 2026-11-12: 8000-step runs -> step-006000 / step-008000 (never overwrite epoch- ones)
+        eps = [dict(epoch=None, step=s, name=f"step-{s:06d}", files={"model.pt": W / f"step_{s:06d}.pt"})
+               for s in dv["save_steps"]]
     for e in eps:
         if not e["files"]["model.pt"].is_file():
             raise RuntimeError(f"missing {e['files']['model.pt']}")
@@ -287,7 +297,9 @@ def collect_deltaflow(task):
         df_metrics.write(mdir, df_metrics.parse(logs), names)
         common["metrics.csv"] = mdir / "metrics.csv"
         common["loss_summary.json"] = mdir / "loss_summary.json"
-    proto = dict(epochs=40, updates_per_epoch=u, total_steps=40 * u, num_gpus=32,
+    proto = dict(epochs=None if dv.get("fixed_steps") else 40, updates_per_epoch=u,
+                 total_steps=dv["max_steps"] if dv.get("fixed_steps") else 40 * u, num_gpus=32,
+                 epochs_equivalent=dv.get("epochs_equivalent"),
                  normalization="dataset_stats.json / normalization.json in this folder",
                  config="training_config.yaml (production config; absolute paths refer to the training NAS)",
                  inference="HumanWAM ImageWAM delta-flow (code/hb_deltaflow installs the HB dataset and model "
@@ -302,15 +314,18 @@ def collect_dit4dit(task):
         return None
     run = D / "run"
     plan = rd(run / "hb_plan.json")
-    cks = [c for c in (run / "checkpoints").iterdir() if re.search(r"\d+", c.name)]
+    # weights only: steps_<N>_pytorch_model.pt (never the steps_<N>_resume optimizer state)
+    cks = [c for c in (run / "checkpoints").iterdir() if c.is_file() and re.fullmatch(r"steps_\d+_pytorch_model\.pt", c.name)]
     cks = sorted(cks, key=lambda c: int(re.findall(r"\d+", c.name)[-1]))[-2:]
     gb, frames = plan.get("global_batch"), plan.get("frames")
     eps = []
     for c in cks:
         step = int(re.findall(r"\d+", c.name)[-1])
         ep = round(step * gb / frames) if gb and frames else step
-        eps.append(dict(epoch=ep, step=step, files=None, tree=c) if c.is_dir() else
-                   dict(epoch=ep, step=step, files={c.name: c}))
+        e = dict(epoch=ep, step=step, files={c.name: c})
+        if plan.get("fixed_steps"):  # 2026-11-12: 4000-step runs -> step-002000 / step-004000
+            e.update(epoch=None, name=f"step-{step:06d}")
+        eps.append(e)
     common = {n: run / n for n in ("dataset_statistics.json", "hb_full_config.yaml", "hb_plan.json", "hb_metrics.jsonl")
               if (run / n).is_file()}
     if (D / "decision.env").is_file():
@@ -386,7 +401,10 @@ def collect_pi05(task):
         for a in (src / "assets").rglob("*"):
             if a.is_file():
                 files["assets/" + str(a.relative_to(src / "assets"))] = a
-        eps.append(dict(epoch=ep, step=step, files=files))
+        e = dict(epoch=ep, step=step, files=files)
+        if plan.get("fixed_steps"):  # 2026-11-12: 4000-step runs -> step-002000 / step-004000
+            e.update(epoch=None, name=f"step-{step:06d}")
+        eps.append(e)
     lg = run.parent.parent.parent / "logs"
     common = {"training_plan.json": run / "hb_plan.json",
               "train.log": next(x for x in (lg / "train.log", lg / "train-node-0.log") if x.is_file())}
@@ -396,7 +414,8 @@ def collect_pi05(task):
     common["train_config.json"] = cfg
     for f in sorted((G / "hb_pi05").glob("*.py")):
         common["code/hb_pi05/" + f.name] = f
-    proto = dict(epochs=plan["epochs"], total_steps=plan["num_train_steps"], save_steps=plan["save_steps"],
+    proto = dict(epochs=plan.get("epochs"), epochs_equivalent=plan.get("epochs_equivalent"),
+                 total_steps=plan["num_train_steps"], save_steps=plan["save_steps"],
                  global_batch=plan["global_batch"], per_gpu_batch=plan["per_gpu_batch"], num_gpus=plan["world_size"],
                  peak_lr=plan.get("peak_lr"), warmup_steps=plan.get("warmup_steps"), openpi_config=plan.get("config"),
                  proprio_augmentation="per-sample joint bias +-2 deg + noise 0.25 deg (hb_aug_v2.perturb_joints); "

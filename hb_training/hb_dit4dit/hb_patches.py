@@ -12,7 +12,7 @@ install_pre() -- before DiT4DiT/training/train.py is executed (it builds its Acc
 install_post(train_module) -- after train.py is loaded:
  4. TrainerUtils.setup_distributed_training -> accelerator.prepare(model, optimizer); the HB loader is passed through.
  5. VLATrainer._create_data_iterators -> HBLoader.stream(start_step=completed_steps) (never exhausts, exact resume).
- 6. VLATrainer._save_checkpoint -> only at plan["save_steps"] (epoch 10 and the last step): the native weights save
+ 6. VLATrainer._save_checkpoint -> only at plan["save_steps"] (2026-11-12: steps 2000 and 4000): the native weights save
     (checkpoints/steps_<N>_pytorch_model.pt + config.yaml + summary.jsonl), then on all ranks
     accelerator.save_state(checkpoints/steps_<N>_resume, exclude_frozen_parameters=True) (DeepSpeed module + optimizer,
     RNG); every older *_resume dir is deleted -> resume state only for the latest checkpoint (user rule 2026-11-10).

@@ -26,6 +26,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hb_d4d_data as D  # noqa: E402
 
 EPOCHS, SAVE_EPOCHS, WARMUP_FRAC = 20, (10,), 0.05
+# 2026-11-12 user: fixed optimizer steps instead of epochs (4000 for every model except Delta Flow); checkpoints every
+# 2000 steps counted back from the last step, only the last two kept (resume state only for the last one).
+FIXED_STEPS = int(os.environ.get("HB_FIXED_STEPS", "4000"))
+CKPT_EVERY, KEEP_CKPTS = 2000, 2
 LR = {"base": 3e-5, "backbone_interface": 1e-5, "action_model": 1e-4}
 FREEZE = "backbone_interface.extractor.text_encoder,backbone_interface.extractor.vae"
 # written into every run's hb_plan.json (CLAUDE.md: deviations are recorded in the experiment directory)
@@ -52,11 +56,18 @@ def plan(task: str, per_gpu_batch: int, world: int, *, frames: int | None = None
          save_epochs=SAVE_EPOCHS, steps_override: int | None = None) -> dict:
     frames = int(frames if frames is not None else D.load_meta(task)["frames"])
     gb = int(per_gpu_batch) * int(world)
-    steps = int(steps_override or math.ceil(epochs * frames / gb))
-    save = sorted({steps} | {math.ceil(float(e) * frames / gb) for e in save_epochs}) if not steps_override else []
+    if steps_override:  # probe
+        steps, save, fixed = int(steps_override), [], False
+    elif FIXED_STEPS > 0:
+        steps, fixed = FIXED_STEPS, True
+        save = [steps - CKPT_EVERY * k for k in range(KEEP_CKPTS - 1, -1, -1) if steps - CKPT_EVERY * k > 0]
+    else:  # legacy epoch budget (HB_FIXED_STEPS=0)
+        steps, fixed = int(math.ceil(epochs * frames / gb)), False
+        save = sorted({steps} | {math.ceil(float(e) * frames / gb) for e in save_epochs})
     L = D.layout_of(task)
     return dict(task=task, layout=L.name, frames=frames, per_gpu_batch=int(per_gpu_batch), world_size=int(world),
-                global_batch=gb, epochs=epochs, steps=steps, save_steps=save,
+                global_batch=gb, epochs=None if fixed else epochs, fixed_steps=fixed,
+                epochs_equivalent=round(steps * gb / frames, 2), steps=steps, save_steps=save,
                 warmup_steps=max(1, round(WARMUP_FRAC * steps)), batches_per_pass=frames // gb,
                 action_dim=L.action_dim, state_dim=L.state_dim, cameras=list(L.cameras), deviations=list(DEVIATIONS))
 

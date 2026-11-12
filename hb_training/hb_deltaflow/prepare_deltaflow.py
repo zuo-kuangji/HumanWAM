@@ -45,6 +45,15 @@ CODE = ROOT / 'HumanWAM'
 
 EPISODES, EPOCHS, SAVE_EVERY_EPOCHS, WARMUP_EPOCHS = 100, 40, 10, 2
 WORLD, MICRO = 32, 8
+# 2026-11-12 user: fixed 8000 optimizer steps (no epochs); checkpoints every 2000 steps counted back from the last
+# step, only the last two kept (the last one with its resume state); warmup 5 % (the former 2 of 40 epochs).
+FIXED_STEPS, CKPT_EVERY, KEEP_CKPTS, WARMUP_FRAC = 8000, 2000, 2, 0.05
+
+
+def fixed_schedule(u):
+    total = FIXED_STEPS
+    save_steps = [total - CKPT_EVERY * k for k in range(KEEP_CKPTS - 1, -1, -1)]
+    return total, save_steps, round(WARMUP_FRAC * total), math.ceil(total / u)
 DATASET_TARGET = 'imagewam.datasets.wholebody_hbaug.WholeBodyHBAugV2LeRobotDataset'
 AUG_VERSION = 'hb-aug-v2-20261109'
 AUG_SHA256 = '9f7713cea4f846efcfc924234267ced48210357f419d67915c10b504316bedde'
@@ -272,8 +281,7 @@ def prepare_task(task, wb):
     u = math.ceil(frames / (WORLD * MICRO))
     if u != math.ceil(math.ceil(frames / MICRO) / WORLD):
         raise SystemExit('updates_per_epoch mismatch')
-    total = EPOCHS * u
-    save_steps = [e * u for e in range(SAVE_EVERY_EPOCHS, EPOCHS + 1, SAVE_EVERY_EPOCHS)]
+    total, save_steps, warmup, n_epochs = fixed_schedule(u)
 
     prompt = wb.DEFAULT_PROMPT.format(task=meta['tasks'][0]['task'])
     qinfo = None
@@ -290,9 +298,9 @@ def prepare_task(task, wb):
 
     source_yaml = (old if old is not None else TEMPLATE) / 'run/production.yaml'
     cfg = yaml.safe_load(source_yaml.read_text())
-    cfg.update(output_dir=str(R / 'run/production'), num_epochs=EPOCHS, max_steps=total,
-               lr_scheduler_total_steps=total, warmup_steps=WARMUP_EPOCHS * u, save_every=0, save_steps=save_steps,
-               save_at_end=True, keep_latest_weights=4, keep_latest_state_only=True, resume=None, eval_every=0)
+    cfg.update(output_dir=str(R / 'run/production'), num_epochs=n_epochs, max_steps=total,
+               lr_scheduler_total_steps=total, warmup_steps=warmup, save_every=0, save_steps=save_steps,
+               save_at_end=True, keep_latest_weights=KEEP_CKPTS, keep_latest_state_only=True, resume=None, eval_every=0)
     if cfg['batch_size'] != MICRO or cfg['gradient_accumulation_steps'] != 1 or cfg['data']['val'] is not None:
         raise SystemExit(f'{task}: unexpected batch / accumulation / validation in {source_yaml}')
     cfg['wandb'].update(enabled=False, mode='disabled', name=f'deltaflow-{task}-40ep-augv2-aligned')
@@ -344,8 +352,9 @@ def prepare_task(task, wb):
 
     dump(R / 'data-verified.json', dict(
         task=task, dataset_dir=str(D), total_episodes_in_collection=len(ids), episodes=EPISODES,
-        train_episode_ids=train, shelved_episode_ids=shelved, frames=frames, updates_per_epoch=u, epochs=EPOCHS,
-        max_steps=total, warmup_steps=WARMUP_EPOCHS * u, save_steps=save_steps, control_hz=spec['control_hz'],
+        train_episode_ids=train, shelved_episode_ids=shelved, frames=frames, updates_per_epoch=u, epochs=None, fixed_steps=True,
+        epochs_equivalent=round(total / u, 2),
+        max_steps=total, warmup_steps=warmup, save_steps=save_steps, control_hz=spec['control_hz'],
         recording_hz=30, statistics_sha256=c['statistics_sha256'], proprio_dim=PROPRIO_DIM, joint_velocity=False,
         augmentation=AUG_VERSION, proprio_augmentation=ALIGNED_PROPRIO, dataset_source=spec.get('source'),
         qwen_cache=(qinfo or 'copied from the previous run'),
@@ -377,7 +386,7 @@ def prepare_task(task, wb):
                                  proprio_check=dict(samples=len(perturb), max_abs_deg=float(np.abs(perturb).max()),
                                                     std_deg=float(perturb.std()))))
     log(task, 'PREPARED', json.dumps(dict(frames=frames, updates_per_epoch=u, max_steps=total, save_steps=save_steps,
-                                          warmup=WARMUP_EPOCHS * u, control_hz=spec['control_hz'])))
+                                          warmup=warmup, control_hz=spec['control_hz'])))
 
 
 def main():

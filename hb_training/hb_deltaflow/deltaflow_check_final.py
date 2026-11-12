@@ -17,6 +17,8 @@ def problems(root):
     receipt = json.loads((root / 'data-verified.json').read_text())
     u = int(receipt['updates_per_epoch'])
     total = EPOCHS * u
+    if receipt.get('fixed_steps'):  # 2026-11-12: fixed-step runs (8000 steps, checkpoints 6000 / 8000)
+        total = int(receipt['max_steps'])
     out = root / 'run' / 'production'
     for rank in range(WORLD):
         path = out / f'finish-rank-{rank:02d}.json'
@@ -29,6 +31,8 @@ def problems(root):
         elif status.get('resumed_from_step', 0) == 0 and status.get('optimizer_steps') != total:
             found.append(f'optimizer step count differs in {path.name}: {status}')
     weights = [out / 'checkpoints' / 'weights' / f'step_{e * u:06d}.pt' for e in range(EVERY, EPOCHS + 1, EVERY)]
+    if receipt.get('fixed_steps'):
+        weights = [out / 'checkpoints' / 'weights' / f'step_{s:06d}.pt' for s in receipt['save_steps']]
     for path in weights:
         if not path.is_file() or path.stat().st_size <= 0:
             found.append(f'missing weights {path.name}')
@@ -43,7 +47,8 @@ def problems(root):
             or any(p.stat().st_size <= 0 for p in [*shards, model] if p.is_file())):
         found.append(f'final training state incomplete ({len(shards)} optimizer shards)')
     return found, dict(weights=[str(p) for p in weights], state=str(final), optimizer_shards=len(shards),
-                       updates_per_epoch=u, max_steps=total, train_episode_ids='0-99')
+                       updates_per_epoch=u, max_steps=total, train_episode_ids='0-99',
+                       save_steps=receipt.get('save_steps'), fixed_steps=bool(receipt.get('fixed_steps')))
 
 
 def main():
@@ -65,7 +70,7 @@ def main():
         pending = root / 'deltaflow-complete.json.tmp'
         pending.write_text(json.dumps(summary, indent=2) + '\n')
         pending.replace(target)
-    print(f'DELTAFLOW_COMPLETE {root.name}: epoch 10/20/30/40 weights + final state verified', flush=True)
+    print(f'DELTAFLOW_COMPLETE {root.name}: checkpoint weights + final state verified', flush=True)
     return 0
 
 

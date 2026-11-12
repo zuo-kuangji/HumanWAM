@@ -132,8 +132,7 @@ def prepare(task):
     h2_pour.fit(DATA, R / 'stats/normalization.json')
 
     u = math.ceil(FRAMES / (base.WORLD * base.MICRO))
-    total = base.EPOCHS * u
-    save_steps = [e * u for e in range(base.SAVE_EVERY_EPOCHS, base.EPOCHS + 1, base.SAVE_EVERY_EPOCHS)]
+    total, save_steps, warmup, n_epochs = base.fixed_schedule(u)
     prompt = h2_pour.DEFAULT_PROMPT.format(task=instruction)
     qinfo = None
     if spec['qwen'] == 'copy':
@@ -150,9 +149,9 @@ def prepare(task):
 
     source_yaml = OLD / 'run/production.yaml'
     cfg = yaml.safe_load(source_yaml.read_text())
-    cfg.update(output_dir=str(R / 'run/production'), num_epochs=base.EPOCHS, max_steps=total,
-               lr_scheduler_total_steps=total, warmup_steps=base.WARMUP_EPOCHS * u, save_every=0,
-               save_steps=save_steps, save_at_end=True, keep_latest_weights=4, keep_latest_state_only=True,
+    cfg.update(output_dir=str(R / 'run/production'), num_epochs=n_epochs, max_steps=total,
+               lr_scheduler_total_steps=total, warmup_steps=warmup, save_every=0,
+               save_steps=save_steps, save_at_end=True, keep_latest_weights=base.KEEP_CKPTS, keep_latest_state_only=True,
                resume=None, eval_every=0)
     if cfg['batch_size'] != base.MICRO or cfg['gradient_accumulation_steps'] != 1 or cfg['data']['val'] is not None:
         raise SystemExit(f'{task}: unexpected batch / accumulation / validation in the H2 config')
@@ -195,7 +194,8 @@ def prepare(task):
     dump(R / 'data-verified.json', dict(
         task=task, dataset_dir=str(DATA), dataset_source=spec['source'], total_episodes_in_collection=EPISODES,
         episodes=EPISODES, train_episode_ids=list(range(EPISODES)), shelved_episode_ids=[], frames=FRAMES,
-        updates_per_epoch=u, epochs=base.EPOCHS, max_steps=total, warmup_steps=base.WARMUP_EPOCHS * u,
+        updates_per_epoch=u, epochs=None, fixed_steps=True,
+        epochs_equivalent=round(total / u, 2), max_steps=total, warmup_steps=warmup,
         save_steps=save_steps, control_hz=30, recording_hz=30, statistics_sha256=sha(R / 'stats/normalization.json'),
         statistics_equal_previous_a18_run=(task == 'a18' and previous.is_file()
                                            and sha(previous) == sha(R / 'stats/normalization.json')),
@@ -238,7 +238,7 @@ def prepare(task):
                                  proprio_check=dict(samples=len(perturb), max_abs_deg=float(np.abs(perturb).max()),
                                                     std_deg=float(perturb.std()))))
     log(task, 'PREPARED', json.dumps(dict(frames=FRAMES, updates_per_epoch=u, max_steps=total, save_steps=save_steps,
-                                          warmup=base.WARMUP_EPOCHS * u, state_dim=STATE, action_dim=ACTION)))
+                                          warmup=warmup, state_dim=STATE, action_dim=ACTION)))
 
 
 if __name__ == '__main__':

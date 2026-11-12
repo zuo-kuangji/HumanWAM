@@ -90,9 +90,17 @@ def main():
 
     frames = json.loads((D.task_dir(a.task) / "meta.json").read_text())["frames"]
     global_batch = a.per_gpu_batch * world
-    steps = a.num_train_steps or math.ceil(a.epochs * frames / global_batch)
-    save_steps = set() if a.probe_dir else {steps} | {
-        math.ceil(float(e) * frames / global_batch) for e in a.save_epochs.split(",") if e.strip()}
+    # 2026-11-12 user: fixed optimizer steps instead of epochs (4000; HB_FIXED_STEPS=0 restores the epoch budget);
+    # checkpoints every 2000 steps counted back from the last step, only the last two (resume state only for the last).
+    fixed_total = int(os.environ.get("HB_FIXED_STEPS", "4000"))
+    fixed = not a.num_train_steps and fixed_total > 0
+    if fixed:
+        steps = fixed_total
+        save_steps = set() if a.probe_dir else {s for s in (steps - 2000, steps) if s > 0}
+    else:
+        steps = a.num_train_steps or math.ceil(a.epochs * frames / global_batch)
+        save_steps = set() if a.probe_dir else {steps} | {
+            math.ceil(float(e) * frames / global_batch) for e in a.save_epochs.split(",") if e.strip()}
     orig_save = tp.save_checkpoint
 
     def save_checkpoint(model, optimizer, global_step, config, is_main, data_config):
@@ -115,7 +123,8 @@ def main():
                               pytorch_weight_path=None if a.probe_dir else "default",
                               log_interval=1 if a.probe_dir else 10)
     plan = dict(task=a.task, layout=D.TASKS[a.task].layout, config=cfg.name, exp_name=a.exp_name, frames=frames, world_size=world, per_gpu_batch=a.per_gpu_batch,
-                global_batch=global_batch, epochs=a.epochs, num_train_steps=steps, save_steps=sorted(save_steps),
+                global_batch=global_batch, epochs=None if fixed else a.epochs, fixed_steps=fixed,
+                epochs_equivalent=round(steps * global_batch / frames, 2), num_train_steps=steps, save_steps=sorted(save_steps),
                 warmup_steps=cfg.lr_schedule.warmup_steps, peak_lr=cfg.lr_schedule.peak_lr,
                 weights=cfg.pytorch_weight_path, checkpoint_dir=str(cfg.checkpoint_dir), augment=not a.no_aug,
                 aug_version=D.aug.VERSION, max_token_len=cfg.model.max_token_len)

@@ -21,7 +21,7 @@ from pathlib import Path
 
 H = Path(__file__).resolve().parent
 G = Path(os.environ.get("G", H.parent))
-TASKS = ("b6", "basket", "a3", "a7", "a18", "trolley", "a17", "b7", "a6", "c6t", "c6")
+TASKS = ("b6", "basket", "a3", "a7", "a18", "trolley", "a17", "b7", "a6", "c6t", "c6", "a14")
 WORLD = int(os.environ.get("HB_WORLD", "32"))          # 4 nodes x 8 GPUs
 EPOCHS, SAVE_EPOCH, WARMUP_FRAC = 20, 10, 0.025        # warmup: native 1000/40000 = 2.5 %
 HORIZON = 30
@@ -37,12 +37,20 @@ def receipt(task):
     return json.loads(p.read_text())
 
 
+# 2026-11-12 22:1x user: no more epoch-based training; every Psi-Zero / ACT run trains a fixed number of optimizer steps
+# (4000), checkpoints every 2000 steps counted back from the last step, only the last two kept (the last one with its
+# resume state), HF folders step-002000 / step-004000.
+FIXED_STEPS = int(os.environ.get("HB_FIXED_STEPS", "4000"))
+CKPT_EVERY = 2000
+
+
 def plan(frames, batch):
     gb = batch * WORLD
-    steps = math.ceil(EPOCHS * frames / gb)
-    save = math.ceil(SAVE_EPOCH * frames / gb)       # saves at `save` and at `steps` only (2*save >= steps)
-    return {"frames": frames, "per_gpu_batch": batch, "global_batch": gb, "epochs": EPOCHS, "steps": steps,
-            "save_steps": save, "warmup_steps": max(1, round(WARMUP_FRAC * steps))}
+    steps = FIXED_STEPS
+    save = CKPT_EVERY if steps % CKPT_EVERY == 0 else steps - CKPT_EVERY  # saves at steps - 2000 and steps
+    return {"frames": frames, "per_gpu_batch": batch, "global_batch": gb, "fixed_steps": True, "epochs": None,
+            "epochs_equivalent": round(steps * gb / frames, 2), "steps": steps, "save_steps": save,
+            "warmup_steps": max(1, round(WARMUP_FRAC * steps))}
 
 
 def build_args(task, batch, steps, save, warmup, out, ts, workers, resume=True):
