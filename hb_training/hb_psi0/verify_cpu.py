@@ -4,8 +4,8 @@ Usage: <psi0 python> verify_cpu.py [--task b6|basket|a3|a7|a18] [--samples 3] [-
   1. hb_args -> tyro -> DynamicLaunchConfig (same parse as scripts/train.py) and its HB validators;
      dims / keys / cameras / body dims must match the task's robot layout (G1 A76/S44/29, H2 A75/S78/31)
   2. step plans (20 epochs, save at 10) for every prepared task
-  3. synthetic repack/field/model transform: delay rate, joint bias fixed per (epoch, episode) + per-sample
-     noise within 3 sigma, untouched non-joint dims, no-aug output identical to the native
+  3. synthetic repack/field/model transform: no proprio delay, joint bias redrawn per sample + noise within 3 sigma
+     (aligned with GR00T A20, 2026-11-12), untouched non-joint dims, no-aug output identical to the native
      Psi0ModelTransform, HB v2 aug active
   4. real view through LeRobotDatasetWrapper (+ timestamp sync check) -> shapes / ranges / cameras / episode_index
   5. action header built by the native Psi0Model ctor (dummy VLM) + re-dimensioned load of the real
@@ -115,9 +115,8 @@ def main():
     check(np.array_equal(o["states"], win[-1:]) and np.array_equal(o["actions"], act), "no_aug: state = s_t, actions untouched")
     nb = slice(NB, SD)
     sig3 = 3 * math.radians(C.NOISE_DEG)
-    delays, worst, noise_ok = [0, 0, 0], 0.0, True
-    C.set_epoch(0)
-    bias0 = C.traj_bias(rp.hb_bias_seed, 0, 5, NB)
+    # 2026-11-12 user: aligned with GR00T A20 (hb_aug_v2.perturb_joints) -> no proprio delay, bias redrawn per sample
+    delays, worst, ds = [0, 0, 0], 0.0, []
     for _ in range(3000):
         o = rp(dict(base))
         k = [kk for kk in range(3) if np.array_equal(o["states"][0, nb], win[2 - kk, nb])]
@@ -125,23 +124,16 @@ def main():
         delays[k[0]] += 1
         d = o["states"][0, :NB] - win[2 - k[0], :NB]
         worst = max(worst, float(np.abs(d).max()))
-        noise_ok &= bool(np.abs(d - bias0).max() <= sig3 + 1e-5)  # same bias every sample of (epoch 0, episode 5)
+        if len(ds) < 200:
+            ds.append(d)
         assert np.array_equal(o["actions"], act)
     p = (delays[1] + delays[2]) / 3000
-    check(0.12 < p < 0.18 and delays[1] > 0 and delays[2] > 0, f"delay rate {p:.3f} (spec 0.15), k=1:{delays[1]} k=2:{delays[2]}")
+    check(p == 0.0, f"delay rate {p:.3f} (aligned spec: no proprio delay)")
     bound = math.radians(C.BIAS_DEG) + sig3
     check(0 < worst <= bound + 1e-5, f"joint perturbation max {math.degrees(worst):.3f} deg <= {math.degrees(bound):.2f}")
-    check(noise_ok and float(np.abs(bias0).max()) <= math.radians(C.BIAS_DEG),
-          "bias fixed within (epoch, trajectory); per-sample noise within 3 sigma")
-    check(not np.allclose(bias0, C.traj_bias(rp.hb_bias_seed, 0, 6, NB))
-          and not np.allclose(bias0, C.traj_bias(rp.hb_bias_seed, 1, 5, NB)), "bias differs across episodes and epochs")
-    keep_p, rp.hb_delay_prob = rp.hb_delay_prob, 0.0
-    C.set_epoch(1)
-    d1 = rp(dict(base))["states"][0, :NB] - win[2, :NB]
-    C.set_epoch(0)
-    rp.hb_delay_prob = keep_p
-    check(float(np.abs(d1 - C.traj_bias(rp.hb_bias_seed, 1, 5, NB)).max()) <= sig3 + 1e-5,
-          "set_epoch(1) switches to the epoch-1 bias")
+    D = np.stack(ds)
+    spread = float(np.abs(D - D.mean(0)).max())
+    check(spread > math.radians(1.0), f"joint offset redrawn per sample (spread {math.degrees(spread):.2f} deg; aligned per-sample bias)")
     if proc is not None:
         native = pt.Psi0ModelTransform(resize=mt.resize, center_crop=mt.center_crop)
         d0 = fd(rp(dict(base), no_aug=True), no_aug=True)
