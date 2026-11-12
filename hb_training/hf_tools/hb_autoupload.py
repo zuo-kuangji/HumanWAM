@@ -8,6 +8,7 @@ State: $P/hf-autoupload/state.json ; log: $P/hf-autoupload/autoupload.log ; stag
 Also preserves the epoch-10 checkpoint of running ACT / Psi-Zero jobs by hard link (trainer keeps only 2 checkpoints).
 Run on master-0: setsid nohup python hb_autoupload.py $P > /dev/null 2>&1 &
 """
+import df_metrics  # noqa: E402  (2026-11-12: Delta Flow loss tables)
 import hb_modelcard  # noqa: E402  (2026-11-12: model cards rebuilt after every upload)
 import fcntl
 import hashlib
@@ -49,10 +50,14 @@ HFDATA = {"b6": "b6 v5t7 ready-start (first 100 episodes)", "a3": "a3-fridge-ope
 for _d, _v in ((TASKDIR, dict(a6="a6-door-pull", c6="c6-bathroom-door-fetch")),
                (DESC, dict(a6="Pull a door open", c6="Go through the bathroom door to another room and fetch an object")),
                (TASKNAME, dict(a6="A6 door pull (G1)", c6="C6 bathroom-door cross-room fetch (G1)")),
-               (HFDATA, dict(a6="door-pull-expert-v1 @cf3ee9b", c6="c6-bathroom-door-fetch-expert-v1 @3afba69e"))):
+               (HFDATA, dict(a6="door-pull-expert-v1 @cf3ee9b", c6="c6-bathroom-door-fetch-expert-v1 @3afba69e")),
+               (TASKDIR, dict(a14="a14-unscrew-bulb")),
+               (DESC, dict(a14="Insert a bulb into the socket and screw it in until it lights up")),
+               (TASKNAME, dict(a14="A14 screw in a bulb (H2, cameras head + chest + wrist)")),
+               (HFDATA, dict(a14="a14-unscrew-bulb-expert-v1 @b4390fc"))):
     for _k, _x in _v.items():
         _d.setdefault(_k, _x)
-ROBOT = {t: ("H2 (Sharpa hands)" if t in ("a18", "a17") else "Unitree G1") for t in TASKDIR}
+ROBOT = {t: ("H2 (Sharpa hands)" if t in ("a18", "a17", "a14") else "Unitree G1") for t in TASKDIR}
 AUG = ("Humanoid Benchmark online augmentation spec v2 (2026-11-09): 15 visual effects, one effect per training sample "
        "at 1.5x, plus proprioception noise/delay/drop; model-native image augmentation off")
 AUG_ALIGNED = ("Humanoid Benchmark online augmentation spec v2 (2026-11-09): 15 visual effects, one effect per training "
@@ -263,9 +268,21 @@ def collect_deltaflow(task):
     for n in ("data-verified.json", "split-manifest.json", "deltaflow-complete.json", "prepared.ok"):
         if (R / n).is_file():
             common[n] = R / n
-    for f in sorted((R / "run" / "node-logs").glob("*node-0*")):
-        if f.is_file() and f.stat().st_size < 50 * 1024 * 1024:
-            common[f"logs/{f.name}"] = f
+    # 2026-11-12: node-0 trainer logs of every attempt (supervised runs log under run/retry/s*/attempt-*/) plus the
+    # loss table parsed from them, like the training records of the other models
+    logs = sorted(R.glob("run/retry/**/node-0.log"), key=lambda q: q.stat().st_mtime)
+    logs += [f for f in sorted((R / "run" / "node-logs").glob("*node-0*.log")) if f.is_file()]
+    logs = [f for f in logs if f.stat().st_size < 50 * 1024 * 1024 and "step=" in f.read_text(errors="replace")]
+    names = []
+    for i, f in enumerate(logs):
+        n = f"logs/{i:02d}-" + str(f.relative_to(R / "run")).replace("/", "__")
+        common[n] = f
+        names.append(n)
+    if logs:
+        mdir = R / "run" / "hb-metrics"
+        df_metrics.write(mdir, df_metrics.parse(logs), names)
+        common["metrics.csv"] = mdir / "metrics.csv"
+        common["loss_summary.json"] = mdir / "loss_summary.json"
     proto = dict(epochs=40, updates_per_epoch=u, total_steps=40 * u, num_gpus=32,
                  normalization="dataset_stats.json / normalization.json in this folder",
                  config="training_config.yaml (production config; absolute paths refer to the training NAS)",

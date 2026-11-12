@@ -2,6 +2,4 @@
 # B6 first, right after Delta Flow b6; HF groot/<task>/b256/ (696 versions kept)
 g01 groot256 b6 32
 g02 groot256 a17 32
-g03 groot256 b7 32
 g04 groot256 a18 32
-g06 groot256 basket 32

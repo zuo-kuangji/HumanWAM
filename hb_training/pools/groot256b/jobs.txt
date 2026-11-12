@@ -1,0 +1,6 @@
+# 2026-11-12 17:3x user: second GR00T batch (4 jobs = 4 nodes): A14 (new task, 3 cameras head+chest+wrist, normal folder),
+# B7 / trolley / basket 256 re-trains (HF groot/<task>/b256/); after DiT4DiT A3 / A7 / basket / A6. Longest first.
+h01 groot256 a14 32
+h02 groot256 b7 32
+h03 groot256 trolley 32
+h04 groot256 basket 32
