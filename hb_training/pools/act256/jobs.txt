@@ -1,0 +1,14 @@
+# 2026-11-12 user: ACT back, least urgent (after the aligned re-trains); global batch 256 = 32 x 8, one node per job;
+# 8 earlier 696 tasks re-trained (HF act/<task>/b256/), A6 new; C6 last (all ACT incl. C6 after the re-trains)
+# 2026-11-12 17:0x user: GR00T 256 trolley re-train parked here with ACT (GR00T job first)
+t01 groot256 trolley 32
+a01 act a17 32
+a02 act b7 32
+a03 act a6 32
+a04 act b6 32
+a05 act trolley 32
+a06 act a18 32
+a07 act basket 32
+a08 act a7 32
+a09 act a3 32
+a10 act c6 32
