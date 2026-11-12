@@ -18,6 +18,7 @@ TASKS = {
     "b6-pedal-bin": ("B6 — pick up a chip barrel, step on the pedal bin, drop it in", "G1"),
     "a3-fridge-open": ("A3 — open the fridge door", "G1"),
     "a7-cabinet-close": ("A7 — close the cabinet door", "G1"),
+    "a1-ground-object-pickup": ("A1 — walk to a carton on the floor, squat, pick it up with the right hand and walk two steps", "G1"),
     "a6-door-pull": ("A6 — pull a door open", "G1"),
     "a10-trolley-push": ("A10 — push a trolley", "G1"),
     "a20-basket-transfer": ("A20 — transfer a basket", "G1"),

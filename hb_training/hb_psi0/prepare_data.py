@@ -48,6 +48,7 @@ TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "basket": (P / "basket-current-dynamics-100-v21-b0ff522/data", None, "g1"),  # HF basket-transfer-expert-v1 @current-dynamics-100-v21 b0ff522 (old ed77719 retired)
     "trolley": (P / "trolley-push-expert-v1-20261110/data/trolley_push", 100, "g1"),  # HF trolley-push-expert-v1 @ef9024a: fixed first 100 of 103
     "b7": (P / "b7-black-clothes-hamper-v1-1bb002a/data", 100, "g1"),  # HF b7-black-clothes-hamper-expert-v1 @1bb002a, first 100 of 107
+    "a1": (P / "a1-ground-object-pickup-v1-f47f07e/data", None, "g1"),  # HF a1-ground-object-pickup-expert-v1 @f47f07e (A1)
     "a6": (P / "a6-door-pull-v1-cf3ee9b/data/door_pull", None, "g1"),  # HF door-pull-expert-v1 @cf3ee9b (A6)
     "c6t": (P / "c6-test8-06c231d/data", None, "g1"),  # c6 8-episode adaptation test only
     "c6": (P / "c6-bathroom-door-fetch-v1-3afba69/data", None, "g1"),  # HF c6-bathroom-door-fetch-expert-v1 @3afba69 (C6)

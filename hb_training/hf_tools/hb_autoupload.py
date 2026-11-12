@@ -54,7 +54,11 @@ for _d, _v in ((TASKDIR, dict(a6="a6-door-pull", c6="c6-bathroom-door-fetch")),
                (TASKDIR, dict(a14="a14-unscrew-bulb")),
                (DESC, dict(a14="Insert a bulb into the socket and screw it in until it lights up")),
                (TASKNAME, dict(a14="A14 screw in a bulb (H2, cameras head + chest + wrist)")),
-               (HFDATA, dict(a14="a14-unscrew-bulb-expert-v1 @b4390fc"))):
+               (HFDATA, dict(a14="a14-unscrew-bulb-expert-v1 @b4390fc")),
+               (TASKDIR, dict(a1="a1-ground-object-pickup")),
+               (DESC, dict(a1="Walk to a carton on the floor, squat, grasp and lift it with the right hand, stand and take two steps holding it")),
+               (TASKNAME, dict(a1="A1 ground object pickup (G1)")),
+               (HFDATA, dict(a1="a1-ground-object-pickup-expert-v1 @f47f07e"))):
     for _k, _x in _v.items():
         _d.setdefault(_k, _x)
 ROBOT = {t: ("H2 (Sharpa hands)" if t in ("a18", "a17", "a14") else "Unitree G1") for t in TASKDIR}

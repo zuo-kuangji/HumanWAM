@@ -75,6 +75,8 @@ TASKS = {
                total_episodes=None, source='b7-black-clothes-hamper-expert-v1 @1bb002a'),
     'a6': dict(data=P / 'a6-door-pull-v1-cf3ee9b/data/door_pull', old=None, control_hz=50,
                total_episodes=None, source='door-pull-expert-v1 @cf3ee9b'),
+    'a1': dict(data=P / 'a1-ground-object-pickup-v1-f47f07e/data', old=None, control_hz=50,
+               total_episodes=None, source='a1-ground-object-pickup-expert-v1 @f47f07e'),
     'c6': dict(data=P / 'c6-bathroom-door-fetch-v1-3afba69/data', old=None, control_hz=50,
                total_episodes=None, source='c6-bathroom-door-fetch-expert-v1 @3afba69e'),
 }
