@@ -16,7 +16,10 @@ from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader  # no
 from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor  # noqa: E402
 
 view = Path(sys.argv[1])
-if view.name == "a18":
+if view.name == "a14":
+    import h2w3_body31_hand44_h16 as C  # noqa: E402  (3 cameras head + chest + wrist)
+    cfg = C.h2w3_body31_hand44_h16
+elif view.name in ("a18", "a17"):
     import h2_body31_hand44_h16 as C  # noqa: E402
     cfg = C.h2_body31_hand44_h16
 else:

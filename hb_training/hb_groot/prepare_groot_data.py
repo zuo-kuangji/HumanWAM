@@ -26,13 +26,16 @@ TASKS = {
     "a7": (P / "a3-a7-20261109/a7-cabinet-close-expert-v1/1935a98e8f55d4d1d2d1615ddb97c2679713595c", None),
     "a18": (P / "a18-h2-dataset-audit-8e956a10/dataset", None),
     "a17": (P / "a17-unscrew-bottle-v1-407e6e2/data", None),  # HF a17-unscrew-bottle-expert-v1 @407e6e2
+    "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2, 3 cameras)
 }
-CONFIG = {"a18": "h2_body31_hand44_h16.py", "a17": "h2_body31_hand44_h16.py"}
+CONFIG = {"a18": "h2_body31_hand44_h16.py", "a17": "h2_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py"}
+# model-input cameras per H2 task (user 2026-11-12: only A14 adds the wrist camera; third_person is never an input)
+CAMS = {"a18": ("head", "chest"), "a17": ("head", "chest"), "a14": ("head", "chest", "wrist")}
 H2_GROUPS = {"left_leg": (0, 6), "right_leg": (6, 12), "waist": (12, 15), "left_arm": (15, 22), "right_arm": (22, 29),
              "head": (29, 31), "left_hand": (31, 53), "right_hand": (53, 75)}
 
 
-def h2_modality(info):
+def h2_modality(info, cams=("head", "chest")):
     f = info["features"]
     names = f["observation.state"]["names"]
     assert len(names) == 75 and names[:31] == f["action.body_target"]["names"] and names[31:] == f["action.hands"]["names"]
@@ -43,8 +46,7 @@ def h2_modality(info):
             "action": {"body_target": {"original_key": "action.body_target", "start": 0, "end": 31},
                        "left_hand_target": {"original_key": "action.hands", "start": 0, "end": 22},
                        "right_hand_target": {"original_key": "action.hands", "start": 22, "end": 44}},
-            "video": {"head": {"original_key": "observation.images.head"},
-                      "chest": {"original_key": "observation.images.chest"}},
+            "video": {c: {"original_key": f"observation.images.{c}"} for c in cams},
             "annotation": {"human.task_description": {"original_key": "task_index"}}}
 BODY = ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint",
         "left_ankle_roll_joint", "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
@@ -105,8 +107,8 @@ def build(task):
         # stats.py computes stats for every low-dim feature in info.json and cannot handle e.g. observation.tactile
         # [10,24,24]; keep only what the H2 modality uses (parquet columns stay untouched behind the symlinks).
         keep = {"observation.state", "observation.projected_gravity", "action.body_target", "action.hands",
-                "observation.images.head", "observation.images.chest", "timestamp", "frame_index", "episode_index",
-                "index", "task_index"}
+                "timestamp", "frame_index", "episode_index", "index", "task_index"}
+        keep |= {f"observation.images.{c}" for c in CAMS[task]}
         info["features"] = {k: v for k, v in info["features"].items() if k in keep}
         vkeys = [k for k in vkeys if k in keep]
         stats = [{**s, "stats": {k: v for k, v in s["stats"].items() if k in keep}} if "stats" in s else s
@@ -118,7 +120,7 @@ def build(task):
     wl(dst / "meta/episodes_stats.jsonl", stats)
     (dst / "meta/tasks.jsonl").write_text((src / "meta/tasks.jsonl").read_text())
     if task in CONFIG:
-        modality = h2_modality(info)
+        modality = h2_modality(info, CAMS[task])
     else:
         state = {g: {"original_key": "observation.state", "start": idx[a], "end": idx[a] + (b - a)}
                  for g, (a, b) in GROUPS.items()}
