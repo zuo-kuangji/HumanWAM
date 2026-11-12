@@ -21,7 +21,7 @@ Per-robot layouts (same row t; labels are the values of row t):
   h2 (a18)              observation.hb78 = observation.state[0:75] (legs 12, waist 3, arms 14, head 2, hands 22+22)
                                            + projected_gravity 3
                         action.hb75      = action.body_target 31 (names == state[0:31]) + action.hands 44 (names == state[31:75])
-                        cameras head (cam0) + chest; joint-perturbed dims 31 (29 body + head 2)
+                        cameras head (cam0) + chest + wrist (2026-11-13); joint-perturbed dims 31 (29 body + head 2)
 Why derived columns: SonicRepackTransform.delta_timestamps keys windows by column name, so one column cannot be
 both a 1-frame state and a 30-frame action chunk (G1 hands), and Psi0 takes one state / one action key here.
 The CLIP pooled text cache is NOT precomputed here: FinetuneTrainer._warm_pooled_cache_from_tasks
@@ -56,6 +56,7 @@ TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "a7": (P / "a3-a7-20261109/a7-cabinet-close-expert-v1/1935a98e8f55d4d1d2d1615ddb97c2679713595c", None, "g1"),
     "a18": (P / "a18-h2-dataset-audit-8e956a10/dataset", None, "h2"),
     "a17": (P / "a17-unscrew-bottle-v1-407e6e2/data", None, "h2"),  # HF a17-unscrew-bottle-expert-v1 @407e6e2
+    "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None, "h2"),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2)
 }
 BODY = ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint",
         "left_ankle_roll_joint", "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
@@ -80,7 +81,7 @@ LAYOUTS = {
                exact_dims={STATE: 75, GRAV: 3, BT: 31, HANDS: 44},
                cams={"head": "observation.images.head", "chest": "observation.images.chest",
                      "wrist": "observation.images.wrist", "third_person": "observation.images.third_person"},
-               default_cams="head,chest"),
+               default_cams="head,chest,wrist"),  # 2026-11-13: every H2 task trains with 3 cameras (user)
 }
 SCALARS = ["timestamp", "frame_index", "episode_index", "index", "task_index"]
 TS_TOL = 1e-4  # LeRobotDataset tolerance_s default; check_timestamps_sync raises beyond it
