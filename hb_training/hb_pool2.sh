@@ -36,7 +36,7 @@ while true; do
   case $model in
     groot) bash "$G/hb_groot/groot_single.sh" "$task" "$bs" "$G/groot-runs-b696" > "$POOL/status/$claimed.out" 2>&1; rc=$? ;;
     pi05)  bash "$G/hb_pi05/pi05_single.sh" "$task" "$bs" "$G/pi05-runs/b696/$task/run" > "$POOL/status/$claimed.out" 2>&1; rc=$? ;;
-    groot256) bash "$G/hb_groot/groot_single.sh" "$task" "$bs" "$G/groot-runs-b256" > "$POOL/status/$claimed.out" 2>&1; rc=$? ;;
+    groot256) bash "$G/hb_groot/groot_single_ft.sh" "$task" "$bs" "$G/groot-runs-ft4k" > "$POOL/status/$claimed.out" 2>&1; rc=$? ;;
     act)   bash "$G/hb_act/act_single_b256.sh" "$task" "$bs" "$G/act-runs-b256" > "$POOL/status/$claimed.out" 2>&1; rc=$? ;;
     *)     echo "unknown model $model"; rc=99 ;;
   esac

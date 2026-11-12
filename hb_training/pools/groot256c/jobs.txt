@@ -1,0 +1,2 @@
+# 2026-11-12 19:5x user: GR00T C6 re-train (full fine-tuning, 4000 steps) at the head of the C6 block
+c01 groot256 c6 32

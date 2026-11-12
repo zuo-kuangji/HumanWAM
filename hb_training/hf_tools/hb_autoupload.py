@@ -107,7 +107,10 @@ SUBDIR.update({("psi0a", t): "b512" for t in ("b6", "a3", "a7", "a18", "trolley"
 SUBDIR.update({("act256", t): "b256" for t in ("b6", "a3", "a7", "a18", "trolley", "basket", "a17", "b7")})
 # 2026-11-12 15:4x: GR00T 256 re-trains of the remaining 696 tasks -> groot/<task>/b256/
 SUBDIR.update({("groot", t): "b256" for t in ("b6", "a17", "b7", "a18", "trolley", "basket")})
-REPO_OF = {"psi0a": "psi0", "act256": "act"}
+# 2026-11-12 19:5x: GR00T full fine-tuning, fixed 4000 steps (job model "grootft", runs in groot-runs-ft4k) -> repo groot,
+# <task>/b256/step-002000|step-004000 for the eight earlier tasks, <task>/step-... for A6 / C6 / A14
+SUBDIR.update({("grootft", t): "b256" for t in ("b6", "a3", "a7", "a17", "b7", "a18", "trolley", "basket")})
+REPO_OF = {"psi0a": "psi0", "act256": "act", "grootft": "groot"}
 
 
 def repo_path(model, task):
@@ -117,8 +120,9 @@ def repo_path(model, task):
 
 MODEL_TEXT["psi0a"] = MODEL_TEXT["psi0"]
 MODEL_TEXT["act256"] = MODEL_TEXT["act"]
+MODEL_TEXT["grootft"] = MODEL_TEXT["groot"]
 CODE_DIR = {"act": "hb_act", "psi0": "hb_psi0", "deltaflow": "hb_deltaflow", "dit4dit": "hb_dit4dit",
-            "groot": "hb_groot", "pi05": "hb_pi05", "psi0a": "hb_psi0", "act256": "hb_act"}
+            "groot": "hb_groot", "pi05": "hb_pi05", "psi0a": "hb_psi0", "act256": "hb_act", "grootft": "hb_groot"}
 
 
 def log(*a):
@@ -322,7 +326,11 @@ def collect_groot(task):
     run = G / "groot-runs-b256" / task
     if not (run / "production-complete.json").is_file():
         return None
-    plan = rd(run / "production-complete.json")
+    return collect_groot_from(run, rd(run / "production-complete.json"))
+
+
+def collect_groot_from(run, plan):
+    task = run.name
     data = G / "groot-data" / task
     eps = []
     for ep, step in ((10, plan["save_steps"]), (20, plan["max_steps"])):
@@ -339,7 +347,7 @@ def collect_groot(task):
               "training_plan.json": run / "production-complete.json", "train.log": run / "logs/production.log"}
     for f in sorted((G / "hb_groot").glob("*.py")):
         common["code/hb_groot/" + f.name] = f
-    proto = dict(epochs=plan["epochs"], total_steps=plan["max_steps"], save_steps=plan["save_steps"],
+    proto = dict(epochs=plan.get("epochs"), total_steps=plan["max_steps"], save_steps=plan["save_steps"],
                  global_batch=plan["global_batch"], per_gpu_batch=plan["per_gpu_batch"], num_gpus=plan["world_size"],
                  lr=1e-4, lr_schedule="cosine, warmup_ratio 0.05", weight_decay=1e-5,
                  proprio_augmentation="per-sample joint bias +-2 deg + noise 0.25 deg (hb_aug_v2.perturb_joints); "
@@ -348,6 +356,21 @@ def collect_groot(task):
                  inference="NVIDIA Isaac-GR00T N1.7 policy loader with embodiment_tag new_embodiment and "
                            "experiment_cfg/conf.yaml; VLM nvidia/Cosmos-Reason2-2B from its own repository.")
     return dict(eps=eps, common=common, proto=proto)
+
+
+def collect_grootft(task):
+    run = G / "groot-runs-ft4k" / task
+    if not (run / "production-complete.json").is_file():
+        return None
+    plan = rd(run / "production-complete.json")
+    c = collect_groot_from(run, plan)
+    for e in c["eps"]:
+        e["name"] = f"step-{e['step']:06d}"
+        e["epoch"] = None
+    c["proto"].update(epochs=None, epochs_equivalent=plan.get("epochs_equivalent"), recipe=plan.get("recipe"),
+                      gradient_accumulation_steps=plan.get("gradient_accumulation_steps"),
+                      trainable="all modules (tune_llm, tune_visual, projector, diffusion action head, VLLN)")
+    return c
 
 
 def collect_pi05(task):
@@ -384,7 +407,7 @@ def collect_pi05(task):
     return dict(eps=eps, common=common, proto=proto)
 
 
-COLLECT = {"act": collect_act, "psi0": collect_psi0, "deltaflow": collect_deltaflow, "dit4dit": collect_dit4dit, "groot": collect_groot, "pi05": collect_pi05, "psi0a": collect_psi0a, "act256": collect_act256}
+COLLECT = {"act": collect_act, "psi0": collect_psi0, "deltaflow": collect_deltaflow, "dit4dit": collect_dit4dit, "groot": collect_groot, "pi05": collect_pi05, "psi0a": collect_psi0a, "act256": collect_act256, "grootft": collect_grootft}
 
 
 # ---------------------------------------------------------------- stage, upload, verify
@@ -397,7 +420,7 @@ def stage(model, task, c):
     for e in c["eps"]:
         if e.get("files") is None and e.get("tree") is None:
             continue
-        ed = dst / f"epoch-{e['epoch']:03d}"
+        ed = dst / (e.get("name") or f"epoch-{e['epoch']:03d}")
         if e.get("tree") is not None:
             put_tree(e["tree"], ed)
         for name, src in (e.get("files") or {}).items():
@@ -467,7 +490,7 @@ def upload(model, task, dst):
     extra = [k for k in tree if k.startswith(td + "/") and not (dst / k[len(td) + 1:]).is_file()]
     # README + code
     tasks = sorted({t for t in TASKDIR if any(k.startswith(TASKDIR[t] + "/epoch-") for k in tree)})
-    if model in ("groot", "pi05", "psi0a", "act256"):
+    if model in ("groot", "pi05", "psi0a", "act256", "grootft"):
         try:
             log(f"model card {repo}: {hb_modelcard.update(api, repo.split('/')[1], _TOKEN)}")
         except Exception as e:  # never block the checkpoint upload on the card

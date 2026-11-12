@@ -82,25 +82,25 @@ def build(api, repo, token):
     files = [f.path for f in api.list_repo_tree(rid, recursive=True) if hasattr(f, "size")]
     variants = {}
     for f in files:
-        m = re.match(r"^([a-z0-9-]+)/(?:([a-z0-9]+)/)?epoch-(\d+)/protocol\.json$", f)
+        m = re.match(r"^([a-z0-9-]+)/(?:([a-z0-9]+)/)?((?:epoch|step)-\d+)/protocol\.json$", f)
         if m and m.group(1) in TASKS:
-            variants.setdefault((m.group(1), m.group(2) or ""), []).append(int(m.group(3)))
+            variants.setdefault((m.group(1), m.group(2) or ""), []).append(m.group(3))
     rows = []
     with tempfile.TemporaryDirectory() as td:
         for td_name in TASKS:
             for (t, sub), eps in sorted(variants.items(), key=lambda kv: (kv[0][1] != "", kv[0][1])):
                 if t != td_name:
                     continue
-                eps = sorted(eps)
+                eps = sorted(eps, key=lambda n: (n.split("-")[0], int(n.split("-")[1])))
                 folder = t + ("/" + sub if sub else "")
-                p = json.load(open(hf_hub_download(rid, f"{folder}/epoch-{eps[-1]:03d}/protocol.json", token=token,
+                p = json.load(open(hf_hub_download(rid, f"{folder}/{eps[-1]}/protocol.json", token=token,
                                                    local_dir=td)))
                 robot = TASKS[t][1]
                 gb = p.get("global_batch") or (p.get("plan") or {}).get("global_batch") or "—"
                 note = "re-train, current protocol" if re.fullmatch(r"b\d+", sub or "") else ""
                 rows.append(f"| `{folder}/` | {TASKS[t][0]}{' (' + note + ')' if note else ''} | {ROBOT[robot]} | "
                             f"{_cams(p, robot)} | {gb} | {_proprio(repo, p)} | "
-                            + ", ".join(f"`epoch-{e:03d}`" for e in eps) + " |")
+                            + ", ".join(f"`{e}`" for e in eps) + " |")
     title, intro, extra = HEAD[repo]
     has_variant = any(sub for (_, sub) in variants)
     table = "\n".join(rows) if rows else "| — | no benchmark checkpoints published yet | | | | | |"
@@ -132,7 +132,7 @@ training round, kept for reference.
     card += """
 ## What an epoch folder contains
 
-Every `epoch-XXX/` folder is self-contained for evaluation and deployment: weights, model configuration, normalization
+Every checkpoint folder (`epoch-XXX/`, or `step-XXXXXX/` for runs trained for a fixed number of steps) is self-contained for evaluation and deployment: weights, model configuration, normalization
 statistics and `protocol.json` (task, data, input/output dimensions, cameras, batch, steps, augmentation, file list).
 Simple training records are included for reproducibility (training plan, training log, configs, metrics); optimizer /
 scheduler / RNG / DeepSpeed resume state is not. `code/` holds the adapter code used for training and inference

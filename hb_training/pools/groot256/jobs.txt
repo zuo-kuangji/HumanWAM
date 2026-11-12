@@ -1,7 +1,10 @@
-# 2026-11-12 15:4x user: GR00T re-trains of the six remaining 696 tasks at global batch 256 (32 x 8, one node per job),
-# B6 first, right after Delta Flow b6; HF groot/<task>/b256/ (696 versions kept)
+# 2026-11-12 19:5x user: GR00T from now on FULL fine-tuning, fixed 4000 steps, global batch 256 (groot_single_ft.sh,
+# runs in groot-runs-ft4k, HF step-002000 / step-004000). Pool 1 (after Delta Flow b6): B6 first, ACT basket fills a node,
+# then A17 / A18 and the re-trains of A3 / A7 / A6 (previously frozen-VLM 20-epoch runs).
 g01 groot256 b6 32
+a07 act basket 32
 g02 groot256 a17 32
 g04 groot256 a18 32
-# 2026-11-12 17:5x user: ACT basket (global 256, single node) fills the 4th node of this pool
-a07 act basket 32
+g07 groot256 a3 32
+g08 groot256 a7 32
+g09 groot256 a6 32
