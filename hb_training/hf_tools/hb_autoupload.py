@@ -95,8 +95,9 @@ SUBDIR = {("groot", "a3"): "b256", ("groot", "a7"): "b256",
           **{("pi05", t): "b256" for t in ("b6", "a3", "a7", "a18", "trolley", "basket", "a17", "b7")}}
 
 
-# 2026-11-12: aligned Psi-Zero re-trains (job model "psi0a") go to humanoid-benchmark/psi0 under <task>/aligned/
-SUBDIR.update({("psi0a", t): "aligned" for t in ("b6", "a3", "a7", "a18", "trolley", "a17", "basket")})
+# 2026-11-12: aligned Psi-Zero re-trains (job model "psi0a", global batch 512) go to humanoid-benchmark/psi0 under
+# <task>/b512/ (user rule: HF sub-folders are always named after the global batch, b<N>; never "aligned")
+SUBDIR.update({("psi0a", t): "b512" for t in ("b6", "a3", "a7", "a18", "trolley", "a17", "basket")})
 # 2026-11-12: ACT back at global batch 256 (job model "act256"): earlier 696 tasks go to act/<task>/b256/, A6 / C6 to act/<task>/
 SUBDIR.update({("act256", t): "b256" for t in ("b6", "a3", "a7", "a18", "trolley", "basket", "a17", "b7")})
 # 2026-11-12 15:4x: GR00T 256 re-trains of the remaining 696 tasks -> groot/<task>/b256/

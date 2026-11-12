@@ -53,7 +53,7 @@ HEAD = {
                 "with DiT4DiT's native sin/cos state encoding inside the model (G1 73-D, H2 153-D) of the same raw "
                 "44 / 78-D benchmark state.", ""),
 }
-VARIANT_NOTE = {"b256": "re-train, current protocol", "aligned": "re-train with aligned proprio, current protocol"}
+VARIANT_NOTE = {}  # every sub-folder is b<global batch> (user rule 2026-11-12)
 
 
 def _cams(p, robot):
@@ -97,7 +97,7 @@ def build(api, repo, token):
                                                    local_dir=td)))
                 robot = TASKS[t][1]
                 gb = p.get("global_batch") or (p.get("plan") or {}).get("global_batch") or "—"
-                note = VARIANT_NOTE.get(sub, "")
+                note = "re-train, current protocol" if re.fullmatch(r"b\d+", sub or "") else ""
                 rows.append(f"| `{folder}/` | {TASKS[t][0]}{' (' + note + ')' if note else ''} | {ROBOT[robot]} | "
                             f"{_cams(p, robot)} | {gb} | {_proprio(repo, p)} | "
                             + ", ".join(f"`epoch-{e:03d}`" for e in eps) + " |")
@@ -124,7 +124,7 @@ tags:
 """
     if has_variant:
         card += """
-A `b256/` or `aligned/` sub-folder is a re-train of that task under the current benchmark protocol (2026-11-12: global
+A `bNNN/` sub-folder (NNN = its global batch, e.g. `b256/`, `b512/`) is a re-train of that task under the current benchmark protocol (2026-11-12: global
 batch GR00T / pi0.5 / Delta Flow / ACT 256, Psi-Zero 512, DiT4DiT 64; proprioception augmentation aligned with the
 GR00T A20 recipe) and is the one to use for that task; the checkpoints directly under the task folder are the earlier
 training round, kept for reference.
