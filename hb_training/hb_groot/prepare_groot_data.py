@@ -28,9 +28,9 @@ TASKS = {
     "a17": (P / "a17-unscrew-bottle-v1-407e6e2/data", None),  # HF a17-unscrew-bottle-expert-v1 @407e6e2
     "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2, 3 cameras)
 }
-CONFIG = {"a18": "h2_body31_hand44_h16.py", "a17": "h2_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py"}
-# model-input cameras per H2 task (user 2026-11-12: only A14 adds the wrist camera; third_person is never an input)
-CAMS = {"a18": ("head", "chest"), "a17": ("head", "chest"), "a14": ("head", "chest", "wrist")}
+CONFIG = {"a18": "h2w3_body31_hand44_h16.py", "a17": "h2w3_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py"}
+# model-input cameras per H2 task (user 2026-11-12 22:0x: EVERY H2 task uses head + chest + wrist; third_person never)
+CAMS = {"a18": ("head", "chest", "wrist"), "a17": ("head", "chest", "wrist"), "a14": ("head", "chest", "wrist")}
 H2_GROUPS = {"left_leg": (0, 6), "right_leg": (6, 12), "waist": (12, 15), "left_arm": (15, 22), "right_arm": (22, 29),
              "head": (29, 31), "left_hand": (31, 53), "right_hand": (53, 75)}
 

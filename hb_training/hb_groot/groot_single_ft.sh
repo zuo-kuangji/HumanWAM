@@ -14,9 +14,11 @@ export HB_BODY_STATE_KEYS=left_leg,right_leg,waist,left_arm,right_arm
 if [[ $TASK = a1[478] ]]; then CFG=h2_body31_hand44_h16.py; export HB_BODY_STATE_KEYS=left_leg,right_leg,waist,left_arm,right_arm,head; fi
 H=$(dirname "$(realpath "$0")")
 G=$(dirname "$H")
-if [ "$TASK" = a14 ]; then  # A14 uses head + chest + wrist (user 2026-11-12); needs its own 3-camera modality config
+if [[ $TASK = a1[478] ]]; then  # every H2 task trains with head + chest + wrist (user 2026-11-12 22:0x)
   CFG=h2w3_body31_hand44_h16.py
-  [ -f "$H/$CFG" ] || { echo "A14 3-camera modality config $H/$CFG missing"; exit 3; }
+  [ -f "$H/$CFG" ] || { echo "H2 3-camera modality config $H/$CFG missing"; exit 3; }
+  python3 -c "import json,sys; v=list(json.load(open(sys.argv[1]))['video']); sys.exit(0 if v==['head','chest','wrist'] else 4)" "$G/groot-data/$TASK/meta/modality.json" \
+    || { echo "groot-data/$TASK is not the 3-camera view"; exit 4; }
 fi
 GR=$G/HumanWAM/third_party/Isaac-GR00T
 ENV=$G/envs/groot-py312
