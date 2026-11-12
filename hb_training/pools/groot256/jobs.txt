@@ -1,10 +1,14 @@
-# 2026-11-12 19:5x user: GR00T from now on FULL fine-tuning, fixed 4000 steps, global batch 256 (groot_single_ft.sh,
-# runs in groot-runs-ft4k, HF step-002000 / step-004000). Pool 1 (after Delta Flow b6): B6 first, ACT basket fills a node,
-# then A17 / A18 and the re-trains of A3 / A7 / A6 (previously frozen-VLM 20-epoch runs).
+# 2026-11-12 20:0x user: GR00T re-trained on EVERY task (full fine-tuning, fixed 4000 steps, global 256, one node per job),
+# all in this pool right after Delta Flow b6; B6, A3, A7, A6 first. ACT stays entirely in the last ACT pool.
+# A14 needs the 3-camera config (head + chest + wrist) and groot-data/a14 before it is claimed; it is therefore last.
 g01 groot256 b6 32
-a07 act basket 32
-g02 groot256 a17 32
-g04 groot256 a18 32
 g07 groot256 a3 32
 g08 groot256 a7 32
 g09 groot256 a6 32
+g02 groot256 a17 32
+g04 groot256 a18 32
+g03 groot256 b7 32
+g05 groot256 trolley 32
+g06 groot256 basket 32
+g10 groot256 c6 32
+g11 groot256 a14 32

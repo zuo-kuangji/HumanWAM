@@ -474,7 +474,10 @@ def upload(model, task, dst):
     api.create_repo(repo, repo_type="model", private=False, exist_ok=True)
     if api.model_info(repo).private:
         raise RuntimeError(f"{repo} is private")
-    c = api.upload_folder(repo_id=repo, folder_path=str(dst), path_in_repo=td, delete_patterns=["*"],
+    # 2026-11-12 user: never delete other checkpoint folders of the task (earlier rounds, b<N>/ variants, epoch- vs
+    # step- naming); only the checkpoint folders uploaded now are replaced as a whole.
+    own = [d.name for d in dst.iterdir() if d.is_dir()]
+    c = api.upload_folder(repo_id=repo, folder_path=str(dst), path_in_repo=td, delete_patterns=[f"{n}/*" for n in own],
                           commit_message=f"{task}: last two checkpoints + eval/deploy files + training records")
     tree = {f.path: f for f in api.list_repo_tree(repo, recursive=True, expand=True) if hasattr(f, "size")}
     bad = []
@@ -487,7 +490,7 @@ def upload(model, task, dst):
             ((r.lfs is not None and r.lfs.sha256 == sha256(p)) or (r.lfs is None and r.blob_id == git_sha1(p)))
         if not ok:
             bad.append(k)
-    extra = [k for k in tree if k.startswith(td + "/") and not (dst / k[len(td) + 1:]).is_file()]
+    extra = [k for k in tree if any(k.startswith(f"{td}/{n}/") for n in own) and not (dst / k[len(td) + 1:]).is_file()]
     # README + code
     tasks = sorted({t for t in TASKDIR if any(k.startswith(TASKDIR[t] + "/epoch-") for k in tree)})
     if model in ("groot", "pi05", "psi0a", "act256", "grootft"):
