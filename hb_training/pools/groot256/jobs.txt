@@ -3,3 +3,5 @@
 g01 groot256 b6 32
 g02 groot256 a17 32
 g04 groot256 a18 32
+# 2026-11-12 17:5x user: ACT basket (global 256, single node) fills the 4th node of this pool
+a07 act basket 32
