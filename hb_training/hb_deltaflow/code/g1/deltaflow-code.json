@@ -1,0 +1,27 @@
+{
+  "source": "/mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/b6-v5t7-ready-start-60ep-20261109/HumanWAM",
+  "hb_aug_v2_source": "/mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_groot/hb_aug_v2.py",
+  "created": "2026-11-11T18:07:12Z",
+  "changes": [
+    "wholebody.py: train exactly episodes 0-99 (\"first_100\"), later episodes shelved",
+    "hb_aug_v2.py: unchanged copy of the shared spec-v2 implementation",
+    "wholebody_hbaug.py: WholeBodyHBAugV2LeRobotDataset(WholeBodyRobustLeRobotDataset), visual aug -> hb_aug_v2, 44-D proprio, NO joint velocity (wholebody_velocity.py stays in the tree, unused); proprio aligned with GR00T A20 (per-sample perturb_joints, no delay, no history drop; 2026-11-12)",
+    "train_deltaflow.py: 40-epoch entry, full state at every save, --resume",
+    "wholebody_delta.py: the state44 copy of real30-from-sim60-20261108 (the B6 60-epoch copy hard-codes the 73-D velocity state)",
+    "wholebody.py (2026-11-12 04:3x): timestamp check rtol 1e-7 added (float32 timestamps of 75 s C6 episodes differ by 3.6e-6 s from i/30; 1e-5 s at 75 s << 1 frame)"
+  ],
+  "sha256": {
+    "src/imagewam/datasets/wholebody.py": "b192b1b8d5c792eee10ad6f792258c63228958986f5e75c274b8cb0dca190c71",
+    "src/imagewam/datasets/hb_aug_v2.py": "9f7713cea4f846efcfc924234267ced48210357f419d67915c10b504316bedde",
+    "src/imagewam/datasets/wholebody_hbaug.py": "1a02a6b5710661ca08e7da246b12e222392e2fb5c17a4e98516fc8942bf183ed",
+    "scripts/wholebody/train_deltaflow.py": "30ec8438586b003b160caf7dfc4b9b822b7c4a996efabd5234b242cb59ab9402",
+    "src/imagewam/wholebody_delta.py": "523244263496679f7046035f5df3d34590b7086e25173938d8a175dad963b9f3",
+    "src/imagewam/datasets/wholebody_velocity.py": "a5788736652772aea2fcf305b47ca6a6c11e1ea798fe8e2cf7bcdd1a242b23ea",
+    "src/imagewam/datasets/wholebody_augmented_v3.py": "0e34ea3a71dde2f05bd4bd314ec97787bf3d1809c1cedc3dff5e8610b7723366",
+    "src/imagewam/datasets/wholebody_augmented.py": "641bb399f54206fe1c923c4b24fd1b9797787616154915523f10a9480daf7da3",
+    "src/imagewam/trainer.py": "cdcd48e09d1d7b81cae3a829bd415ed4b53ff1b290aacac1ce2217876f475b1a",
+    "src/imagewam/runtime.py": "3ebc45f61b0c22fb659012a7d76bea671a42e1e528b5c917ae1e8827e88b890b",
+    "scripts/wholebody/train_a3a7.py": "2cf154f91de516f96da9b93f4b8e235fab13344461b2aeb5d048e4f78a63dec8",
+    "scripts/accelerate_configs/accelerate_zero1_ds.yaml": "5b9e24f38c199fdff6bbd17981d86e2624f855f707660094c99f711efc8e0833"
+  }
+}
