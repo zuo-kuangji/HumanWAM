@@ -1,5 +1,9 @@
 # G1 部署：模型服务与 SONIC v1.1
 
+FastWAM 的 GR00T feedback76/H16 policy RPC、数据映射和独立训练入口见
+[FastWAM SONIC 接入说明](policies/FASTWAM_SONIC.md)。它复用既有 feedback76 执行链路，
+需要自己的匹配权重；下文仍专门描述两条 ImageWAM 路线。
+
 本文对应 main 上的两条 ImageWAM Δ-flow 路线。模型训练见[训练入口](TRAINING_MODES.md)，
 关节标签来源见[数据审计](policies/REFERENCE_LABEL_AUDIT_20261110.md)。
 

@@ -17,6 +17,15 @@ class Backend:
 
 
 BACKENDS = {
+    "fastwam_sonic": Backend(
+        "Fast-WAM G1 feedback76 + SONIC",
+        "humanwam.backends.fastwam_sonic",
+        "humanwam.backends.fastwam_sonic",
+        "third_party/FastWAM",
+        "GR00T feedback76 nested current video/state/language; state44, ego/chest",
+        "separately trained Gaussian FM H16 motion64 + measured Inspire6/6; native SONIC wire",
+        "Separate native Fast-WAM environment plus humanwam[sonic]",
+    ),
     "fastwam": Backend(
         "Fast-WAM (native Gaussian)",
         "humanwam.backends.fastwam",
@@ -114,7 +123,7 @@ def build_command(config, action, root):
     module = importlib.import_module(spec.commands)
     options = dict(config.get("options", {}))
     options.setdefault("python", config.get("python", "python3"))
-    if config["backend"] in ("imagewam_delta", "imagewam_joint_reference", "fastwam"):
+    if config["backend"] in ("imagewam_delta", "imagewam_joint_reference", "fastwam", "fastwam_sonic"):
         options.setdefault("launcher_config", config.get("_config_path"))
     source = Path(config.get("source_dir", root / spec.source))
     if not source.is_absolute():

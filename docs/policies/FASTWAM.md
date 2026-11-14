@@ -1,5 +1,9 @@
 # Fast-WAM 原生维护入口
 
+G1 的 GR00T feedback76/H16 观测、动作和原生 SONIC policy RPC 对齐入口见
+[FastWAM SONIC](FASTWAM_SONIC.md)。该入口需要单独训练的 action76/state44 权重。
+下文仍描述官方 LIBERO/RoboTwin 发布权重及其原生动作空间。
+
 源码来自 [官方 FastWAM](https://github.com/yuantianyuan01/FastWAM)，固定 commit
 `7faa71108368fbb3b6885649f112af607427a2d4`。保留 submodule 中的 MIT License
 及第三方文件许可。此入口维护官方 Gaussian FM，不含我们历史实验中的 A2A、

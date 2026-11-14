@@ -64,9 +64,9 @@ jobs:
           GIT_LFS_SKIP_SMUDGE: "1"
         run: >-
           git submodule update --init --depth 1 --filter=blob:none
-          third_party/GR00T-WholeBodyControl third_party/FastWAM
+          third_party/GR00T-WholeBodyControl third_party/FastWAM third_party/Isaac-GR00T
       - name: Install orchestration and test dependencies
-        run: python -m pip install -e './packages/humanwam[test]' omegaconf==2.3.0
+        run: python -m pip install -e './packages/humanwam[test,data]' omegaconf==2.3.0
       - name: CPU policy and orchestration contracts
         env:
           PYTHONPATH: src
