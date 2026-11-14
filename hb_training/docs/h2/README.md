@@ -4,6 +4,7 @@
 
 | 文件 | 内容 |
 |---|---|
+| [h2_training_tasks.md](h2_training_tasks.md) | 用户 2026-11-14 定的 7 项训练清单（以此为准；GR00T、Psi0 全部排完后才排 Delta Flow） |
 | [h2_training_matrix.md](h2_training_matrix.md) | 3 个任务 × 3 个模型（DeltaFlow、GR00T N1.7、Psi0）哪些要训、哪些已完成，以及共同规定 |
 | [a14_training_guide.md](a14_training_guide.md) | A14：v2 数据（加了 `action.planner` 行走指令），动作 82 维 |
 | [a17_training_guide.md](a17_training_guide.md) | A17：GR00T、DeltaFlow 重训，Psi0 不重训 |
