@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "backend": "fastwam_sonic",
+  "source_dir": "${HUMANWAM_ROOT}/third_party/FastWAM",
+  "python": "${FASTWAM_PYTHON}",
+  "options": {
+    "checkpoint": "${FASTWAM_SONIC_CHECKPOINT}",
+    "checkpoint_manifest": "${FASTWAM_SONIC_MANIFEST}",
+    "stats_path": "${FASTWAM_SONIC_STATS}",
+    "model_cache_root": "${FASTWAM_MODEL_CACHE}",
+    "profile": "feedback76_h16",
+    "device": "cuda",
+    "dtype": "bf16",
+    "method": "gaussian_fm",
+    "sigma_shift": 1.0,
+    "num_inference_steps": 10,
+    "host": "127.0.0.1",
+    "port": 5555
+  }
+}

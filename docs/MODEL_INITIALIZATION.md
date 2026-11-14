@@ -1,7 +1,7 @@
 # 六个 policy 家族的基础权重、初始化与部署
 
 本仓库提供代码、原生入口和配置，不附带模型权重。下面的下载命令供操作者执行，本次整理没有启动大模型下载。每种 policy 使用独立环境，先按 [维护说明](POLICY_MAINTENANCE.md) 准备固定版本源码。示例中 `MODEL_ROOT` 是自行指定的绝对路径。
-六个家族共七个注册入口，ImageWAM motion76与joint41/47分别维护。新增Fast-WAM未做GPU推理，joint-reference尚无已训练权重。
+六个家族共八个注册入口，ImageWAM motion76与joint41/47、FastWAM官方任务与G1 feedback76分别维护。新增Fast-WAM未做GPU推理，joint-reference尚无已训练权重。
 
 | Policy | 从基础模型开始训练 | 已训练模型的部署材料 | 固定来源与限制 |
 |---|---|---|---|
@@ -141,6 +141,10 @@ export PSI0_RUN_DIR="$MODEL_ROOT/psi0/psi0/simple-checkpoints/sonic-wbcbox.neckl
 Ψ₀ 的 SONIC 子模块使用其 [专用 WBC fork](https://github.com/physical-superintelligence-lab/GR00T-WholeBodyControl) 的 `d40376994ff094787591ab76a691c50b8e131786`，不能替换为本项目顶部 NVLabs WBC 后宣称等价。本次仅验证公开 metadata、adapter 与 native API/CLI 依赖边界，没有加载 Ψ₀ 大权重或执行机器人。
 
 ## 6. Fast-WAM
+
+G1 feedback76/H16 入口需要独立训练的完整 MoT/proprio 权重及 action76/state44 统计，
+不能复用下述7/14维发布权重。初始化与 manifest 登记步骤见
+[FastWAM SONIC](policies/FASTWAM_SONIC.md#新训练)。
 
 官方源码 [FastWAM](https://github.com/yuantianyuan01/FastWAM)固定commit
 `7faa71108368fbb3b6885649f112af607427a2d4`。任务权重来自
