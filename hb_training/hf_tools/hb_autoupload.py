@@ -1119,6 +1119,25 @@ def _fw_metrics(logs, mdir):
     (mdir / "loss_summary.json").write_text(json.dumps(summ, indent=1) + "\n")
 
 
+def _fw_prompt_files(task, run):
+    """File names of THIS task's prompt embeddings in the shared FastWAM text cache (FastWAM naming:
+    sha256(DEFAULT_PROMPT.format(task=...)).t5_len<context_len>.wan22ti2v5b.pt, robot_video_dataset.py)."""
+    import ast
+    src = (FW / "FastWAM/src/fastwam/datasets/lerobot/robot_video_dataset.py").read_text()
+    prompt = ast.literal_eval(re.search(r"DEFAULT_PROMPT\s*=\s*(.+)", src).group(1).strip())
+    lens = set(re.findall(r"^\s*context_len:\s*(\d+)\s*$", (run / "out" / "config.yaml").read_text(), re.M))
+    if len(lens) != 1:
+        raise RuntimeError(f"{task}: context_len in config.yaml is {sorted(lens)}")
+    names = set()
+    for line in (FW / "data" / task / "meta" / "tasks.jsonl").read_text().splitlines():
+        if line.strip():
+            h = hashlib.sha256(prompt.format(task=json.loads(line)["task"]).encode("utf-8")).hexdigest()
+            names.add(f"{h}.t5_len{next(iter(lens))}.wan22ti2v5b.pt")
+    if not names:
+        raise RuntimeError(f"{task}: no prompt in tasks.jsonl")
+    return sorted(names)
+
+
 def collect_fastwam(task):
     R = FW / "runs" / task
     if not (R / "complete.json").is_file():
@@ -1141,10 +1160,18 @@ def collect_fastwam(task):
               "code/hb_aug_v2.py": G / "hb_groot" / "hb_aug_v2.py",
               "code/fastwam_task.sh": G / "hb_fastwam" / "fastwam_task.sh",
               "code/fastwam_prep.sh": FW / "tools" / "fastwam_prep.sh"}
+    # 2026-11-16 user: ship the inference adapter (and the two modules it / hb_inloop_fastwam import) with every
+    # FastWAM checkpoint; collaborators deploy straight from HF
+    EV = G / "eval-action-mse"
+    common.update({"code/ad_fastwam.py": EV / "adapters" / "ad_fastwam.py", "code/hb_eval_common.py": EV / "hb_eval_common.py",
+                   "code/hb_inloop_core.py": EV / "hb_inloop_core.py",
+                   "code/test_fastwam_inputs.py": EV / "test_fastwam_inputs.py"})
     for f in sorted((FW / "tools").glob("*.py")):
         common[f"code/{f.name}"] = f
-    for f in sorted((FW / "text-cache" / "all").glob("*.pt")):
-        common[f"text_embeddings/{f.name}"] = f
+    # 2026-11-16 (A800 handoff session): only this task's prompt embeddings, not the whole shared cache, so prompts
+    # added for later tasks never make an earlier upload mismatch (missing files are caught by the check below)
+    for name in _fw_prompt_files(task, R):
+        common[f"text_embeddings/{name}"] = FW / "text-cache" / "all" / name
     logs = [f for f in sorted((R / "logs").glob("node-*.log")) if f.stat().st_size < 50 * 1024 * 1024]
     for f in logs:
         common[f"logs/{f.name}"] = f
@@ -1177,7 +1204,10 @@ def collect_fastwam(task):
                         "model_config.yaml (the model part)",
                  inference="FastWAM: build the model from model_config.yaml, load model.pt (DiT state dict), the "
                            "normalizer from dataset_stats.json and the prompt embedding from text_embeddings/; "
-                           "code/hb_fastwam_convert.py documents the state / action layout of the benchmark interface")
+                           "code/hb_fastwam_convert.py documents the state / action layout of the benchmark interface; "
+                           "code/ad_fastwam.py is the inference adapter of our evaluation (action-only "
+                           "FastWAM.infer_action, 10 denoising steps, seed 42; its default paths refer to the "
+                           "training NAS)")
     if task == "b6v6":
         proto["note"] = ("FastWAM B6 v6 is trained from the FastWAM initialisation on all 542 v6 episodes (there is "
                          "no earlier FastWAM B6 run to continue from)")
