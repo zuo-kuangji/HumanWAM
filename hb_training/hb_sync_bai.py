@@ -6,7 +6,8 @@ Source = the code actually used for training on the NAS ($G/hb_*, relay / pool /
 relay queue, top-level preparation scripts, HF upload tools); destination = $P/HumanWAM-bai/hb_training/.
 Only code / config / small text files are copied (no logs, data, checkpoints, backups, caches). Files removed from the
 live tree are removed from hb_training too (within the synced directories). Aborts if anything looks like a secret.
-Commits as the repository's configured user (B1ue-Jay) and pushes origin bai with the repository's deploy key.
+Commits as the repository's configured user (B1ue-Jay) and pushes origin bai over HTTPS (2026-11-16: GitHub SSH is blocked from the cluster; the token lives only in
+master-0 RAM, /dev/shm/.hb-github/token, read by the repository's credential helper).
 """
 import fnmatch
 import json
@@ -131,7 +132,11 @@ def main():
         sys.exit(f"ABORT: secret-like content in {bad}")
     git("add", "-A", "-f", "hb_training")  # -f: task-pool jobs.txt files match the repo-wide *.txt ignore rule
     if git("diff", "--cached", "--quiet", check=False).returncode == 0:
-        print("NOTHING_TO_COMMIT")
+        if git("rev-list", "--count", "origin/bai..bai").stdout.strip() != "0":  # earlier commits not pushed yet
+            git("push", "-q", "origin", "bai")
+            print("PUSHED_PENDING", git("rev-parse", "--short", "HEAD").stdout.strip())
+        else:
+            print("NOTHING_TO_COMMIT")
         return
     stat = git("diff", "--cached", "--shortstat").stdout.strip()
     git("commit", "-q", "-m", msg, "-m", "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>")
