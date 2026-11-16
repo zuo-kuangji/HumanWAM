@@ -58,7 +58,15 @@ for _d, _v in ((TASKDIR, dict(a6="a6-door-pull", c6="c6-bathroom-door-fetch")),
                (TASKDIR, dict(a1="a1-ground-object-pickup")),
                (DESC, dict(a1="Walk to a carton on the floor, squat, grasp and lift it with the right hand, stand and take two steps holding it")),
                (TASKNAME, dict(a1="A1 ground object pickup (G1)")),
-               (HFDATA, dict(a1="a1-ground-object-pickup-expert-v1 @f47f07e"))):
+               (HFDATA, dict(a1="a1-ground-object-pickup-expert-v1 @f47f07e")),
+               (TASKDIR, dict(a10v2="a10-trolley-push-v2")),
+               (DESC, dict(a10v2="Walk to the platform trolley, grasp the handle with both hands and push it alongside the box")),
+               (TASKNAME, dict(a10v2="A10 trolley push v2 (G1, 150 episodes)")),
+               (HFDATA, dict(a10v2="a10-trolley-push-expert-v2 @d3abb4c (all 150 episodes)")),
+               (TASKDIR, dict(b7green="b7-green-clothes-hamper")),
+               (DESC, dict(b7green="Walk around the side table to the clothes stand, take the green garment off the hanger with the right hand and drop it into the laundry hamper")),
+               (TASKNAME, dict(b7green="B7 green clothes -> hamper (G1)")),
+               (HFDATA, dict(b7green="b7-green-clothes-hamper-expert-v1 @ada288c"))):
     for _k, _x in _v.items():
         _d.setdefault(_k, _x)
 ROBOT = {t: ("H2 (Sharpa hands)" if t in ("a18", "a17", "a14") else "Unitree G1") for t in TASKDIR}
@@ -114,7 +122,10 @@ SUBDIR.update({("groot", t): "b256" for t in ("b6", "a17", "b7", "a18", "trolley
 # 2026-11-12 19:5x: GR00T full fine-tuning, fixed 4000 steps (job model "grootft", runs in groot-runs-ft4k) -> repo groot,
 # <task>/b256/step-002000|step-004000 for the eight earlier tasks, <task>/step-... for A6 / C6 / A14
 SUBDIR.update({("grootft", t): "b256" for t in ("b6", "a3", "a7", "a17", "b7", "a18", "trolley", "basket")})
-REPO_OF = {"psi0a": "psi0", "act256": "act", "grootft": "groot"}
+# 2026-11-13 19:4x user: GR00T global batch 512 full fine-tune (groot-runs-ft512) -> groot/<task>/b512/step-XXXXXX
+SUBDIR.update({("grootft512", t): "b512" for t in ("b6", "a3", "a7", "a6", "a1", "a10v2", "a14", "a17", "a18", "b7",
+                                                    "b7green", "basket", "c6", "trolley")})
+REPO_OF = {"psi0a": "psi0", "act256": "act", "grootft": "groot", "grootft512": "groot"}
 
 
 def repo_path(model, task):
@@ -125,8 +136,9 @@ def repo_path(model, task):
 MODEL_TEXT["psi0a"] = MODEL_TEXT["psi0"]
 MODEL_TEXT["act256"] = MODEL_TEXT["act"]
 MODEL_TEXT["grootft"] = MODEL_TEXT["groot"]
+MODEL_TEXT["grootft512"] = MODEL_TEXT["groot"]
 CODE_DIR = {"act": "hb_act", "psi0": "hb_psi0", "deltaflow": "hb_deltaflow", "dit4dit": "hb_dit4dit",
-            "groot": "hb_groot", "pi05": "hb_pi05", "psi0a": "hb_psi0", "act256": "hb_act", "grootft": "hb_groot"}
+            "groot": "hb_groot", "pi05": "hb_pi05", "psi0a": "hb_psi0", "act256": "hb_act", "grootft": "hb_groot", "grootft512": "hb_groot"}
 
 
 def log(*a):
@@ -392,6 +404,26 @@ def collect_grootft(task):
     return c
 
 
+def collect_grootft512(task):
+    """Every saved checkpoint (2000, 2500, ..., 4000) -> step-XXXXXX; resume state is never uploaded."""
+    run = G / "groot-runs-ft512" / task
+    if not (run / "production-complete.json").is_file():
+        return None
+    plan = rd(run / "production-complete.json")
+    c = collect_groot_from(run, dict(plan, save_steps=plan["save_list"][0]))
+    keep = set(c["eps"][-1]["files"])
+    eps = []
+    for step in plan["save_list"]:
+        srcd = run / "production" / f"checkpoint-{step}"
+        files = {k: srcd / k for k in keep if (srcd / k).is_file()}
+        eps.append(dict(epoch=None, step=step, name=f"step-{step:06d}", files=files))
+    c["eps"] = eps
+    c["proto"].update(epochs=None, epochs_equivalent=plan.get("epochs_equivalent"), recipe=plan.get("recipe"),
+                      save_steps=plan["save_list"], gradient_accumulation_steps=plan.get("gradient_accumulation_steps"),
+                      trainable="all modules (tune_llm, tune_visual, projector, diffusion action head, VLLN)")
+    return c
+
+
 def collect_pi05(task):
     runs = list((G / "pi05-runs/b256" / task / "run/ckpt").glob("*/run"))
     if len(runs) != 1 or not (runs[0] / "HB_DONE").exists():
@@ -430,7 +462,7 @@ def collect_pi05(task):
     return dict(eps=eps, common=common, proto=proto)
 
 
-COLLECT = {"act": collect_act, "psi0": collect_psi0, "deltaflow": collect_deltaflow, "dit4dit": collect_dit4dit, "groot": collect_groot, "pi05": collect_pi05, "psi0a": collect_psi0a, "act256": collect_act256, "grootft": collect_grootft}
+COLLECT = {"act": collect_act, "psi0": collect_psi0, "deltaflow": collect_deltaflow, "dit4dit": collect_dit4dit, "groot": collect_groot, "pi05": collect_pi05, "psi0a": collect_psi0a, "act256": collect_act256, "grootft": collect_grootft, "grootft512": collect_grootft512}
 
 
 # ---------------------------------------------------------------- stage, upload, verify
@@ -451,7 +483,7 @@ def stage(model, task, c):
         for name, src in c["common"].items():
             put(src, ed / name)
         proto = {"model": MODEL_TEXT[model][1], "task": TASKNAME[task], "task_dir": td, "robot": ROBOT[task],
-                 "training_data": HFDATA[task], "episodes": 100, "epoch_completed": e["epoch"], "global_step": e["step"],
+                 "training_data": HFDATA[task], "episodes": EPISODES_OF.get(task, 100), "epoch_completed": e["epoch"], "global_step": e["step"],
                  "augmentation": aug_text(model, task), **c["proto"], "training_records_included": True, "resume_state_included": False}
         if missing:
             proto["note"] = (f"epoch {missing} checkpoint not available: the trainer kept only the last 2 checkpoints "
@@ -516,7 +548,7 @@ def upload(model, task, dst):
     extra = [k for k in tree if any(k.startswith(f"{td}/{n}/") for n in own) and not (dst / k[len(td) + 1:]).is_file()]
     # README + code
     tasks = sorted({t for t in TASKDIR if any(k.startswith(TASKDIR[t] + "/epoch-") for k in tree)})
-    if model in ("groot", "pi05", "psi0a", "act256", "grootft"):
+    if model in ("groot", "pi05", "psi0a", "act256", "grootft", "grootft512", "grootcontA", "grootcontB", "psi0cont", "groot2x32"):
         try:
             log(f"model card {repo}: {hb_modelcard.update(api, repo.split('/')[1], _TOKEN)}")
         except Exception as e:  # never block the checkpoint upload on the card
@@ -535,6 +567,641 @@ def upload(model, task, dst):
     info = api.model_info(repo)
     return dict(commit=c.oid, revision=info.sha, private=info.private, files=sum(1 for p in dst.rglob("*") if p.is_file()),
                 bad=bad, extra=extra, tasks_in_repo=tasks)
+
+
+# 2026-11-14 user: GR00T / Psi-Zero basket continuation, 4000 more steps from the final checkpoints on
+# humanoid-benchmark/a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40 (pre-reach waits trimmed, 54,433 frames)
+TRIMV2 = "humanoid-benchmark/a20-basket-transfer-pre-reach-trim-expert-v2 @ c4df4d40e51c439d7b41697d7c0d0184c844cb93"
+SUBDIR.update({("grootcontA", "basket"): "b512-trimv2-from-b512", ("grootcontB", "basket"): "b512-trimv2-from-b256",
+               ("psi0cont", "basket"): "b512-trimv2"})
+REPO_OF.update(grootcontA="groot", grootcontB="groot", psi0cont="psi0")
+MODEL_TEXT.update(grootcontA=MODEL_TEXT["groot"], grootcontB=MODEL_TEXT["groot"], psi0cont=MODEL_TEXT["psi0"])
+CODE_DIR.update(grootcontA="hb_groot", grootcontB="hb_groot", psi0cont="hb_psi0")
+
+
+def collect_grootcont(run_name, src_label):
+    run = G / "groot-runs-cont" / run_name
+    if not (run / "production-complete.json").is_file():
+        return None
+    plan = rd(run / "production-complete.json")
+    c = collect_groot_from(run, dict(plan, save_steps=plan["save_list"][0]))
+    keep = set(c["eps"][-1]["files"])
+    c["eps"] = [dict(epoch=None, step=st, name=f"step-{st:06d}",
+                     files={k: run / "production" / f"checkpoint-{st}" / k for k in keep
+                            if (run / "production" / f"checkpoint-{st}" / k).is_file()}) for st in plan["save_list"]]
+    data = G / "groot-data" / "basketv2"
+    c["common"].update({"dataset_meta/modality.json": data / "meta/modality.json",
+                        "dataset_meta/hb-dataset-receipt.json": data / "hb-dataset-receipt.json"})
+    c["proto"].update(epochs=None, epochs_equivalent=plan.get("epochs_equivalent"), recipe=plan.get("recipe"),
+                      save_steps=plan["save_list"], gradient_accumulation_steps=plan.get("gradient_accumulation_steps"),
+                      trainable="all modules (tune_llm, tune_visual, projector, diffusion action head, VLLN)",
+                      training_data=TRIMV2, frames=plan.get("frames"),
+                      continued_from=f"groot/<task>/{src_label}/step-004000 (trained 4000 steps on basket-transfer-expert-v1)",
+                      continuation="weights only: fresh AdamW state, fresh warmup 5 % + cosine over 4000 steps; the "
+                                   "source checkpoint's normalization statistics (statistics.json) are kept")
+    return c
+
+
+def collect_psi0cont(task):
+    root = G / "psi0-runs" / "basketv2" / "cont-aligned"
+    ex = root / "logs" / "prod-node-0.exit"
+    c = collect_psi_like("psi0", "basket", root, ex.is_file() and ex.read_text().strip() == "0")
+    if c is None:
+        return None
+    dec = rd(root / "decision.json")
+    c["proto"].update(training_data=TRIMV2, frames=dec.get("frames"),
+                      continued_from="psi0/<task>/b512/step-004000 (aligned run, 4000 steps on basket-transfer-expert-v1)",
+                      continuation="weights only: fresh optimizer, fresh warmup + cosine over 4000 steps; normalization "
+                                   "statistics of the source run (psi0-data/basket/meta/stats_psi0.json) are kept")
+    return c
+
+
+COLLECT.update(grootcontA=lambda t: collect_grootcont("from-b512", "b512"),
+               grootcontB=lambda t: collect_grootcont("from-b256", "b256"), psi0cont=collect_psi0cont)
+
+
+# 2026-11-14 16:xx user: continuation 2000 steps with the peak lr cut to 0.3x; b256 continuation dropped;
+# GR00T B7 green v2 (HF b7-green-clothes-hamper @c12757e, 120 episodes) 2 nodes x 8 x 32, no accumulation.
+GREENV2 = ("humanoid-benchmark/b7-green-clothes-hamper @ c12757e726a7005eafa50c093b6854200ccfe681 "
+           "(v2 at the repo root: 120 episodes, 106,041 frames)")
+SUBDIR.update({("groot2x32", "b7green"): "b512-datav2"})
+REPO_OF.update(groot2x32="groot")
+MODEL_TEXT.update(groot2x32=MODEL_TEXT["groot"])
+CODE_DIR.update(groot2x32="hb_groot")
+_collect_grootcont_v1 = collect_grootcont
+
+
+def collect_grootcont(run_name, src_label):
+    c = _collect_grootcont_v1(run_name, src_label)
+    if c is None:
+        return None
+    plan = rd(G / "groot-runs-cont" / run_name / "production-complete.json")
+    c["proto"].update(recipe=plan.get("recipe", "").replace("source normalization statistics kept", "normalization statistics recomputed from the v2 data"),
+                      lr=plan.get("learning_rate"), lr_schedule="linear warmup 5 % (100 steps) to the peak, cosine to 0",
+                      total_steps=plan["max_steps"], num_gpus=plan["world_size"], num_nodes=plan.get("num_nodes"),
+                      continuation="weights only: fresh AdamW state; warmup 5 % to a reduced peak lr 3e-5 (0.3 x the "
+                                   "original 1e-4), cosine to 0 over 2000 steps; normalization statistics recomputed from the "
+                                   "trimmed v2 data (GR00T default, override_pretraining_statistics=True; std within ~1 % of v1)")
+    return c
+
+
+_collect_psi0cont_v1 = collect_psi0cont
+
+
+def collect_psi0cont(task):
+    c = _collect_psi0cont_v1(task)
+    if c is None:
+        return None
+    dec = rd(G / "psi0-runs" / "basketv2" / "cont-aligned" / "decision.json")
+    c["proto"].update(learning_rates=dec.get("learning_rates"),
+                      continuation="weights only: fresh optimizer; warmup 100 steps to a reduced peak = 0.3 x every original "
+                                   "learning rate (action header / mm projector 3e-5, vision tower 3e-6, language backbone "
+                                   "3e-7), cosine to 0 over 2000 steps; normalization statistics of the trimmed v2 "
+                                   "data (psi0-data/basketv2/meta/stats_psi0.json), as for the GR00T continuation")
+    return c
+
+
+def collect_groot2x32(task):
+    run = G / "groot-runs-2x32" / "b7greenv2"
+    if not (run / "production-complete.json").is_file():
+        return None
+    plan = rd(run / "production-complete.json")
+    c = collect_groot_from(run, dict(plan, save_steps=plan["save_list"][0]))
+    keep = set(c["eps"][-1]["files"])
+    c["eps"] = [dict(epoch=None, step=st, name=f"step-{st:06d}",
+                     files={k: run / "production" / f"checkpoint-{st}" / k for k in keep
+                            if (run / "production" / f"checkpoint-{st}" / k).is_file()}) for st in plan["save_list"]]
+    c["proto"].update(epochs=None, epochs_equivalent=plan.get("epochs_equivalent"), recipe=plan.get("recipe"),
+                      save_steps=plan["save_list"], gradient_accumulation_steps=plan.get("gradient_accumulation_steps"),
+                      num_nodes=plan.get("num_nodes"), training_data=GREENV2, frames=plan.get("frames"),
+                      trainable="all modules (tune_llm, tune_visual, projector, diffusion action head, VLLN)")
+    return c
+
+
+COLLECT.update(grootcontA=lambda t: collect_grootcont("from-b512", "b512"), psi0cont=collect_psi0cont,
+               groot2x32=collect_groot2x32)
+COLLECT.pop("grootcontB", None)
+
+
+# 2026-11-14 17:xx user: A7 cabinet close v2 + B8 table wipe (GR00T 2x32 pair, Psi-Zero, Delta Flow)
+for _d, _v in ((TASKDIR, dict(a7v2="a7-cabinet-close-v2", b8="b8-table-wipe")),
+               (DESC, dict(a7v2="Close the open cabinet door with the right hand, then withdraw",
+                           b8="Wipe the tabletop with a flat block held in the right hand, then set the block down")),
+               (TASKNAME, dict(a7v2="A7 close cabinet door v2 (G1)", b8="B8 table wipe (G1)")),
+               (HFDATA, dict(a7v2="a7-cabinet-close-expert-v2 @aecf070", b8="b8-table-wipe-expert-v1 @3b2e618")),
+               (ROBOT, dict(a7v2="Unitree G1", b8="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("groot2x32", "a7v2"): "b512", ("groot2x32", "b8"): "b512"})
+_collect_groot2x32_green = collect_groot2x32
+
+
+def collect_groot2x32_task(task):
+    if task == "b7green":
+        return _collect_groot2x32_green(task)
+    run = G / "groot-runs-2x32" / task
+    if not (run / "production-complete.json").is_file():
+        return None
+    plan = rd(run / "production-complete.json")
+    c = collect_groot_from(run, dict(plan, save_steps=plan["save_list"][0]))
+    keep = set(c["eps"][-1]["files"])
+    c["eps"] = [dict(epoch=None, step=st, name=f"step-{st:06d}",
+                     files={k: run / "production" / f"checkpoint-{st}" / k for k in keep
+                            if (run / "production" / f"checkpoint-{st}" / k).is_file()}) for st in plan["save_list"]]
+    c["proto"].update(epochs=None, epochs_equivalent=plan.get("epochs_equivalent"), recipe=plan.get("recipe"),
+                      save_steps=plan["save_list"], gradient_accumulation_steps=plan.get("gradient_accumulation_steps"),
+                      num_nodes=plan.get("num_nodes"), training_data=HFDATA.get(task), frames=plan.get("frames"),
+                      trainable="all modules (tune_llm, tune_visual, projector, diffusion action head, VLLN)")
+    return c
+
+
+COLLECT.update(groot2x32=collect_groot2x32_task)
+
+
+# 2026-11-14 17:4x user: Delta Flow basket on the trimmed v2 data (deltaflow-runs/basketv2) -> deltaflow/<basket>/trimv2/
+for _d, _v in ((TASKDIR, dict(basketv2=TASKDIR["basket"])), (DESC, dict(basketv2=DESC["basket"] + " (pre-reach waits trimmed)")),
+               (TASKNAME, dict(basketv2=TASKNAME["basket"] + ", data v2 trimmed")),
+               (HFDATA, dict(basketv2="a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40")), (ROBOT, dict(basketv2="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("deltaflow", "basketv2"): "trimv2"})
+
+
+# 2026-11-14 18:2x user: A18 / A17 2-camera re-train (head + chest) -> same task folders as A18 / A17, new subfolders
+for _d, _v in ((TASKDIR, dict(a18c2=TASKDIR["a18"], a17c2=TASKDIR["a17"], a14c2=TASKDIR["a14"])),
+               (DESC, dict(a18c2=DESC["a18"] + " (cameras head + chest)", a17c2=DESC["a17"] + " (cameras head + chest)", a14c2=DESC["a14"] + " (cameras head + chest)")),
+               (TASKNAME, dict(a18c2=TASKNAME["a18"] + ", 2 cameras", a17c2=TASKNAME["a17"] + ", 2 cameras", a14c2="A14 screw in a bulb (H2, cameras head + chest)")),
+               (HFDATA, dict(a18c2=HFDATA["a18"], a17c2=HFDATA["a17"], a14c2=HFDATA["a14"])),
+               (ROBOT, dict(a18c2="H2 (Sharpa hands)", a17c2="H2 (Sharpa hands)", a14c2="H2 (Sharpa hands)"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("groot2x32", "a18c2"): "b512", ("groot2x32", "a17c2"): "b512",
+               ("psi0", "a18c2"): "b512-2cam", ("psi0", "a17c2"): "b512-2cam"})
+# 2026-11-14 21:xx user: B1 rice ball into the microwave (G1), all 115 episodes
+for _d, _v in ((TASKDIR, dict(b1="b1-riceball-microwave")),
+               (DESC, dict(b1="Put the rice ball into the pre-opened microwave, release it, withdraw and close the door")),
+               (TASKNAME, dict(b1="B1 rice ball into microwave (G1)")),
+               (HFDATA, dict(b1="b1-riceball-microwave-expert-v1 @36da298")),
+               (ROBOT, dict(b1="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("groot2x32", "b1"): "b512"})
+
+# 2026-11-14 22:xx: H2 training guides (hb_training/docs/h2): GR00T a17 / a18 -> b512-2cam, steps 2000 + 4000 only
+EPISODES_OF = {"b1": 115, "b7greenv2": 120}
+H2DATA = {"a18c2": "humanoid-benchmark/a18-pour-water-expert-v1 @ 8e956a102c84f991d2745a8cc66155c9991b742d",
+          "a17c2": "humanoid-benchmark/a17-unscrew-bottle-expert-v1 @ 407e6e20db2debc9b77fc2813e3445f549d51a33"}
+H2REF = {"a18c2": "groot/a18-pour-water/b256/step-004000", "a17c2": "groot/a17-unscrew-bottle/b256/step-004000",
+         "a14v2": "groot/a14-unscrew-bulb/step-004000 (v1, 3 cameras, action75)"}
+H2DATA["a14v2"] = "humanoid-benchmark/a14-unscrew-bulb-expert-v2 @ 8411a6dac45d0097d6068a60307de0c2e3b621a7"
+H2ACTION = {"a14v2": "action82 = action.body_target (31) + action.hands (44: left 22, right 22) + action.planner (7: "
+                     "planner_active, walk, move_cos, move_sin, face_cos, face_sin, speed_m_s); GR00T modalities "
+                     "body_target / left_hand_target / right_hand_target / planner, ABSOLUTE, 16 rows per query"}
+for _d, _v in ((TASKDIR, dict(a14v2=TASKDIR["a14"])), (DESC, dict(a14v2=DESC["a14"])),
+               (TASKNAME, dict(a14v2="A14 screw in a bulb v2 (H2, cameras head + chest, action82 with the planner command)")),
+               (HFDATA, dict(a14v2="a14-unscrew-bulb-expert-v2 @8411a6da")), (ROBOT, dict(a14v2="H2 (Sharpa hands)"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("groot2x32", "a14v2"): "v2-b512", ("psi0", "a14v2"): "v2-b512"})
+SUBDIR.update({("groot2x32", "a18c2"): "b512-2cam", ("groot2x32", "a17c2"): "b512-2cam"})
+MODEL_TEXT["groot2x32"] = (MODEL_TEXT["groot"][0],
+                           "GR00T N1.7 (Gr00tN1d7), full fine-tune: all modules (tune_llm, tune_visual, projector, "
+                           "diffusion action head, VLLN)", MODEL_TEXT["groot"][2])
+_collect_groot2x32_before_h2 = COLLECT["groot2x32"]
+
+
+def collect_groot2x32_h2(task):
+    c = _collect_groot2x32_before_h2(task)
+    if c is None or task not in H2DATA:
+        return c
+    run = G / "groot-runs-2x32" / task
+    c["eps"] = [e for e in c["eps"] if e["step"] in (2000, 4000)]
+    if [e["step"] for e in c["eps"]] != [2000, 4000]:
+        raise RuntimeError(f"groot2x32/{task}: checkpoints 2000 and 4000 not both present")
+    hist = [h for h in rd(run / "production/checkpoint-4000/trainer_state.json")["log_history"] if "loss" in h]
+    curve = run / "loss_curve.csv"
+    curve.write_text("step,loss,learning_rate,grad_norm\n" + "".join(
+        f"{h['step']},{h['loss']},{h.get('learning_rate', '')},{h.get('grad_norm', '')}\n" for h in hist))
+    last = [h["loss"] for h in hist[-50:]]
+    c["common"]["loss_curve.csv"] = curve
+    c["proto"].update(
+        cameras=["observation.images.head", "observation.images.chest"],
+        training_data=H2DATA[task], episodes=100, split="all 100 episodes for training",
+        state_layout="state78 = observation.state (75: legs 0-11, waist 12-14, left arm 15-21, right arm 22-28, "
+                     "head 29-30, hands 31-74) + observation.projected_gravity (3); no joint velocity",
+        action_layout=H2ACTION.get(task, "action75 = action.body_target (31) + action.hands (44: left 22, right 22); "
+                      "GR00T modalities body_target / left_hand_target / right_hand_target, ABSOLUTE, 16 rows per query"),
+        initialization="GR00T N1.7 base (groot-n17-base); VLM nvidia/Cosmos-Reason2-2B",
+        recipe_reference=f"{H2REF[task]} recipe with cameras head + chest and global batch 512 (2 nodes x 8 GPUs x 32, "
+                         "no gradient accumulation); everything else unchanged (H2 training guide 4.1)",
+        published_steps=[2000, 4000], final_loss_mean_last50=round(sum(last) / len(last), 5),
+        loss_curve="loss_curve.csv")
+    return c
+
+
+COLLECT.update(groot2x32=collect_groot2x32_h2)
+# 2026-11-15 user: A10 trolley push v3 (G1), all 148 episodes, strict SONIC-only expert with pre-reach trim
+for _d, _v in ((TASKDIR, dict(a10v3="a10-trolley-push-v3")),
+               (DESC, dict(a10v3="Walk to the platform trolley, grasp the handle with both hands, push it alongside the box, release and withdraw")),
+               (TASKNAME, dict(a10v3="A10 trolley push v3 (G1)")),
+               (HFDATA, dict(a10v3="a10-trolley-push-expert-v3 @6e410c5 (all 148 episodes)")),
+               (ROBOT, dict(a10v3="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("groot2x32", "a10v3"): "b512"})
+EPISODES_OF["a10v3"] = 148
+# 2026-11-15 user: GR00T A18 / A17 variant: dropouts 0, action horizon 32, 16 flow sampling steps, layer-wise lr
+REPO_OF.update(grooth32="groot")
+CODE_DIR.update(grooth32="hb_groot")
+MODEL_TEXT["grooth32"] = (MODEL_TEXT["groot"][0],
+                          "GR00T N1.7 (Gr00tN1d7), full fine-tune: all modules; variant 2026-11-15: every dropout 0, "
+                          "action horizon 32, 16 flow sampling steps, layer-wise lr (language 1e-6, vision 1e-5, "
+                          "vision-language merger and action head 1e-4)", MODEL_TEXT["groot"][2])
+SUBDIR.update({("grooth32", "a18c2"): "b512-2cam-h32", ("grooth32", "a17c2"): "b512-2cam-h32"})
+
+
+def collect_grooth32(task):
+    run = G / "groot-runs-h32" / task
+    if not (run / "production-complete.json").is_file() or task not in H2DATA:
+        return None
+    plan = rd(run / "production-complete.json")
+    c = collect_groot_from(run, dict(plan, save_steps=plan["save_list"][0]))
+    keep = set(c["eps"][-1]["files"])
+    c["eps"] = [dict(epoch=None, step=st, name=f"step-{st:06d}",
+                     files={k: run / "production" / f"checkpoint-{st}" / k for k in keep
+                            if (run / "production" / f"checkpoint-{st}" / k).is_file()}) for st in (2000, 4000)]
+    hist = [h for h in rd(run / "production/checkpoint-4000/trainer_state.json")["log_history"] if "loss" in h]
+    curve = run / "loss_curve.csv"
+    curve.write_text("step,loss,learning_rate,grad_norm\n" + "".join(
+        f"{h['step']},{h['loss']},{h.get('learning_rate', '')},{h.get('grad_norm', '')}\n" for h in hist))
+    last = [h["loss"] for h in hist[-50:]]
+    c["common"]["loss_curve.csv"] = curve
+    c["proto"].update(
+        cameras=["observation.images.head", "observation.images.chest"], training_data=H2DATA[task], episodes=100,
+        state_layout="state78 = observation.state (75) + observation.projected_gravity (3); no joint velocity",
+        action_layout="action75 = action.body_target (31) + action.hands (44); 32 rows per chunk (horizon 32)",
+        initialization="GR00T N1.7 base (groot-n17-base); VLM nvidia/Cosmos-Reason2-2B",
+        trainable="all modules (tune_llm, tune_visual, projector, diffusion action head, VLLN)",
+        recipe_reference=f"{H2REF[task]} recipe (head + chest, 2 x 8 x 32 = 512, no accumulation, 4000 steps) with: "
+                         "state_dropout_prob 0, action-head attn_dropout 0, DiT dropout 0, action horizon 32, "
+                         "num_inference_timesteps 16, layer-wise lr (user 2026-11-15)",
+        model_overrides=plan.get("model_overrides"), lr_groups=plan.get("lr_groups"),
+        launcher="code/hb_groot/hb_launch_v.py + groot_pair2x32_h2v.sh, modality h2_body31_hand44_h32.py",
+        published_steps=[2000, 4000], final_loss_mean_last50=round(sum(last) / len(last), 5), loss_curve="loss_curve.csv")
+    return c
+
+
+COLLECT.update(grooth32=collect_grooth32)
+
+# 2026-11-15: Delta Flow H2 cells of the H2 training guides on the legacy a18 e40 recipe
+for _d, _v in ((TASKDIR, dict(a17lg=TASKDIR["a17"], a14lg=TASKDIR["a14"])),
+               (DESC, dict(a17lg=DESC["a17"] + " (cameras head + chest)", a14lg=DESC["a14"] + " (cameras head + chest)")),
+               (TASKNAME, dict(a17lg=TASKNAME["a17"] + ", 2 cameras, legacy a18 e40 recipe",
+                               a14lg="A14 screw in a bulb v2 (H2, cameras head + chest, action82 with the planner command), legacy a18 e40 recipe")),
+               (HFDATA, dict(a17lg=HFDATA["a17"], a14lg="a14-unscrew-bulb-expert-v2 @8411a6da")),
+               (ROBOT, dict(a17lg="H2 (Sharpa hands)", a14lg="H2 (Sharpa hands)"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("deltaflow", "a17lg"): "b256-2cam", ("deltaflow", "a14lg"): "v2-b256"})
+_collect_deltaflow_before_lg = COLLECT["deltaflow"]
+
+
+def collect_deltaflow_lg(task):
+    c = _collect_deltaflow_before_lg(task)
+    if c is None or task not in ("a17lg", "a14lg"):
+        return c
+    R = G / "deltaflow-runs" / task
+    dv = rd(R / "data-verified.json")
+    c["common"]["normalization.json"] = R / "normalization.json"
+    code = Path(dv["code"])
+    for f in sorted((code / "src" / "imagewam").rglob("*.py")):
+        c["common"]["code/imagewam/" + str(f.relative_to(code / "src" / "imagewam"))] = f
+    c["common"]["code/scripts/wholebody/train_deltaflow.py"] = code / "scripts/wholebody/train_deltaflow.py"
+    c["common"]["code/deltaflow-code.json"] = code / "deltaflow-code.json"
+    c["proto"].update(
+        recipe="legacy-a18-e40: configuration of deltaflow/legacy/a18-pour-water/from-scratch-pre-v2-aug-20261108/"
+               "epoch-040 (H2PourDataset, b6-visual-aug-v2, no proprio augmentation, same model / losses / optimizer); "
+               "changed: dataset, normalization refit on the task, the task's Qwen3 text cache, aug policy_id, and the "
+               "user's Delta-flow schedule (global 256 = 32 x 8, no accumulation, 8000 steps, warmup 400, cosine to 0)",
+        cameras=dv.get("cameras"), training_data=dv.get("dataset_source"), state_dim=dv.get("state_dim"),
+        action_dim=dv.get("action_dim"), global_batch=dv.get("global_batch"), gradient_accumulation_steps=1,
+        published_steps=dv.get("save_steps"),
+        action_layout=("action82 = action.body_target (31) + action.hands (44) + action.planner (7)"
+                       if dv.get("action_dim") == 82 else "action75 = action.body_target (31) + action.hands (44)"),
+        inference_package="code/imagewam (model + loader of this run's code tree), normalization.json, qwen-text/, "
+                          "training_config.yaml; FLUX.2-klein-base-4B, FLUX.2 AE and Qwen3-4B from their own repositories")
+    return c
+
+
+COLLECT.update(deltaflow=collect_deltaflow_lg)
+# 2026-11-15 user: A3 fridge open v3 (125 episodes) and A7 cabinet close v3 (100 episodes), G1; hand action label =
+# measured hands as every G1 task (the datasets' own v3 scripts use the teleop hand commands; the user chose measured)
+for _d, _v in ((TASKDIR, dict(a3v3="a3-fridge-open-v3", a7v3="a7-cabinet-close-v3")),
+               (DESC, dict(a3v3="Walk to the refrigerator, pull its upper door open with the right hand, release the handle and pull the hand back",
+                           a7v3="Use the right hand to close the open cabinet door, then withdraw")),
+               (TASKNAME, dict(a3v3="A3 open fridge door v3 (G1)", a7v3="A7 close cabinet door v3 (G1)")),
+               (HFDATA, dict(a3v3="a3-fridge-open-expert-v3 @24882d5 (all 125 episodes)",
+                             a7v3="a7-cabinet-close-expert-v3 @c2e15b0 (all 100 episodes)")),
+               (ROBOT, dict(a3v3="Unitree G1", a7v3="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("groot2x32", "a3v3"): "b512", ("groot2x32", "a7v3"): "b512"})
+EPISODES_OF.update(a3v3=125, a7v3=100)
+# 2026-11-15 17:xx user: B6 continuations on v6 (542 episodes) from the last B6 v5 (100 episodes) checkpoints, and B5
+B6V6 = ("humanoid-benchmark/b6-pedal-bin @ ad2f5bf07f2eeef765b8b401b401a8e4dc133505 "
+        "(v6 at the repo root: all 542 episodes, 331,577 frames)")
+B5DATA = "humanoid-benchmark/b5-chair-push-expert-v1 @ b85b7e9f67cba0fe1fae8d65e73334bcd864b9a4 (all 100 episodes, 43,075 frames)"
+for _d, _v in ((TASKDIR, dict(b5="b5-chair-push")),
+               (DESC, dict(b5="Grasp the chair back with both hands, straighten it by stepping behind it, then push it under the table")),
+               (TASKNAME, dict(b5="B5 chair push (G1)")),
+               (HFDATA, dict(b5="b5-chair-push-expert-v1 @b85b7e9 (all 100 episodes)")),
+               (ROBOT, dict(b5="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("groot2x32", "b5"): "b512", ("grootcont6", "b6"): "b512-v6-cont-from-b256", ("psi0cont6", "b6"): "b512-v6-cont"})
+EPISODES_OF.update(b5=100)
+REPO_OF.update(grootcont6="groot", psi0cont6="psi0")
+MODEL_TEXT.update(grootcont6=MODEL_TEXT["groot"], psi0cont6=MODEL_TEXT["psi0"])
+CODE_DIR.update(grootcont6="hb_groot", psi0cont6="hb_psi0")
+
+
+def collect_grootcont6(task):
+    run = G / "groot-runs-cont" / "b6v6-from-ft4k"
+    if task != "b6" or not (run / "production-complete.json").is_file():
+        return None
+    plan = rd(run / "production-complete.json")
+    c = collect_groot_from(run, dict(plan, save_steps=plan["save_list"][0]))
+    keep = set(c["eps"][-1]["files"])
+    c["eps"] = [dict(epoch=None, step=st, name=f"step-{st:06d}",
+                     files={k: run / "production" / f"checkpoint-{st}" / k for k in keep
+                            if (run / "production" / f"checkpoint-{st}" / k).is_file()}) for st in plan["save_list"]]
+    data = G / "groot-data" / "b6v6"
+    c["common"].update({"dataset_meta/modality.json": data / "meta/modality.json",
+                        "dataset_meta/hb-dataset-receipt.json": data / "hb-dataset-receipt.json"})
+    hist = [h for h in rd(run / "production" / f"checkpoint-{plan['max_steps']}" / "trainer_state.json")["log_history"] if "loss" in h]
+    curve = run / "loss_curve.csv"
+    curve.write_text("step,loss,learning_rate,grad_norm\n" + "".join(
+        f"{h['step']},{h['loss']},{h.get('learning_rate', '')},{h.get('grad_norm', '')}\n" for h in hist))
+    c["common"]["loss_curve.csv"] = curve
+    c["proto"].update(epochs=None, epochs_equivalent=plan.get("epochs_equivalent"), recipe=plan.get("recipe"),
+                      save_steps=plan["save_list"], gradient_accumulation_steps=plan.get("gradient_accumulation_steps"),
+                      num_nodes=plan.get("num_nodes"), num_gpus=plan.get("world_size"), total_steps=plan["max_steps"],
+                      lr=plan.get("learning_rate"), lr_schedule="linear warmup 5 % (200 steps) to the peak, cosine to 0",
+                      trainable="all modules (tune_llm, tune_visual, projector, diffusion action head, VLLN)",
+                      training_data=B6V6, frames=plan.get("frames"), episodes=542,
+                      continued_from="groot/b6-pedal-bin/b256/step-004000 (full fine-tune, 256 x 4000 steps on the first 100 "
+                                     "B6 v5 episodes, 65,127 frames)",
+                      continuation="weights only: fresh AdamW state; warmup 5 % to a reduced peak lr 3e-5 (0.3 x the original "
+                                   "1e-4), cosine to 0 over 4000 steps (6.2 epochs of v6); global batch 512 = 2 x 8 x 32, no "
+                                   "accumulation; normalization statistics recomputed from the v6 data (GR00T default, "
+                                   "override_pretraining_statistics=True)", loss_curve="loss_curve.csv")
+    return c
+
+
+def collect_psi0cont6(task):
+    root = G / "psi0-runs" / "b6v6" / "cont-aligned"
+    ex = root / "logs" / "prod-node-0.exit"
+    if task != "b6":
+        return None
+    c = collect_psi_like("psi0", "b6", root, ex.is_file() and ex.read_text().strip() == "0")
+    if c is None:
+        return None
+    dec = rd(root / "decision.json")
+    c["proto"].update(training_data=B6V6, frames=dec.get("frames"), episodes=542, learning_rates=dec.get("learning_rates"),
+                      num_nodes=dec.get("num_nodes"),
+                      continued_from="the final checkpoint (step 4000) of the Psi-Zero B6 v5 run psi0-runs/b6/aligned "
+                                     "(4 x 8 x 16 = 512, 4000 steps on the first 100 B6 v5 episodes, 65,127 frames)",
+                      continuation="weights only: fresh optimizer; warmup 200 steps (5 %) to a reduced peak = 0.3 x every "
+                                   "original learning rate (action header / mm projector 3e-5, vision tower 3e-6, language "
+                                   "backbone 3e-7), cosine to 0 over 4000 steps (6.2 epochs of v6); 2 x 8 x 32 = 512; "
+                                   "normalization statistics of the v6 data (psi0-data/b6v6/meta/stats_psi0.json)")
+    return c
+
+
+COLLECT.update(grootcont6=collect_grootcont6, psi0cont6=collect_psi0cont6)
+# 2026-11-15 17:xx user: Delta Flow B6 v6 continuation (weights only from deltaflow-runs/b6 step_010200) and B5
+for _d, _v in ((TASKDIR, dict(b6v6=TASKDIR["b6"])), (DESC, dict(b6v6=DESC["b6"])),
+               (TASKNAME, dict(b6v6="B6 pedal-bin trash disposal v6 (G1)")),
+               (HFDATA, dict(b6v6="b6-pedal-bin @ad2f5bf0 (v6 at the repo root, all 542 episodes)")),
+               (ROBOT, dict(b6v6="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("deltaflow", "b6v6"): "b256-v6-cont", ("deltaflow", "b5"): "b256"})
+EPISODES_OF.update(b6v6=542)
+_collect_deltaflow_before_b6v6 = COLLECT["deltaflow"]
+
+
+def collect_deltaflow_b6v6(task):
+    c = _collect_deltaflow_before_b6v6(task)
+    if c is None or task != "b6v6":
+        return c
+    dv = rd(G / "deltaflow-runs" / task / "data-verified.json")
+    c["proto"].update(training_data=dv.get("dataset_source"), episodes=542, frames=dv.get("frames"),
+                      continued_from="deltaflow/b6-pedal-bin (B6 v5 run, first 100 episodes, 40 epochs = step 10200); "
+                                     + str(dv.get("continued_from")),
+                      continuation=dv.get("continuation"), lr=dv.get("learning_rate"))
+    return c
+
+
+COLLECT.update(deltaflow=collect_deltaflow_b6v6)
+# 2026-11-15 18:4x user: A3 / A7 v4 replace v3 (action 76 = SONIC token + measured hands, the v4 layout)
+for _d, _v in ((TASKDIR, dict(a3v4="a3-fridge-open-v4", a7v4="a7-cabinet-close-v4")),
+               (DESC, dict(a3v4="Walk to the refrigerator, pull its upper door open with the right hand, release the handle and pull the hand back",
+                           a7v4="Use the right hand to close the open cabinet door, then withdraw")),
+               (TASKNAME, dict(a3v4="A3 open fridge door v4 (G1)", a7v4="A7 close cabinet door v4 (G1)")),
+               (HFDATA, dict(a3v4="a3-fridge-open-expert-v4 @6393d4a (all 125 episodes)",
+                             a7v4="a7-cabinet-close-expert-v4 @90cc2b5 (all 100 episodes)")),
+               (ROBOT, dict(a3v4="Unitree G1", a7v4="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("groot2x32", "a3v4"): "b512", ("groot2x32", "a7v4"): "b512"})
+EPISODES_OF.update(a3v4=125, a7v4=100)
+# 2026-11-15 22:xx user: GR00T A18 / A17 h32 variant on the cropped v2 data (waits trimmed; same episodes / cameras)
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    for _n, _o in (("a18cr2", "a18c2"), ("a17cr2", "a17c2")):
+        if _o in _d:
+            _d.setdefault(_n, _d[_o])
+HFDATA.update(a18cr2="a18-pour-water-expert-cropped-v2 @44cdd57 (100 episodes, waits trimmed)",
+              a17cr2="a17-unscrew-bottle-expert-cropped-v2 @3520b70 (100 episodes, waits trimmed)")
+H2DATA.update(a18cr2="humanoid-benchmark/a18-pour-water-expert-cropped-v2 @ 44cdd5715f4681038bd0bdf377e7705585a831c3 "
+                     "(100 episodes, 66,850 frames; v1 @8e956a10 with the waits trimmed)",
+              a17cr2="humanoid-benchmark/a17-unscrew-bottle-expert-cropped-v2 @ 3520b70f0cc30fec10c5d806167c791cbbfea718 "
+                     "(100 episodes, 75,184 frames; v1 @407e6e20 with the waits trimmed)")
+H2REF.update(a18cr2=H2REF["a18c2"], a17cr2=H2REF["a17c2"])
+SUBDIR.update({("grooth32", "a18cr2"): "b512-2cam-h32-cropped-v2", ("grooth32", "a17cr2"): "b512-2cam-h32-cropped-v2"})
+# 2026-11-15 23:xx user: Delta Flow on the newest data (A7 v4, A17 cropped v2 on the legacy a18 e40 recipe)
+for _d, _v in ((TASKDIR, dict(a17cr2lg=TASKDIR["a17"])), (DESC, dict(a17cr2lg=DESC["a17"] + " (cameras head + chest)")),
+               (TASKNAME, dict(a17cr2lg=TASKNAME["a17"] + ", 2 cameras, cropped v2 data, legacy a18 e40 recipe")),
+               (HFDATA, dict(a17cr2lg="a17-unscrew-bottle-expert-cropped-v2 @3520b70 (100 episodes, waits trimmed)")),
+               (ROBOT, dict(a17cr2lg="H2 (Sharpa hands)"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+SUBDIR.update({("deltaflow", "a7v4"): "b256", ("deltaflow", "a17cr2lg"): "b256-2cam-cropped-v2"})
+EPISODES_OF.update(a17cr2lg=100)
+_collect_deltaflow_before_al = COLLECT["deltaflow"]
+
+
+def collect_deltaflow_al(task):
+    c = _collect_deltaflow_before_al(task)
+    if c is None or task != "a17cr2lg":
+        return c
+    R = G / "deltaflow-runs" / task
+    dv = rd(R / "data-verified.json")
+    c["common"]["normalization.json"] = R / "normalization.json"
+    code = Path(dv["code"])
+    for f in sorted((code / "src" / "imagewam").rglob("*.py")):
+        c["common"]["code/imagewam/" + str(f.relative_to(code / "src" / "imagewam"))] = f
+    c["common"]["code/scripts/wholebody/train_deltaflow.py"] = code / "scripts/wholebody/train_deltaflow.py"
+    c["common"]["code/deltaflow-code.json"] = code / "deltaflow-code.json"
+    c["proto"].update(
+        recipe="legacy-a18-e40: configuration of deltaflow/legacy/a18-pour-water/from-scratch-pre-v2-aug-20261108/"
+               "epoch-040 (H2PourDataset, b6-visual-aug-v2, no proprio augmentation, same model / losses / optimizer); "
+               "changed: dataset (A17 cropped v2), normalization refit on the task, the task's Qwen3 text cache, aug "
+               "policy_id, and the user's Delta-flow schedule (global 256 = 32 x 8, no accumulation, 8000 steps, warmup "
+               "400, cosine to 0)",
+        cameras=dv.get("cameras"), training_data=dv.get("dataset_source"), state_dim=dv.get("state_dim"),
+        action_dim=dv.get("action_dim"), global_batch=dv.get("global_batch"), gradient_accumulation_steps=1,
+        published_steps=dv.get("save_steps"), action_layout="action75 = action.body_target (31) + action.hands (44)",
+        inference_package="code/imagewam (model + loader of this run's code tree), normalization.json, qwen-text/, "
+                          "training_config.yaml; FLUX.2-klein-base-4B, FLUX.2 AE and Qwen3-4B from their own repositories")
+    return c
+
+
+COLLECT.update(deltaflow=collect_deltaflow_al)
+# 2026-11-15 23:4x user: Delta Flow A3 v4 (all 125 episodes)
+SUBDIR.update({("deltaflow", "a3v4"): "b256"})
+
+# 2026-11-16 10:xx user: FastWAM gets its own public repo humanoid-benchmark/fastwam, same conventions as the other
+# models (last two checkpoints step-002000 / step-004000 + eval/deploy files + simple training records, no resume
+# state), uploaded automatically when each run of fastwam/runs/<task> writes complete.json.
+FW = G / "fastwam"
+FW_TASKS = ("a10v3", "a3v4", "a7v4", "b7", "b5", "b8", "a17cr2", "basketv2", "c6", "b6v6", "a14v2", "b1")
+SUBDIR.update({("fastwam", t): "b512" for t in FW_TASKS})
+MODEL_TEXT["fastwam"] = ("FastWAM — Humanoid Benchmark",
+                         "FastWAM (Wan2.2-TI2V-5B video expert + 1.02 B action expert, mixture-of-transformers world "
+                         "action model; upstream github.com/yuantianyuan01/FastWAM)",
+                         "4 nodes x 8 GPUs, global batch 512 (16 per GPU, no gradient accumulation), 4000 steps, "
+                         "saved at step 2000 and 4000.")
+CODE_DIR["fastwam"] = "fastwam/tools"
+FW_ACTION = {"g1": "action76 = action.motion_token (64) + measured Inspire hands (6 + 6), same-row labels",
+             "h2": "action75 = action.body_target (31) + action.hands (44)",
+             "h2p": "action82 = action.body_target (31) + action.hands (44) + action.planner (7)"}
+FW_STATE = {"g1": "state44 = 29 body joint angles + measured Inspire hands 6 + 6 + projected gravity 3",
+            "h2": "state78 = 75 joint angles + projected gravity 3", "h2p": "state78 = 75 joint angles + projected gravity 3"}
+
+
+def _fw_metrics(logs, mdir):
+    rows = {}
+    for f in logs:
+        txt = f.read_text(errors="replace").replace("\r", "\n")
+        for m in re.finditer(r"epoch=(\d+) step=(\d+)/\d+(.*?)(?=epoch=\d+ step=|\Z)", txt, re.S):
+            blk = m.group(3)[:600]
+            r = dict(epoch=int(m.group(1)), step=int(m.group(2)))
+            for k in ("loss", "loss_action", "loss_video", "lr"):
+                mm = re.search(rf"(?<![a-z_]){k}=([0-9.]+(?:e[-+]?\d+)?)", blk)
+                if mm:
+                    r[k] = float(mm.group(1))
+            mm = re.search(r"speed=([0-9.]+) step/s", blk)
+            if mm:
+                r["steps_per_s"] = float(mm.group(1))
+            rows[r["step"]] = r
+    mdir.mkdir(parents=True, exist_ok=True)
+    keys = ["step", "epoch", "loss", "loss_action", "loss_video", "lr", "steps_per_s"]
+    with open(mdir / "metrics.csv", "w") as fo:
+        fo.write(",".join(keys) + "\n")
+        for s in sorted(rows):
+            fo.write(",".join("" if rows[s].get(k) is None else str(rows[s][k]) for k in keys) + "\n")
+    L = [rows[s] for s in sorted(rows) if "loss" in rows[s]]
+    summ = dict(points=len(rows), first=L[0] if L else None, last=L[-1] if L else None,
+                min_loss=min((r["loss"] for r in L), default=None),
+                mean_steps_per_s=(sum(r["steps_per_s"] for r in rows.values() if "steps_per_s" in r)
+                                  / max(1, sum(1 for r in rows.values() if "steps_per_s" in r))))
+    (mdir / "loss_summary.json").write_text(json.dumps(summ, indent=1) + "\n")
+
+
+def collect_fastwam(task):
+    R = FW / "runs" / task
+    if not (R / "complete.json").is_file():
+        return None
+    done = rd(R / "complete.json")
+    W = R / "out" / "checkpoints" / "weights"
+    eps = [dict(epoch=None, step=s, name=f"step-{s:06d}", files={"model.pt": W / f"step_{s:06d}.pt"}) for s in (2000, 4000)]
+    for e in eps:
+        if not e["files"]["model.pt"].is_file():
+            raise RuntimeError(f"missing {e['files']['model.pt']}")
+    D = FW / "data" / task
+    iface = rd(D / "meta" / "hb_fastwam_interface.json")
+    prof = iface["profile"]
+    common = {"training_config.yaml": R / "out" / "config.yaml", "dataset_stats.json": R / "out" / "dataset_stats.json",
+              "model_config.yaml": FW / f"model-{prof}.yaml", "complete.json": R / "complete.json",
+              "dataset_meta/hb_fastwam_interface.json": D / "meta" / "hb_fastwam_interface.json",
+              "dataset_meta/info.json": D / "meta" / "info.json", "dataset_meta/tasks.jsonl": D / "meta" / "tasks.jsonl",
+              "batch_benchmark/summary.txt": FW / "bench-20261116-r2" / "summary.txt",
+              "batch_benchmark/chosen.json": FW / "chosen.json",
+              "code/hb_aug_v2.py": G / "hb_groot" / "hb_aug_v2.py",
+              "code/fastwam_task.sh": G / "hb_fastwam" / "fastwam_task.sh",
+              "code/fastwam_prep.sh": FW / "tools" / "fastwam_prep.sh"}
+    for f in sorted((FW / "tools").glob("*.py")):
+        common[f"code/{f.name}"] = f
+    for f in sorted((FW / "text-cache" / "all").glob("*.pt")):
+        common[f"text_embeddings/{f.name}"] = f
+    logs = [f for f in sorted((R / "logs").glob("node-*.log")) if f.stat().st_size < 50 * 1024 * 1024]
+    for f in logs:
+        common[f"logs/{f.name}"] = f
+    mdir = R / "hb-metrics"
+    _fw_metrics([f for f in logs if f.name == "node-0.log"], mdir)
+    common["metrics.csv"] = mdir / "metrics.csv"
+    common["loss_summary.json"] = mdir / "loss_summary.json"
+    for k, v in common.items():
+        if not Path(v).is_file():
+            raise RuntimeError(f"missing {k}: {v}")
+    proto = dict(epochs=None, total_steps=int(done.get("max_steps", 4000)), save_steps=[2000, 4000], num_gpus=32,
+                 per_gpu_batch=done["per_gpu_batch"], global_batch=done["global_batch"], gradient_accumulation_steps=1,
+                 episodes=iface["episodes"], frames=iface["frames"], fps=iface.get("fps"),
+                 cameras=iface["cameras"], state_dim=iface["state_dim"], action_dim=iface["action_dim"],
+                 state_layout=FW_STATE[prof], action_layout=FW_ACTION[prof],
+                 trainable="full fine-tune of the mixture-of-transformers DiT: video expert (Wan2.2-TI2V-5B, 5.00 B) + "
+                           "action expert (1.02 B); the Wan2.2 VAE and the T5 text encoder are frozen (prompt "
+                           "embeddings precomputed, text_embeddings/)",
+                 recipe=done.get("recipe"),
+                 video="17-frame clips (4 latent frames + the observation frame), 224 x 448 (the two cameras side by "
+                       "side), action chunk 16",
+                 base_model="Wan-AI/Wan2.2-TI2V-5B (DiT, VAE, T5) + the umt5-xxl tokenizer of Wan-AI/Wan2.1-T2V-1.3B, "
+                            "loaded from their own repositories; ActionDiT initialised by FastWAM's "
+                            "preprocess_action_dit_backbone.py",
+                 upstream="github.com/yuantianyuan01/FastWAM @ 7faa71108368fbb3b6885649f112af607427a2d4",
+                 batch_selection="largest per-GPU batch that fits on A800 80 GB: 16 trains at ~58 GB, 32 runs out of "
+                                 "memory (batch_benchmark/)",
+                 normalization="dataset_stats.json (FastWAM min / max statistics of this task)",
+                 config="training_config.yaml (resolved FastWAM config; absolute paths refer to the training NAS), "
+                        "model_config.yaml (the model part)",
+                 inference="FastWAM: build the model from model_config.yaml, load model.pt (DiT state dict), the "
+                           "normalizer from dataset_stats.json and the prompt embedding from text_embeddings/; "
+                           "code/hb_fastwam_convert.py documents the state / action layout of the benchmark interface")
+    if task == "b6v6":
+        proto["note"] = ("FastWAM B6 v6 is trained from the FastWAM initialisation on all 542 v6 episodes (there is "
+                         "no earlier FastWAM B6 run to continue from)")
+    return dict(eps=eps, common=common, proto=proto)
+
+
+COLLECT.update(fastwam=collect_fastwam)
+
+
+# 2026-11-16 16:2x user: FastWAM A18 cropped v2 (trained right after A17 cropped v2, before B7)
+FW_TASKS = FW_TASKS + ("a18cr2",)
+SUBDIR.update({("fastwam", "a18cr2"): "b512"})
+
+# 2026-11-16 20:4x user: FastWAM on B5 chair push standing start (robot starts right in front of the chair)
+for _d, _v in ((TASKDIR, dict(b5ss="b5-chair-push-standing-start")),
+               (DESC, dict(b5ss="Chair push from a standing start right in front of the chair: raise the hands and push the chair")),
+               (TASKNAME, dict(b5ss="B5 chair push, standing start (G1)")),
+               (HFDATA, dict(b5ss="b5-chair-push-standing-start-expert-v1 @913f5a1 (all 100 episodes)")),
+               (ROBOT, dict(b5ss="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+EPISODES_OF.update(b5ss=100)
+FW_TASKS = FW_TASKS + ("b5ss",)
+SUBDIR.update({("fastwam", "b5ss"): "b512"})
 
 
 def main():

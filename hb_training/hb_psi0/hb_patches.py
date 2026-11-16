@@ -143,6 +143,29 @@ def apply() -> None:
             os.makedirs(self.project_dir, exist_ok=True)
             with open(os.path.join(self.project_dir, "hb_init_report.json"), "w") as f:
                 json.dump(report, f, indent=2)
+        init_w = os.environ.get("HB_INIT_WEIGHTS")
+        if init_w:  # 2026-11-14 continuation: every tensor of the finished run's model, strict
+            from safetensors.torch import load_file
+            sd = load_file(init_w)
+            msd = self.model.state_dict()
+            missing = sorted(set(msd) - set(sd)); unexpected = sorted(set(sd) - set(msd))
+            ptr = {msd[k].data_ptr(): k for k in msd if k in sd}
+            tied = [k for k in missing if msd[k].data_ptr() in ptr]
+            bad_shape = [k for k in sd if k in msd and tuple(sd[k].shape) != tuple(msd[k].shape)]
+            if unexpected or bad_shape or set(missing) - set(tied):
+                raise RuntimeError(f"HB_INIT_WEIGHTS mismatch: missing {sorted(set(missing) - set(tied))[:20]} "
+                                   f"unexpected {unexpected[:20]} shape {bad_shape[:20]}")
+            self.model.load_state_dict(sd, strict=False)
+            after = self.model.state_dict()
+            for k in list(sd)[:: max(1, len(sd) // 16)]:
+                if not torch.equal(after[k].detach().cpu(), sd[k].to(after[k].dtype)):
+                    raise RuntimeError(f"HB_INIT_WEIGHTS tensor {k} differs after load")
+            report["init_weights"] = {"path": init_w, "tensors": len(sd), "tied_not_in_file": tied}
+            ow.info(f"[hb] continuation: loaded all {len(sd)} tensors from {init_w} (tied: {tied})")
+            del sd
+            if _rank() == 0:
+                with open(os.path.join(self.project_dir, "hb_init_report.json"), "w") as fh:
+                    json.dump(report, fh, indent=2)
         if self.train_cfg.data_parallel == "deepspeed":  # native finetune.py:358-361
             self.model.config = vlm_model.config
             self.model.config.hidden_size = vlm_model.config.text_config.hidden_size

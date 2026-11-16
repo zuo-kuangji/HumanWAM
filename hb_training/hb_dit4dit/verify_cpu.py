@@ -87,7 +87,7 @@ def main():
     check(set(s) == {"action", "image", "lang", "state", "action_mask", "state_mask"}, f"sample keys {sorted(s)}")
     check(isinstance(s["image"], list) and len(s["image"]) == len(D.VIDEO_OFFSETS) == 9, "9 frames (t..t+16 step 2)")
     im0 = s["image"][0]
-    check(tuple(im0.shape) == (3, 224, 448) and im0.dtype == torch.float16 and 0 <= float(im0.min()) and float(im0.max()) <= 1,
+    check((im0.shape[0], im0.shape[1]) == (3, 224) and im0.shape[2] in (448, 672) and im0.dtype == torch.float16 and 0 <= float(im0.min()) and float(im0.max()) <= 1,
           f"frame {tuple(im0.shape)} {im0.dtype} in [0,1]")
     check(s["state"].shape == (1, L.state_dim) and s["state"].dtype == np.float16, f"state {s['state'].shape} float16")
     check(s["action"].shape == (D.HORIZON, L.action_dim) and s["action"].dtype == np.float16, f"action {s['action'].shape} float16")
@@ -116,11 +116,11 @@ def main():
     check(np.all((np.abs(back - raw) <= tol) | const), "action min_max round trip (fp16 precision)")
 
     # 4. images == cached frames, side by side
-    f0 = np.load(f"{ds.root}/frames_{L.cameras[0]}.npy", mmap_mode="r")[5]
-    f1 = np.load(f"{ds.root}/frames_{L.cameras[1]}.npy", mmap_mode="r")[5]
-    left = (im0[:, :, :224].float() * 255).permute(1, 2, 0).numpy()
-    right = (im0[:, :, 224:].float() * 255).permute(1, 2, 0).numpy()
-    check(np.abs(left - f0).max() < 0.6 and np.abs(right - f1).max() < 0.6, f"frame 0 = [{L.cameras[0]} | {L.cameras[1]}] of row 5")
+    fs = [np.load(f"{ds.root}/frames_{c}.npy", mmap_mode="r")[5] for c in L.cameras]  # 2026-11-13: 2 (G1) or 3 (H2) views
+    f0 = fs[0]
+    parts = [(im0[:, :, 224 * k:224 * (k + 1)].float() * 255).permute(1, 2, 0).numpy() for k in range(len(fs))]
+    check(im0.shape[2] == 224 * len(fs) and all(np.abs(p - fr).max() < 0.6 for p, fr in zip(parts, fs)),
+          f"frame 0 = [{' | '.join(L.cameras)}] of row 5")
     check(f0.shape == (224, 224, 3) and f0.dtype == np.uint8, "cache uint8 224x224")
 
     # 5. visual augmentation
@@ -159,7 +159,7 @@ def main():
         delays.append(d)
     rate = float(np.mean(np.asarray(delays) > 0))
     check(ok, f"delay <= {max_d} rows within the episode; only state[:{nb}] perturbed within 2 deg + 3 sigma")
-    check(0.08 <= rate <= 0.23, f"delayed fraction {rate:.3f} ~ 0.15")
+    check(rate == 0.0, f"delayed fraction {rate:.3f} (aligned with GR00T A20 since 2026-11-12: no proprio delay)")
     ep = int(ds.episode[0])
     b1 = D.trajectory_bias(42, 0, ep, nb)
     check(np.array_equal(b1, D.trajectory_bias(42, 0, ep, nb)) and np.abs(b1).max() <= math.radians(D.BIAS_DEG),
@@ -172,7 +172,7 @@ def main():
         if d == 0:
             offs.append(st[:nb] - ds.state[k][:nb])
     spread = np.ptp(np.stack(offs), axis=0).max() if len(offs) > 1 else 0.0
-    check(spread <= 2 * math.radians(3 * D.NOISE_DEG) + 1e-6, f"bias fixed within the episode (offset spread {math.degrees(spread):.2f} deg)")
+    check(spread > math.radians(1.0), f"joint offset redrawn per sample (spread {math.degrees(spread):.2f} deg; aligned per-sample bias)")
     check(dsa[n + 5]["action"].shape == (D.HORIZON, L.action_dim), "index + pass*N decodes to row 5 of pass 1")
 
     # 7. loader: rank sharding + resume position

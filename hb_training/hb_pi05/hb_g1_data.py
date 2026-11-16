@@ -50,7 +50,7 @@ class Layout:
     name: str
     state_dim: int
     action_dim: int  # raw; zero-padded to MODEL_ACTION_DIM by OpenPI PadStatesAndActions after Normalize
-    cameras: tuple  # (-> base_0_rgb, -> left_wrist_0_rgb)
+    cameras: tuple  # (-> base_0_rgb, -> left_wrist_0_rgb[, -> right_wrist_0_rgb])  H2: head, chest, wrist (2026-11-13)
     n_body: int  # leading state dims that get bias + noise
     max_token_len: int  # prompt + discretized state must fit (verify_cpu.py checks)
     state_desc: str
@@ -61,7 +61,7 @@ LAYOUTS = {
     "g1": Layout("g1", 44, 76, ("ego_view", "chest"), 29, int(os.environ.get("HB_PI05_MAX_TOKEN_LEN_G1", "256")),
                  "body29(observation.state by name) | inspire_left6 | inspire_right6 | projected_gravity3",
                  "action.motion_token64 | inspire_left6 | inspire_right6 (same-row observed hands)"),
-    "h2": Layout("h2", 78, 75, ("head", "chest"), 31, int(os.environ.get("HB_PI05_MAX_TOKEN_LEN_H2", "384")),
+    "h2": Layout("h2", 78, 75, ("head", "chest", "wrist"), 31, int(os.environ.get("HB_PI05_MAX_TOKEN_LEN_H2", "384")),
                  "observation.state75 (legs12|waist3|arms14|head2|hands44) | projected_gravity3",
                  "action.body_target31 | action.hands44 (+1 zero pad dim -> 76)"),
 }
@@ -98,6 +98,7 @@ TASKS = {
     "a3": Task(P / "a3-a7-20261109/a3-fridge-open-expert-v1/780fcf1e4bd7db947a8c2d8f7b92e61f24f71b45", None, 100, 28180, "g1", 30.0),
     "a7": Task(P / "a3-a7-20261109/a7-cabinet-close-expert-v1/1935a98e8f55d4d1d2d1615ddb97c2679713595c", None, 100, 30664, "g1", 30.0),
     "a18": Task(P / "a18-h2-dataset-audit-8e956a10/dataset", None, 100, 72752, "h2", 30.0),
+    "a14": Task(P / "a14-unscrew-bulb-v1-b4390fc/data", None, 100, 185638, "h2", 30.0),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2, 3 cameras)
     "a17": Task(P / "a17-unscrew-bottle-v1-407e6e2/data", None, 100, 115333, "h2", 30.0),  # HF a17-unscrew-bottle-expert-v1 @407e6e2 (H2, like a18)
 }
 
@@ -210,7 +211,7 @@ class HBCachedDataset(torch.utils.data.Dataset):
             state, _ = self.proprio(i, epoch)
         else:
             state = self.state[i].copy()
-        return {f"observation/{cams[0]}": imgs[0], f"observation/{cams[1]}": imgs[1], "observation/state": state,
+        return {**{f"observation/{c}": imgs[k] for k, c in enumerate(cams)}, "observation/state": state,
                 "actions": actions, "prompt": self.prompt}
 
     def _augment_images(self, imgs: np.ndarray) -> np.ndarray:

@@ -65,7 +65,7 @@ class Layout:
     name: str
     raw_state_dim: int
     action_dim: int
-    cameras: tuple  # (cam0 = left half, cam1 = right half)
+    cameras: tuple  # side by side, left to right (G1 ego | chest 224x448; H2 head | chest | wrist 224x672, 2026-11-13)
     n_body: int  # leading raw state dims that get bias + noise
     segments: tuple  # ((kind, start, end), ...) over the raw state, kind in {"sincos", "minmax"}
     state_desc: str
@@ -82,7 +82,7 @@ LAYOUTS = {
     "g1": Layout("g1", 44, 76, ("ego_view", "chest"), 29, (("sincos", 0, 29), ("minmax", 29, 44)),
                  "body29(observation.state by name) | inspire_left6 | inspire_right6 | projected_gravity3",
                  "action.motion_token64 | inspire_left6 | inspire_right6 (same-row measured hands)"),
-    "h2": Layout("h2", 78, 75, ("head", "chest"), 31, (("sincos", 0, 75), ("minmax", 75, 78)),
+    "h2": Layout("h2", 78, 75, ("head", "chest", "wrist"), 31, (("sincos", 0, 75), ("minmax", 75, 78)),
                  "observation.state75 (legs12|waist3|arms14|head2|hands44) | projected_gravity3",
                  "action.body_target31 | action.hands44"),
 }
@@ -119,6 +119,7 @@ TASKS = {
     "b7": Task(P / "b7-black-clothes-hamper-v1-1bb002a/data", 100, 100, 87417, "g1", 50.0),
     "a6": Task(P / "a6-door-pull-v1-cf3ee9b/data/door_pull", None, 100, 73243, "g1", 50.0),
     "c6": Task(P / "c6-bathroom-door-fetch-v1-3afba69/data", None, 100, 221805, "g1", 50.0),
+    "a14": Task(P / "a14-unscrew-bulb-v1-b4390fc/data", None, 100, 185638, "h2", 30.0),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2, 3 cameras)
     "a17": Task(P / "a17-unscrew-bottle-v1-407e6e2/data", None, 100, 115333, "h2", 30.0),
 }
 

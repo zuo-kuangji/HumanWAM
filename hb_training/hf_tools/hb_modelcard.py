@@ -1,7 +1,7 @@
 """Model cards (README.md) of the public humanoid-benchmark/<model> repositories, rebuilt from what the repository
 actually contains (task folders, variant sub-folders, epoch folders and their protocol.json).
 Used by hb_autoupload.py after every upload; also runnable by hand:
-    python hb_modelcard.py <repo> [<repo> ...] [--dry]      repo = groot | pi05 | psi0 | act | deltaflow | dit4dit
+    python hb_modelcard.py <repo> [<repo> ...] [--dry]      repo = groot | pi05 | psi0 | act | deltaflow | dit4dit | fastwam
 """
 import json
 import re
@@ -19,7 +19,11 @@ TASKS = {
     "a3-fridge-open": ("A3 — open the fridge door", "G1"),
     "a7-cabinet-close": ("A7 — close the cabinet door", "G1"),
     "a1-ground-object-pickup": ("A1 — walk to a carton on the floor, squat, pick it up with the right hand and walk two steps", "G1"),
+    "a7-cabinet-close-v2": ("A7 — close the open cabinet door with the right hand (data v2)", "G1"),
+    "b8-table-wipe": ("B8 — wipe the tabletop with a flat block held in the right hand", "G1"),
     "a6-door-pull": ("A6 — pull a door open", "G1"),
+    "b7-green-clothes-hamper": ("B7 — take the green garment off the stand and drop it into the hamper", "G1"),
+    "a10-trolley-push-v2": ("A10 v2 — push a platform trolley alongside a box (150 episodes)", "G1"),
     "a10-trolley-push": ("A10 — push a trolley", "G1"),
     "a20-basket-transfer": ("A20 — transfer a basket", "G1"),
     "b7-black-clothes-hamper": ("B7 — take the black garment off the hanger and drop it into the hamper", "G1"),
@@ -54,6 +58,20 @@ HEAD = {
                 "with DiT4DiT's native sin/cos state encoding inside the model (G1 73-D, H2 153-D) of the same raw "
                 "44 / 78-D benchmark state.", ""),
 }
+# 2026-11-16: FastWAM repo + the newer task folders
+HEAD["fastwam"] = ("FastWAM — Humanoid Benchmark",
+                   "FastWAM (Wan2.2-TI2V-5B video expert + 1.02 B action expert, mixture-of-transformers world action "
+                   "model; upstream `github.com/yuantianyuan01/FastWAM` @ 7faa711) checkpoints fine-tuned on Humanoid "
+                   "Benchmark tasks. The whole DiT (video and action experts) is trained; the Wan2.2 VAE and the T5 text "
+                   "encoder are frozen. Base weights are loaded from `Wan-AI/Wan2.2-TI2V-5B`. Global batch 512 (16 per "
+                   "GPU on 32 GPUs, the largest that fits), 4000 steps, checkpoints at step 2000 and 4000.", "")
+for _k, _v in {"a10-trolley-push-v3": ("A10 v3 — push a platform trolley (148 episodes)", "G1"),
+               "a3-fridge-open-v4": ("A3 v4 — open the fridge door with the right hand (125 episodes)", "G1"),
+               "a7-cabinet-close-v4": ("A7 v4 — close the open cabinet door with the right hand", "G1"),
+               "b5-chair-push": ("B5 — push a chair", "G1"),
+               "b1-riceball-microwave": ("B1 — put a rice ball into the microwave (115 episodes)", "G1")}.items():
+    TASKS.setdefault(_k, _v)
+TASKS.setdefault("b5-chair-push-standing-start", ("B5 — push a chair from a standing start right in front of it", "G1"))
 VARIANT_NOTE = {}  # every sub-folder is b<global batch> (user rule 2026-11-12)
 
 
@@ -143,9 +161,9 @@ scheduler / RNG / DeepSpeed resume state is not. `code/` holds the adapter code 
 
 Model inputs are identical across all benchmark models: G1 state 44-D (29 body joint angles + 6 + 6 measured hand values
 + 3 projected gravity), H2 state 78-D (75 joint angles + 3 projected gravity), no joint velocities. Cameras: G1 ego view +
-chest; H2 head + chest (A14: head + chest + wrist). The third-person camera recorded in the datasets is for data review
-only and is never a model input. Each camera is a separate image input, except for Delta Flow and DiT4DiT, which
-place the views side by side in one frame.
+chest; H2 head + chest (the 3-camera re-trains of 2026-11-12/13 also used the right-wrist camera; the `protocol.json` of each folder lists its cameras). The third-person camera recorded in the datasets is for data review
+only and is never a model input. Each camera is a separate image input, except for Delta Flow, DiT4DiT and FastWAM,
+which place the views side by side in one frame.
 Training uses the Humanoid Benchmark online data augmentation spec v2 (15 photometric / geometric / sensor / lighting
 effects, one of them boosted to 1.5x per sample) with the model's own image augmentation turned off, plus joint-angle
 bias and noise on the proprioception (column "Proprio augmentation"; the earlier recipe also delayed the

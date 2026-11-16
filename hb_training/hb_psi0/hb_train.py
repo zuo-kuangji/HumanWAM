@@ -21,6 +21,11 @@ def main() -> None:
     sys.modules["psi.config.train.hb_psi0_config"] = hb_psi0_config
     import hb_patches
     hb_patches.apply()
+    try:  # 2026-11-15 user: in-training open-loop action MSE every 250 steps (HB_INLOOP_EVERY=0 = off)
+        import hb_inloop_psi0
+        hb_inloop_psi0.install()
+    except Exception as e:  # noqa: BLE001 - never block training
+        print(f"HB_INLOOP disabled: {e!r}", flush=True)
 
     entry = os.path.join(psi, "scripts", "train.py")
     sys.argv = [entry, "hb_psi0_config"] + sys.argv[1:]

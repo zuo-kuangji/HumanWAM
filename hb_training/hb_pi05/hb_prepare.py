@@ -252,7 +252,7 @@ def prepare(task, *, out_root=None, max_episodes=None, check_expected=True, work
                 name_notes=name_notes, state_layout=L.state_desc, action_layout=L.action_desc + ", rows t..t+15",
                 cameras={"base_0_rgb": f"observation.images.{L.cameras[0]}",
                          "left_wrist_0_rgb": f"observation.images.{L.cameras[1]}",
-                         "right_wrist_0_rgb": "zeros, image_mask False"},
+                         "right_wrist_0_rgb": (f"observation.images.{L.cameras[2]}" if len(L.cameras) > 2 else "zeros, image_mask False")},
                 raw_hw=list(cam_hw), content_box=list(content_box(*cam_hw)), norm_guard=norm_log,
                 created=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
     (tmp / "meta.json").write_text(json.dumps(meta, indent=2))

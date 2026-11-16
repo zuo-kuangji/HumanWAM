@@ -16,7 +16,13 @@ from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader  # no
 from gr00t.model.gr00t_n1d7.processing_gr00t_n1d7 import Gr00tN1d7Processor  # noqa: E402
 
 view = Path(sys.argv[1])
-if view.name in ("a14", "a18", "a17"):  # every H2 task: 3 cameras head + chest + wrist (user 2026-11-12)
+if view.name == "a14v2":  # 2026-11-14 H2 guide: head + chest, action82 = body_target + hands + planner
+    import h2_body31_hand44_planner7_h16 as C  # noqa: E402
+    cfg = C.h2_body31_hand44_planner7_h16
+elif view.name in ("a18c2", "a17c2", "a18cr2", "a17cr2"):  # 2026-11-14: H2 2-camera re-train (head + chest)
+    import h2_body31_hand44_h16 as C  # noqa: E402
+    cfg = next(v for k, v in vars(C).items() if isinstance(v, dict) and "video" in v)
+elif view.name in ("a14", "a18", "a17"):  # every H2 task: 3 cameras head + chest + wrist (user 2026-11-12)
     import h2w3_body31_hand44_h16 as C  # noqa: E402
     cfg = C.h2w3_body31_hand44_h16
 else:

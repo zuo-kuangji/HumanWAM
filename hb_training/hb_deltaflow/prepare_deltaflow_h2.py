@@ -33,6 +33,10 @@ SRC_CODE = OLD / 'HumanWAM'
 CODE = ROOT / 'HumanWAM-h2'
 TASKS = {'a18': dict(data=P / 'a18-h2-dataset-audit-8e956a10' / 'dataset', frames=72752, qwen='copy',
                      source='a18 H2 pour water (audited 8e956a10)'),
+         'a18c2': dict(data=P / 'a18-h2-dataset-audit-8e956a10' / 'dataset', frames=72752, qwen='copy',
+                       source='a18 H2 pour water (audited 8e956a10), 2 cameras head + chest (2026-11-14)'),
+         'a17c2': dict(data=P / 'a17-unscrew-bottle-v1-407e6e2' / 'data', frames=115333, qwen='compute',
+                       source='a17-unscrew-bottle-expert-v1 @407e6e2, 2 cameras head + chest (2026-11-14)'),
          'a17': dict(data=P / 'a17-unscrew-bottle-v1-407e6e2' / 'data', frames=115333, qwen='compute',
                      source='a17-unscrew-bottle-expert-v1 @407e6e2')}
 EPISODES, BODY, STATE, ACTION = 100, 31, 78, 75

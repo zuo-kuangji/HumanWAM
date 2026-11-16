@@ -21,7 +21,7 @@ from pathlib import Path
 
 H = Path(__file__).resolve().parent
 G = Path(os.environ.get("G", H.parent))
-TASKS = ("b6", "basket", "a3", "a7", "a18", "trolley", "a17", "b7", "a6", "a1", "c6t", "c6", "a14")
+TASKS = ("b6", "basket", "basketv2", "a3", "a7", "a18", "trolley", "a17", "b7", "a6", "a1", "a10v2", "c6t", "c6", "a14", "a7v2", "b8", "a18c2", "a17c2", "b1", "a14v2", "a10v3", "a3v3", "a7v3", "b6v6", "b5", "a3v4", "a7v4")
 WORLD = int(os.environ.get("HB_WORLD", "32"))          # 4 nodes x 8 GPUs
 EPOCHS, SAVE_EPOCH, WARMUP_FRAC = 20, 10, 0.025        # warmup: native 1000/40000 = 2.5 %
 HORIZON = 30
@@ -57,7 +57,7 @@ def build_args(task, batch, steps, save, warmup, out, ts, workers, resume=True):
     r = receipt(task)
     cams = r["image_keys"]
     SK, AK, SD, AD, NB = r["state_key"], r["action_key"], int(r["state_dim"]), int(r["action_dim"]), int(r["body_dims"])
-    stats = str(DATA / task / "meta" / "stats_psi0.json")
+    stats = os.environ.get("HB_STATS_PATH") or str(DATA / task / "meta" / "stats_psi0.json")  # continuation: source run stats
     drop = os.environ.get("HB_STATE_DROP_PROB", "0.0")
     a = [
         "--seed=292285", f"--exp=hb-{task}", f"--timestamp={ts}",
@@ -82,7 +82,8 @@ def build_args(task, batch, steps, save, warmup, out, ts, workers, resume=True):
         f"--data.transform.repack.action-chunk-size={HORIZON}",
         "--data.transform.repack.state-temporal-jitter=0",
         # 2026-11-12 user: align with GR00T A20 -> no proprio delay (Psi0 has no action-history input, so no history drop)
-        "--data.transform.repack.hb-delay-prob=0.0", "--data.transform.repack.hb-delay-max-frames=2",
+        # 2026-11-14 H2 training guides: the H2 Psi0 cells use the a17 epoch-020 value 0.15 (HB_DELAY_PROB)
+        f"--data.transform.repack.hb-delay-prob={os.environ.get('HB_DELAY_PROB', '0.0')}", "--data.transform.repack.hb-delay-max-frames=2",
         f"--data.transform.repack.hb-body-dims={NB}", "--data.transform.repack.hb-bias-seed=292285",
         f"--data.transform.field.stat-path={stats}", "--data.transform.field.state-noise-std=0.0",
         "--data.transform.field.stat-action-keys", AK,

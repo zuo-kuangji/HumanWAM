@@ -17,9 +17,23 @@ OUT = G / "groot-data"
 TASKS = {
     "b6": (P / "b6-v5t7-ready-start-60ep-20261109/data/deliveries/g1/b6-v5t7-ready-start-20261109", 100),
     "basket": (P / "basket-current-dynamics-100-v21-b0ff522/data", None),  # HF basket-transfer-expert-v1 @current-dynamics-100-v21 b0ff522 (old ed77719 retired)
+    "basketv2": (P / "basket-trimv2-c4df4d4/data", None),  # HF a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40 (user 2026-11-14)
     "trolley": (P / "trolley-push-expert-v1-20261110/data/trolley_push", 100),  # HF trolley-push-expert-v1 @ef9024a: fixed first 100 of 103
     "b7": (P / "b7-black-clothes-hamper-v1-1bb002a/data", 100),  # HF b7-black-clothes-hamper-expert-v1 @1bb002a, first 100 of 107
     "a6": (P / "a6-door-pull-v1-cf3ee9b/data/door_pull", None),  # HF door-pull-expert-v1 @cf3ee9b (A6)
+    "b7green": (P / "b7-green-clothes-hamper-v1-ada288c/data", None),  # HF b7-green-clothes-hamper-expert-v1 @ada288c, 100 episodes (user 2026-11-13)
+    "a7v2": (P / "a7-cabinet-close-v2-aecf070/data", None),  # HF a7-cabinet-close-expert-v2 @aecf070, 100 episodes (user 2026-11-14)
+    "b8": (P / "b8-table-wipe-v1-3b2e618/data", None),  # HF b8-table-wipe-expert-v1 @3b2e618, 100 episodes (user 2026-11-14)
+    "b1": (P / "b1-riceball-microwave-v1-36da298/data", None),  # HF b1-riceball-microwave-expert-v1 @36da298, all 115 episodes (user 2026-11-14)
+    "a10v3": (P / "a10-trolley-push-v3-6e410c5/data", None),  # HF a10-trolley-push-expert-v3 @6e410c5, all 148 episodes (user 2026-11-15)
+    "a3v3": (P / "a3-fridge-open-v3-24882d5/data", None),  # HF a3-fridge-open-expert-v3 @24882d5, all 125 episodes, measured hands (user 2026-11-15)
+    "a7v3": (P / "a7-cabinet-close-v3-c2e15b0/data", None),  # HF a7-cabinet-close-expert-v3 @c2e15b0, all 100 episodes, measured hands (user 2026-11-15)
+    "b6v6": (P / "b6-pedal-bin-v6-ad2f5bf/data", None),  # HF b6-pedal-bin @ad2f5bf0 (v6 at the repo root), all 542 episodes (user 2026-11-15)
+    "b5": (P / "b5-chair-push-v1-b85b7e9/data", None),  # HF b5-chair-push-expert-v1 @b85b7e9, all 100 episodes (user 2026-11-15)
+    "a3v4": (P / "a3-fridge-open-v4-6393d4a/data", None),  # HF a3-fridge-open-expert-v4 @6393d4a, all 125 episodes (user 2026-11-15: v4 replaces v3)
+    "a7v4": (P / "a7-cabinet-close-v4-90cc2b5/data", None),  # HF a7-cabinet-close-expert-v4 @90cc2b5, all 100 episodes (user 2026-11-15: v4 replaces v3)
+    "b7greenv2": (P / "b7-green-clothes-hamper-v2-c12757e/data", None),  # HF b7-green-clothes-hamper @c12757e (v2 at the repo root), all 120 episodes (user 2026-11-14)
+    "a10v2": (P / "a10-trolley-push-v2-d3abb4c/data", None),  # HF a10-trolley-push-expert-v2 @d3abb4c, all 150 episodes (user 2026-11-13)
     "a1": (P / "a1-ground-object-pickup-v1-f47f07e/data", None),  # HF a1-ground-object-pickup-expert-v1 @f47f07e (A1)
     "c6t": (P / "c6-test8-06c231d/data", None),  # c6 8-episode adaptation test only
     "c6": (P / "c6-bathroom-door-fetch-v1-3afba69/data", None),  # HF c6-bathroom-door-fetch-expert-v1 @3afba69 (C6)
@@ -27,11 +41,21 @@ TASKS = {
     "a7": (P / "a3-a7-20261109/a7-cabinet-close-expert-v1/1935a98e8f55d4d1d2d1615ddb97c2679713595c", None),
     "a18": (P / "a18-h2-dataset-audit-8e956a10/dataset", None),
     "a17": (P / "a17-unscrew-bottle-v1-407e6e2/data", None),  # HF a17-unscrew-bottle-expert-v1 @407e6e2
+    "a18c2": (P / "a18-h2-dataset-audit-8e956a10/dataset", None),  # A18, 2 cameras head + chest (user 2026-11-14 18:2x)
+    "a17c2": (P / "a17-unscrew-bottle-v1-407e6e2/data", None),  # A17, 2 cameras head + chest (user 2026-11-14 18:2x)
+    "a18cr2": (P / "a18-pour-water-cropped-v2-44cdd57/data", None),  # HF a18-pour-water-expert-cropped-v2 @44cdd57, head + chest (user 2026-11-15)
+    "a17cr2": (P / "a17-unscrew-bottle-cropped-v2-3520b70/data", None),  # HF a17-unscrew-bottle-expert-cropped-v2 @3520b70, head + chest (user 2026-11-15)
     "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2, 3 cameras)
+    "a14v2": (P / "a14-unscrew-bulb-v2-8411a6d/data", None),  # HF a14-unscrew-bulb-expert-v2 @8411a6da: + action.planner (H2 guide 2026-11-14)
 }
-CONFIG = {"a18": "h2w3_body31_hand44_h16.py", "a17": "h2w3_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py"}
+CONFIG = {"a18": "h2w3_body31_hand44_h16.py", "a17": "h2w3_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py",
+          "a18c2": "h2_body31_hand44_h16.py", "a17c2": "h2_body31_hand44_h16.py",
+          "a18cr2": "h2_body31_hand44_h16.py", "a17cr2": "h2_body31_hand44_h16.py",
+          "a14v2": "h2_body31_hand44_planner7_h16.py"}  # 2026-11-14 H2 guide: action82 incl. the planner command
 # model-input cameras per H2 task (user 2026-11-12 22:0x: EVERY H2 task uses head + chest + wrist; third_person never)
-CAMS = {"a18": ("head", "chest", "wrist"), "a17": ("head", "chest", "wrist"), "a14": ("head", "chest", "wrist")}
+CAMS = {"a18": ("head", "chest", "wrist"), "a17": ("head", "chest", "wrist"), "a14": ("head", "chest", "wrist"),
+        "a18c2": ("head", "chest"), "a17c2": ("head", "chest"), "a18cr2": ("head", "chest"), "a17cr2": ("head", "chest"), "a14v2": ("head", "chest")}  # 2026-11-14: 2-camera re-train (user)
+PLANNER = {"a14v2"}  # tasks whose action adds action.planner (7) after body_target + hands (H2 guide a14 2.2)
 H2_GROUPS = {"left_leg": (0, 6), "right_leg": (6, 12), "waist": (12, 15), "left_arm": (15, 22), "right_arm": (22, 29),
              "head": (29, 31), "left_hand": (31, 53), "right_hand": (53, 75)}
 
@@ -110,6 +134,7 @@ def build(task):
         keep = {"observation.state", "observation.projected_gravity", "action.body_target", "action.hands",
                 "timestamp", "frame_index", "episode_index", "index", "task_index"}
         keep |= {f"observation.images.{c}" for c in CAMS[task]}
+        keep |= {"action.planner"} if task in PLANNER else set()
         info["features"] = {k: v for k, v in info["features"].items() if k in keep}
         vkeys = [k for k in vkeys if k in keep]
         stats = [{**s, "stats": {k: v for k, v in s["stats"].items() if k in keep}} if "stats" in s else s
@@ -122,6 +147,9 @@ def build(task):
     (dst / "meta/tasks.jsonl").write_text((src / "meta/tasks.jsonl").read_text())
     if task in CONFIG:
         modality = h2_modality(info, CAMS[task])
+        if task in PLANNER:
+            assert info["features"]["action.planner"]["shape"] == [7]
+            modality["action"]["planner"] = {"original_key": "action.planner", "start": 0, "end": 7}
     else:
         state = {g: {"original_key": "observation.state", "start": idx[a], "end": idx[a] + (b - a)}
                  for g, (a, b) in GROUPS.items()}

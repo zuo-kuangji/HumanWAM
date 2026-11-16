@@ -47,13 +47,14 @@ class HBInputs(_transforms.DataTransformFn):
         L = D.LAYOUTS[self.layout]
         base = _uint8_hwc(data[f"observation/{L.cameras[0]}"])
         wrist = _uint8_hwc(data[f"observation/{L.cameras[1]}"])
+        third = _uint8_hwc(data[f"observation/{L.cameras[2]}"]) if len(L.cameras) > 2 else None  # H2 wrist (2026-11-13)
         state = np.asarray(data["observation/state"], dtype=np.float32)
         if state.shape[-1] != L.state_dim:
             raise ValueError(f"{self.layout}: state dim {state.shape} != {L.state_dim}")
         out = {
             "state": state,
-            "image": {"base_0_rgb": base, "left_wrist_0_rgb": wrist, "right_wrist_0_rgb": np.zeros_like(base)},
-            "image_mask": {"base_0_rgb": np.True_, "left_wrist_0_rgb": np.True_, "right_wrist_0_rgb": np.False_},
+            "image": {"base_0_rgb": base, "left_wrist_0_rgb": wrist, "right_wrist_0_rgb": third if third is not None else np.zeros_like(base)},
+            "image_mask": {"base_0_rgb": np.True_, "left_wrist_0_rgb": np.True_, "right_wrist_0_rgb": np.bool_(third is not None)},
         }
         if "actions" in data:
             actions = np.asarray(data["actions"], dtype=np.float32)

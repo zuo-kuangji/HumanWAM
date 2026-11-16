@@ -46,17 +46,32 @@ OUT = Path(os.environ.get("HB_DATA_ROOT", G / "psi0-data"))
 TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "b6": (P / "b6-v5t7-ready-start-60ep-20261109/data/deliveries/g1/b6-v5t7-ready-start-20261109", 100, "g1"),
     "basket": (P / "basket-current-dynamics-100-v21-b0ff522/data", None, "g1"),  # HF basket-transfer-expert-v1 @current-dynamics-100-v21 b0ff522 (old ed77719 retired)
+    "basketv2": (P / "basket-trimv2-c4df4d4/data", None, "g1"),  # HF a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40 (user 2026-11-14)
     "trolley": (P / "trolley-push-expert-v1-20261110/data/trolley_push", 100, "g1"),  # HF trolley-push-expert-v1 @ef9024a: fixed first 100 of 103
     "b7": (P / "b7-black-clothes-hamper-v1-1bb002a/data", 100, "g1"),  # HF b7-black-clothes-hamper-expert-v1 @1bb002a, first 100 of 107
+    "a7v2": (P / "a7-cabinet-close-v2-aecf070/data", None, "g1"),  # HF a7-cabinet-close-expert-v2 @aecf070 (user 2026-11-14)
+    "b8": (P / "b8-table-wipe-v1-3b2e618/data", None, "g1"),  # HF b8-table-wipe-expert-v1 @3b2e618 (user 2026-11-14)
+    "b1": (P / "b1-riceball-microwave-v1-36da298/data", None, "g1"),  # HF b1-riceball-microwave-expert-v1 @36da298, all 115 episodes (user 2026-11-14)
+    "a10v3": (P / "a10-trolley-push-v3-6e410c5/data", None, "g1"),  # HF a10-trolley-push-expert-v3 @6e410c5, all 148 episodes (user 2026-11-15)
+    "a3v3": (P / "a3-fridge-open-v3-24882d5/data", None, "g1"),  # HF a3-fridge-open-expert-v3 @24882d5, all 125 episodes, measured hands (user 2026-11-15)
+    "a7v3": (P / "a7-cabinet-close-v3-c2e15b0/data", None, "g1"),  # HF a7-cabinet-close-expert-v3 @c2e15b0, all 100 episodes, measured hands (user 2026-11-15)
+    "b6v6": (P / "b6-pedal-bin-v6-ad2f5bf/data", None, "g1"),  # HF b6-pedal-bin @ad2f5bf0 (v6 at the repo root), all 542 episodes (user 2026-11-15)
+    "b5": (P / "b5-chair-push-v1-b85b7e9/data", None, "g1"),  # HF b5-chair-push-expert-v1 @b85b7e9, all 100 episodes (user 2026-11-15)
+    "a3v4": (P / "a3-fridge-open-v4-6393d4a/data", None, "g1"),  # HF a3-fridge-open-expert-v4 @6393d4a, all 125 episodes (user 2026-11-15: v4 replaces v3)
+    "a7v4": (P / "a7-cabinet-close-v4-90cc2b5/data", None, "g1"),  # HF a7-cabinet-close-expert-v4 @90cc2b5, all 100 episodes (user 2026-11-15: v4 replaces v3)
     "a1": (P / "a1-ground-object-pickup-v1-f47f07e/data", None, "g1"),  # HF a1-ground-object-pickup-expert-v1 @f47f07e (A1)
+    "a10v2": (P / "a10-trolley-push-v2-d3abb4c/data", None, "g1"),  # HF a10-trolley-push-expert-v2 @d3abb4c, all 150 episodes
     "a6": (P / "a6-door-pull-v1-cf3ee9b/data/door_pull", None, "g1"),  # HF door-pull-expert-v1 @cf3ee9b (A6)
     "c6t": (P / "c6-test8-06c231d/data", None, "g1"),  # c6 8-episode adaptation test only
     "c6": (P / "c6-bathroom-door-fetch-v1-3afba69/data", None, "g1"),  # HF c6-bathroom-door-fetch-expert-v1 @3afba69 (C6)
     "a3": (P / "a3-a7-20261109/a3-fridge-open-expert-v1/780fcf1e4bd7db947a8c2d8f7b92e61f24f71b45", None, "g1"),
     "a7": (P / "a3-a7-20261109/a7-cabinet-close-expert-v1/1935a98e8f55d4d1d2d1615ddb97c2679713595c", None, "g1"),
     "a18": (P / "a18-h2-dataset-audit-8e956a10/dataset", None, "h2"),
+    "a18c2": (P / "a18-h2-dataset-audit-8e956a10/dataset", None, "h2"),  # 2 cameras head + chest (prepare with --cams head,chest)
+    "a17c2": (P / "a17-unscrew-bottle-v1-407e6e2/data", None, "h2"),  # 2 cameras head + chest (prepare with --cams head,chest)
     "a17": (P / "a17-unscrew-bottle-v1-407e6e2/data", None, "h2"),  # HF a17-unscrew-bottle-expert-v1 @407e6e2
     "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None, "h2"),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2)
+    "a14v2": (P / "a14-unscrew-bulb-v2-8411a6d/data", None, "h2p"),  # HF a14-unscrew-bulb-expert-v2 @8411a6da (+ planner)
 }
 BODY = ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint",
         "left_ankle_roll_joint", "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",
@@ -68,6 +83,7 @@ BODY = ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "le
 STATE, TOKEN, LH, RH, GRAV = ("observation.state", "action.motion_token", "observation.inspire_left_hand_state",
                               "observation.inspire_right_hand_state", "observation.projected_gravity")
 BT, HANDS = "action.body_target", "action.hands"
+PLANNER = "action.planner"  # 2026-11-14 H2 guide a14 2.2: the 7-D SONIC planner command (a14 v2)
 # parts = (column, start, end); a part's width is end - start
 LAYOUTS = {
     "g1": dict(state_key="observation.hb44", action_key="action.hb76", body_dims=29,
@@ -82,6 +98,13 @@ LAYOUTS = {
                cams={"head": "observation.images.head", "chest": "observation.images.chest",
                      "wrist": "observation.images.wrist", "third_person": "observation.images.third_person"},
                default_cams="head,chest,wrist"),  # 2026-11-13: every H2 task trains with 3 cameras (user)
+    # 2026-11-14 H2 training guide a14 4.2: action82 = hb75 + action.planner (7); head + chest
+    "h2p": dict(state_key="observation.hb78", action_key="action.hb82", body_dims=31,
+                state_parts=[(STATE, 0, 75), (GRAV, 0, 3)],
+                action_parts=[(BT, 0, 31), (HANDS, 0, 44), (PLANNER, 0, 7)],
+                exact_dims={STATE: 75, GRAV: 3, BT: 31, HANDS: 44, PLANNER: 7},
+                cams={"head": "observation.images.head", "chest": "observation.images.chest"},
+                default_cams="head,chest"),
 }
 SCALARS = ["timestamp", "frame_index", "episode_index", "index", "task_index"]
 TS_TOL = 1e-4  # LeRobotDataset tolerance_s default; check_timestamps_sync raises beyond it

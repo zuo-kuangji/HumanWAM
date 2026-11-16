@@ -7,12 +7,15 @@
     "hb_aug_v2.py: unchanged copy of the shared spec-v2 implementation",
     "h2_hbaug.py: H2HBAugV2Dataset (aug v2 + 31-joint proprio aug aligned with GR00T A20: per-sample perturb_joints, no delay, no history drop; 78-D state, no velocity)",
     "h2_pour.py: total frame count read from meta/info.json (was the A18 constant 72752) so A17 loads",
-    "train_deltaflow.py: shared 40-epoch entry, full state at every save, --resume"
+    "train_deltaflow.py: shared 40-epoch entry, full state at every save, --resume",
+    "HB 2026-11-15: train_deltaflow.py accepts the fixed-step schedule recorded in data-verified.json (8000 / 16000 steps; the 40-epoch check rejected every fixed-step run), training episodes 0..N-1, and the legacy a18 e40 recipe (H2PourDataset + b6-visual-aug-v2) for runs prepared with recipe legacy-a18-e40",
+    "HB 2026-11-15 (eval session): train_deltaflow.py installs the in-training open-loop action MSE hook (hb_deltaflow/hb_inloop_deltaflow.py, every 250 steps, HB_INLOOP_EVERY=0 = off); record updated 17:xx",
+    "HB 2026-11-15 17:xx (user: B6 v6 continuation): data-verified.json \"init_weights\" {path, bytes} starts a fresh run from a weights .pt (cfg.resume = that file -> loaded before accelerator.prepare; optimizer, LR schedule and global step start fresh); runs without init_weights are unchanged"
   ],
   "sha256": {
     "src/imagewam/datasets/hb_aug_v2.py": "9f7713cea4f846efcfc924234267ced48210357f419d67915c10b504316bedde",
     "src/imagewam/datasets/h2_hbaug.py": "f0280a777271a6ff641d2442c322d664e8ed0e834927fec4db3b7844ddd63b62",
-    "scripts/wholebody/train_deltaflow.py": "30ec8438586b003b160caf7dfc4b9b822b7c4a996efabd5234b242cb59ab9402",
+    "scripts/wholebody/train_deltaflow.py": "11fd60c38f34ee1181dd92342d2f871352d43789d543c6fc4ca39e85b425768a",
     "src/imagewam/datasets/h2_pour.py": "dfb1e742150ff84eb237a88a52862ab9d5d0f736af6c2346965d7deab5cf5c2e",
     "src/imagewam/h2_pour_delta.py": "69bf26169559b082a0a45152512497998163b63c69723d1af606dcf82eca47fc",
     "src/imagewam/datasets/wholebody.py": "4d81de5a73109752128a41a65b01121afe12de15cac42f215157c4e30008ccf9",
@@ -20,5 +23,6 @@
     "src/imagewam/runtime.py": "3ebc45f61b0c22fb659012a7d76bea671a42e1e528b5c917ae1e8827e88b890b",
     "scripts/wholebody/train_h2_pour.py": "69c6974418b9ed02cae4c9cca7177e3c32a213d9cc833ecd3d0c95489d901a5e",
     "scripts/accelerate_configs/accelerate_zero1_ds.yaml": "5b9e24f38c199fdff6bbd17981d86e2624f855f707660094c99f711efc8e0833"
-  }
+  },
+  "updated": "2026-11-15T09:30:22Z"
 }

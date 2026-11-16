@@ -56,7 +56,7 @@ def main():
     check(tok.exists(), f"tokenizer present at {tok}")
     rng = np.random.default_rng(0)
     L = D.layout_of(a.task)
-    cam0, cam1 = (f"observation/{c}" for c in L.cameras)
+    cam0, cam1 = (f"observation/{c}" for c in L.cameras[:2])
     print(f"task {a.task}: layout {L.name} state {L.state_dim} actions {L.action_dim} cams {L.cameras} "
           f"n_body {L.n_body} max_token_len {L.max_token_len}")
 
@@ -111,7 +111,7 @@ def main():
         delays.append(d)
     rate = np.mean(np.asarray(delays) > 0)
     check(ok, f"delay <= {max_d} rows within the episode; only state[:{nb}] perturbed within 2 deg + 3 sigma")
-    check(0.08 <= rate <= 0.23, f"delayed fraction {rate:.3f} ~ 0.15 (clamped delays at episode start count as 0)")
+    check(rate == 0.0, f"delayed fraction {rate:.3f} (aligned with GR00T A20 since 2026-11-12: no proprio delay)")
     ep = int(ds.episode[0])
     b1, b2 = D.trajectory_bias(42, 0, ep, nb), D.trajectory_bias(42, 0, ep, nb)
     check(np.array_equal(b1, b2) and np.abs(b1).max() <= math.radians(D.BIAS_DEG), "bias deterministic per (seed, pass, episode), |b| <= 2 deg")
@@ -125,7 +125,7 @@ def main():
         if d == 0:
             offs.append(st[:nb] - ds.state[k][:nb])
     spread = np.ptp(np.stack(offs), axis=0).max() if len(offs) > 1 else 0.0
-    check(spread <= 2 * math.radians(3 * D.NOISE_DEG) + 1e-5, f"bias fixed within the episode (offset spread {math.degrees(spread):.2f} deg)")
+    check(spread > math.radians(1.0), f"joint offset redrawn per sample (spread {math.degrees(spread):.2f} deg; aligned per-sample bias)")
     check(dsa[n + 5]["actions"].shape == (16, L.action_dim), "index + pass*N decodes to row 5 of pass 1")
 
     # 4. config + norm stats
@@ -147,7 +147,7 @@ def main():
     check(set(t["image"]) == set(_model.IMAGE_KEYS), f"image slots {sorted(t['image'])}")
     check(t["image"]["base_0_rgb"].shape == (224, 224, 3) and t["image"]["base_0_rgb"].dtype == np.uint8, "base_0_rgb uint8 224")
     check(bool(t["image_mask"]["base_0_rgb"]) and bool(t["image_mask"]["left_wrist_0_rgb"])
-          and not bool(t["image_mask"]["right_wrist_0_rgb"]), "masks base/left True, right False")
+          and bool(t["image_mask"]["right_wrist_0_rgb"]) == (len(L.cameras) > 2), f"masks base/left True, right {len(L.cameras) > 2} ({len(L.cameras)} cameras)")
     sw = max(L.state_dim, 76)
     check(t["state"].shape == (sw,) and np.all(t["state"][L.state_dim:] == 0), f"state after pad ({sw},)")
     check(t["actions"].shape == (16, 76) and np.all(t["actions"][:, L.action_dim:] == 0),

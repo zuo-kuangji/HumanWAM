@@ -39,7 +39,8 @@ from dotenv import load_dotenv  # noqa: E402
 
 load_dotenv(PSI / ".env")
 FAIL = []
-EXPECT = {"g1": (76, 44, 29, "observation.images.ego_view"), "h2": (75, 78, 31, "observation.images.head")}
+EXPECT = {"g1": (76, 44, 29, "observation.images.ego_view"), "h2": (75, 78, 31, "observation.images.head"),
+          "h2p": (82, 78, 31, "observation.images.head")}  # 2026-11-14: a14 v2 action82 (+ planner)
 
 
 def check(cond, msg):

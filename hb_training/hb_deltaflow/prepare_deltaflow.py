@@ -71,6 +71,13 @@ TASKS = {
                     total_episodes=None, source='trolley-push-expert-v1 @ef9024a'),
     'basket': dict(data=P / 'basket-current-dynamics-100-v21-b0ff522/data', old=None, control_hz=50,
                    total_episodes=None, source='basket-transfer-expert-v1 @b0ff522 (current-dynamics-100-v21)'),
+    # 2026-11-14 user: basket v2 = same 100 seeds with the pre-reach waits trimmed (54,433 frames)
+    'basketv2': dict(data=P / 'basket-trimv2-c4df4d4/data', old=None, control_hz=50, total_episodes=None,
+                     source='a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40'),
+    'a7v2': dict(data=P / 'a7-cabinet-close-v2-aecf070/data', old=None, control_hz=50, total_episodes=None,
+                 source='a7-cabinet-close-expert-v2 @aecf070'),
+    'b8': dict(data=P / 'b8-table-wipe-v1-3b2e618/data', old=None, control_hz=50, total_episodes=None,
+               source='b8-table-wipe-expert-v1 @3b2e618'),
     'b7': dict(data=P / 'b7-black-clothes-hamper-v1-1bb002a/data', old=None, control_hz=50,
                total_episodes=None, source='b7-black-clothes-hamper-expert-v1 @1bb002a'),
     'a6': dict(data=P / 'a6-door-pull-v1-cf3ee9b/data/door_pull', old=None, control_hz=50,

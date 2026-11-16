@@ -6,9 +6,11 @@
 # H2 is probed on its own (4 3 2). Peak limit 0.92 as for every model.
 H=$(dirname "$(realpath "$0")")
 T=${1:?usage: dit4dit_native_relay.sh <task>}
-case $T in b6) i=0 ;; a3) i=1 ;; a7) i=2 ;; a18) i=3 ;; trolley) i=4 ;; basket) i=5 ;; a17) i=6 ;; b7) i=7 ;; a6) i=8 ;; c6) i=9 ;;
+case $T in b6) i=0 ;; a3) i=1 ;; a7) i=2 ;; a18) i=3 ;; trolley) i=4 ;; basket) i=5 ;; a17) i=6 ;; b7) i=7 ;; a6) i=8 ;; c6) i=9 ;; a14) i=10 ;;
   *) echo "unknown task $T"; exit 64 ;; esac
 # 2026-11-12 user: DiT4DiT global batch 64 = 32 GPUs x 2 for every task
 C="2"
+# 2026-11-13 user: H2 tasks have 3 cameras (224x672 frames) -> per-GPU 1 x gradient accumulation 2 (global 64)
+case $T in a18|a17|a14) export HB_BATCH_H2=1 HB_D4D_ACCUM=2 ;; esac
 export HB_PROBE_CANDIDATES=${HB_PROBE_CANDIDATES:-$C}
 exec bash "$H/dit4dit_chain.sh" hb1110n $((33100 + 100 * i)) "$T"

@@ -28,7 +28,10 @@ import hb_d4d_data as D  # noqa: E402
 EPOCHS, SAVE_EPOCHS, WARMUP_FRAC = 20, (10,), 0.05
 # 2026-11-12 user: fixed optimizer steps instead of epochs (4000 for every model except Delta Flow); checkpoints every
 # 2000 steps counted back from the last step, only the last two kept (resume state only for the last one).
-FIXED_STEPS = int(os.environ.get("HB_FIXED_STEPS", "4000"))
+# 2026-11-13 13:5x user: DiT4DiT trains 8000 steps (aligned with Delta Flow), checkpoints 6000 / 8000.
+FIXED_STEPS = int(os.environ.get("HB_FIXED_STEPS", "8000"))
+# gradient accumulation (2026-11-13 user: H2 3-camera tasks per-GPU 1 x 2, global 64); exported by dit4dit_native_relay.sh
+ACCUM = int(os.environ.get("HB_D4D_ACCUM", "1"))
 CKPT_EVERY, KEEP_CKPTS = 2000, 2
 LR = {"base": 3e-5, "backbone_interface": 1e-5, "action_model": 1e-4}
 FREEZE = "backbone_interface.extractor.text_encoder,backbone_interface.extractor.vae"
@@ -55,7 +58,7 @@ def native_yaml() -> Path:
 def plan(task: str, per_gpu_batch: int, world: int, *, frames: int | None = None, epochs: float = EPOCHS,
          save_epochs=SAVE_EPOCHS, steps_override: int | None = None) -> dict:
     frames = int(frames if frames is not None else D.load_meta(task)["frames"])
-    gb = int(per_gpu_batch) * int(world)
+    gb = int(per_gpu_batch) * int(world) * ACCUM
     if steps_override:  # probe
         steps, save, fixed = int(steps_override), [], False
     elif FIXED_STEPS > 0:
@@ -66,7 +69,7 @@ def plan(task: str, per_gpu_batch: int, world: int, *, frames: int | None = None
         save = sorted({steps} | {math.ceil(float(e) * frames / gb) for e in save_epochs})
     L = D.layout_of(task)
     return dict(task=task, layout=L.name, frames=frames, per_gpu_batch=int(per_gpu_batch), world_size=int(world),
-                global_batch=gb, epochs=None if fixed else epochs, fixed_steps=fixed,
+                global_batch=gb, grad_accum=ACCUM, epochs=None if fixed else epochs, fixed_steps=fixed,
                 epochs_equivalent=round(steps * gb / frames, 2), steps=steps, save_steps=save,
                 warmup_steps=max(1, round(WARMUP_FRAC * steps)), batches_per_pass=frames // gb,
                 action_dim=L.action_dim, state_dim=L.state_dim, cameras=list(L.cameras), deviations=list(DEVIATIONS))
@@ -104,7 +107,7 @@ def overrides(p: dict, *, run_root: str, run_id: str = "run", cosmos_dir: str, r
             "learning_rate": dict(LR), "lr_scheduler_type": "cosine_with_min_lr",
             "scheduler_specific_kwargs": {"min_lr": 5.0e-07},
             "freeze_modules": FREEZE, "repeated_diffusion_steps": 4,
-            "gradient_clipping": 1.0, "gradient_accumulation_steps": 1,
+            "gradient_clipping": 1.0, "gradient_accumulation_steps": int(p.get("grad_accum", 1)),
             "optimizer": {"name": "AdamW", "betas": [0.9, 0.95], "eps": 1.0e-08, "weight_decay": 1.0e-08},
             "is_resume": bool(resume), "pretrained_checkpoint": None, "reload_modules": None,
         },
@@ -122,8 +125,8 @@ def ds_config(per_gpu_batch: int, world: int) -> dict:
     """DiT4DiT/config/deepseeds/ds_config.yaml with the 'auto' batch sizes made explicit."""
     return {
         "fp16": {"enabled": False}, "bf16": {"enabled": True},
-        "train_micro_batch_size_per_gpu": int(per_gpu_batch), "train_batch_size": int(per_gpu_batch) * int(world),
-        "gradient_accumulation_steps": 1,
+        "train_micro_batch_size_per_gpu": int(per_gpu_batch), "train_batch_size": int(per_gpu_batch) * int(world) * ACCUM,
+        "gradient_accumulation_steps": ACCUM,
         "zero_optimization": {"stage": 2, "allgather_partitions": True, "allgather_bucket_size": 5e8,
                               "reduce_scatter": True, "reduce_bucket_size": 5e8, "overlap_comm": True,
                               "contiguous_gradients": True, "cpu_offload": False},

@@ -8,6 +8,8 @@
 # step time per rank); production starts only when every rank finished OK and peak reserved memory <= 92 %.
 set -euo pipefail
 TASK=$1 BS=$2 RUNS=$3
+# 2026-11-13 user: long tasks (C-class cross-scene C6, and A14) train 2x the basket step budget of this model.
+case "$TASK" in c6|a14) export HB_FIXED_STEPS=8000 ;; esac
 H=$(dirname "$(realpath "$0")")
 G=$(dirname "$H")
 export G HB_WORLD=8

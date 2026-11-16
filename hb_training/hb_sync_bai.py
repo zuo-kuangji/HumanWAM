@@ -25,7 +25,12 @@ T = R / "hb_training"
 CODE_EXT = (".py", ".sh", ".md", ".yaml", ".yml", ".json", ".txt", ".toml", ".cfg")
 SKIP = ("__pycache__", ".bak*", "*.bak*", "*.log", "*.tmp", "*.pyc", "probe-*.env")
 MAX_BYTES = 2 * 1024 * 1024
-DIRS = ["hb_groot", "hb_pi05", "hb_psi0", "hb_act", "hb_deltaflow", "hb_dit4dit", "hb_b256", "hb_b512", "hb_b7"]
+DIRS = ["hb_groot", "hb_pi05", "hb_psi0", "hb_act", "hb_deltaflow", "hb_dit4dit", "hb_b256", "hb_b512", "hb_b7", "hb_fastwam"]
+# 2026-11-16 user: the open-loop action-MSE evaluation code goes to bai too (code only: no caches, results, logs,
+# job lists or smoke outputs) -> hb_training/eval-action-mse/
+EVAL = G / "eval-action-mse"
+EVAL_SKIP = ("cache", "results", "logs", "smoke", "smoke-fw", "__pycache__")
+EVAL_EXT = (".py", ".sh", ".md")
 TOP = ["hb_relay.sh", "hb_nodectl.sh", "hb_pool.sh", "hb_pool2.sh", "hb_pool_b696.sh", "hb_sync_bai.py"]
 OPS_GLOBS = ["*_2026111*.sh", "dl_*.py", "deltaflow_prep_and_queue.sh", "groot_env.sh", "groot_prep_run.sh",
              "download_*.py", "fetch_public.py"]
@@ -69,6 +74,20 @@ def copy(src, dst):
             shutil.copy2(src, dst)
 
 
+def sync_eval():
+    src, dst = EVAL, T / "eval-action-mse"
+    keep = set()
+    for p in sorted(src.rglob("*")):
+        rel = p.relative_to(src)
+        if rel.parts[0] in EVAL_SKIP or p.suffix not in EVAL_EXT or not wanted(p):
+            continue
+        keep.add(rel)
+        copy(p, dst / rel)
+    for d in (list(dst.rglob("*")) if dst.exists() else []):
+        if d.is_file() and d.relative_to(dst) not in keep:
+            d.unlink()
+
+
 def git(*a, check=True):
     return subprocess.run(["git", "-C", str(R), *a], check=check, capture_output=True, text=True)
 
@@ -92,6 +111,10 @@ def main():
         rels |= {str(x.relative_to(dst)) for x in dst.rglob("*") if x.is_file()} if dst.exists() else set()
         for rel in sorted(rels):
             copy(tree / rel, dst / rel)
+    if EVAL.is_dir():
+        sync_eval()
+    # 2026-11-16: FastWAM data conversion / training entry / augmentation hooks
+    sync_dir(G / "fastwam" / "tools", T / "fastwam_tools")
     for f in TOP:
         copy(G / f, T / f)
     copy(G / "relay" / "queue.txt", T / "relay_queue.txt")
