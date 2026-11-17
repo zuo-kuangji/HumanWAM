@@ -1244,6 +1244,9 @@ EPISODES_OF.update(b7t=100)
 FW_TASKS = FW_TASKS + ("b7t",)
 SUBDIR.update({("fastwam", "b7t"): "b512"})
 
+# 2026-11-17 11:3x user: Delta Flow B7 black on the trimmed data -> deltaflow/b7-black-clothes-hamper/b256/
+SUBDIR.update({("deltaflow", "b7t"): "b256"})
+
 
 def main():
     lock = open(A / "daemon.lock", "w")
