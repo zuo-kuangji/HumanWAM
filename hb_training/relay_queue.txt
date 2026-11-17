@@ -120,7 +120,7 @@ cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/pre
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_a17cr2.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_a18cr2.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_b5.sh
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_b7.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_b7t.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_b8.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_basketv2.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_c6.sh

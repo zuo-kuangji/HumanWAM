@@ -1233,6 +1233,17 @@ EPISODES_OF.update(b5ss=100)
 FW_TASKS = FW_TASKS + ("b5ss",)
 SUBDIR.update({("fastwam", "b5ss"): "b512"})
 
+# 2026-11-17 11:3x user: B7 black on the trimmed data (b7-black-clothes-hamper @949da46, first 100 of 107)
+for _d, _v in ((TASKDIR, dict(b7t=TASKDIR["b7"])), (DESC, dict(b7t=DESC["b7"])),
+               (TASKNAME, dict(b7t="B7 black clothes into the laundry hamper, trimmed data (G1)")),
+               (HFDATA, dict(b7t="b7-black-clothes-hamper @949da46 (trimmed; first 100 of 107 episodes)")),
+               (ROBOT, dict(b7t="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+EPISODES_OF.update(b7t=100)
+FW_TASKS = FW_TASKS + ("b7t",)
+SUBDIR.update({("fastwam", "b7t"): "b512"})
+
 
 def main():
     lock = open(A / "daemon.lock", "w")
