@@ -74,6 +74,10 @@ Proc._get_vlm_inputs = _get_vlm_inputs
 Proc._apply_vlm_processing = _apply_vlm_processing
 Proc.__call__ = _call
 
+# 2026-11-18 user: joint47 experiment (hb_j47.py turns the world root rotation6D chunk into current-heading relative)
+if os.environ.get("HB_J47_ROOT_KEY"):
+    import hb_j47  # noqa: E402,F401
+
 # 2026-11-15 user: in-training open-loop action MSE every 250 steps (hb_inloop_eval.py adds a TrainerCallback to
 # Gr00tTrainer; HB_INLOOP_EVERY=0 turns it off). It never blocks training: any setup problem only disables it.
 if os.environ.get("HB_PATCH_ONLY") != "1":
