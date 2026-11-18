@@ -14,7 +14,8 @@ export HB_BODY_STATE_KEYS=left_leg,right_leg,waist,left_arm,right_arm HB_J47_ROO
 H=$(dirname "$(realpath "$0")"); G=$(dirname "$H")
 GR=$G/HumanWAM/third_party/Isaac-GR00T; ENV=$G/envs/groot-py312
 NODE=${RANK:?DLC RANK missing}; MASTER=${MASTER_ADDR:?DLC MASTER_ADDR missing}; [ "${WORLD_SIZE:?}" = 4 ]
-[ -f "$G/groot-data/$TASK/hb-dataset-receipt.json" ] || { echo "SKIP groot $TASK: dataset not prepared"; exit 3; }
+for i in $(seq 180); do [ -f "$G/groot-data/$TASK/hb-dataset-receipt.json" ] && grep -q J47_CPU_VERIFY_OK "$G/groot-data/prep-$TASK.log" 2>/dev/null && break; sleep 10; done  # data view + CPU check (<= 30 min)
+[ -f "$G/groot-data/$TASK/hb-dataset-receipt.json" ] && grep -q J47_CPU_VERIFY_OK "$G/groot-data/prep-$TASK.log" || { echo "SKIP groot $TASK: dataset not prepared / CPU check failed"; exit 3; }
 GRUNS=$G/groot-runs-j47; OUT=$GRUNS/$TASK/production; LOGD=$GRUNS/$TASK/logs
 mkdir -p "$OUT" "$LOGD"
 LOGF=$LOGD/production.log; [ "$NODE" = 0 ] || LOGF=$LOGD/production-node-$NODE.log

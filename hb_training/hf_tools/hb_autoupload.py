@@ -1144,7 +1144,9 @@ def collect_fastwam(task):
         return None
     done = rd(R / "complete.json")
     W = R / "out" / "checkpoints" / "weights"
-    eps = [dict(epoch=None, step=s, name=f"step-{s:06d}", files={"model.pt": W / f"step_{s:06d}.pt"}) for s in (2000, 4000)]
+    # 2026-11-18: the last two checkpoints from complete.json (C6 runs 8000 steps, saves 4000 / 8000)
+    _fw_steps = (int(done.get("save_every", 2000)), int(done.get("max_steps", 4000)))
+    eps = [dict(epoch=None, step=s, name=f"step-{s:06d}", files={"model.pt": W / f"step_{s:06d}.pt"}) for s in _fw_steps]
     for e in eps:
         if not e["files"]["model.pt"].is_file():
             raise RuntimeError(f"missing {e['files']['model.pt']}")
@@ -1159,6 +1161,7 @@ def collect_fastwam(task):
               "batch_benchmark/chosen.json": FW / "chosen.json",
               "code/hb_aug_v2.py": G / "hb_groot" / "hb_aug_v2.py",
               "code/fastwam_task.sh": G / "hb_fastwam" / "fastwam_task.sh",
+              "code/fastwam_task_s.sh": G / "hb_fastwam" / "fastwam_task_s.sh",
               "code/fastwam_prep.sh": FW / "tools" / "fastwam_prep.sh"}
     # 2026-11-16 user: ship the inference adapter (and the two modules it / hb_inloop_fastwam import) with every
     # FastWAM checkpoint; collaborators deploy straight from HF
@@ -1182,7 +1185,7 @@ def collect_fastwam(task):
     for k, v in common.items():
         if not Path(v).is_file():
             raise RuntimeError(f"missing {k}: {v}")
-    proto = dict(epochs=None, total_steps=int(done.get("max_steps", 4000)), save_steps=[2000, 4000], num_gpus=32,
+    proto = dict(epochs=None, total_steps=int(done.get("max_steps", 4000)), save_steps=list(_fw_steps), num_gpus=32,
                  per_gpu_batch=done["per_gpu_batch"], global_batch=done["global_batch"], gradient_accumulation_steps=1,
                  episodes=iface["episodes"], frames=iface["frames"], fps=iface.get("fps"),
                  cameras=iface["cameras"], state_dim=iface["state_dim"], action_dim=iface["action_dim"],
