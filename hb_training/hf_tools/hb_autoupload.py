@@ -1250,6 +1250,21 @@ SUBDIR.update({("fastwam", "b7t"): "b512"})
 # 2026-11-17 11:3x user: Delta Flow B7 black on the trimmed data -> deltaflow/b7-black-clothes-hamper/b256/
 SUBDIR.update({("deltaflow", "b7t"): "b256"})
 
+# 2026-11-20 user: FastWAM on every task's latest data, ahead of Delta Flow. b7gt = B7 green on HF b7-green-clothes-hamper
+# @22e3b83 (trimmed v2 at the repo root, all episodes; the groot key b7green keeps its own data record)
+for _d, _v in ((TASKDIR, dict(b7gt="b7-green-clothes-hamper")), (DESC, dict(b7gt=DESC["b7green"])),
+               (TASKNAME, dict(b7gt="B7 green clothes -> hamper, trimmed v2 data (G1)")),
+               (HFDATA, dict(b7gt="b7-green-clothes-hamper @22e3b83 (trimmed v2, all episodes)")),
+               (ROBOT, dict(b7gt="Unitree G1"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+FW_TASKS = FW_TASKS + ("b7gt",)
+SUBDIR.update({("fastwam", "b7gt"): "b512"})
+
+# 2026-11-20 user: Delta Flow on b5ss / b7gt (all episodes, tree HumanWAM-allep) -> deltaflow/<task dir>/b256/
+SUBDIR.update({("deltaflow", "b5ss"): "b256", ("deltaflow", "b7gt"): "b256"})
+EPISODES_OF.update(b7gt=421)
+
 
 def main():
     lock = open(A / "daemon.lock", "w")
