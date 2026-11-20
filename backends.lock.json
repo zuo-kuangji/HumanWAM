@@ -2,6 +2,21 @@
   "version": 1,
   "sources": [
     {
+      "name": "groot_ode",
+      "path": "third_party/ODE-POLICY",
+      "url": "https://github.com/NTUMARS/ODE-POLICY.git",
+      "branch": "real-g1",
+      "commit": "fd8bec470faf7793702533358867db02819e8f27",
+      "patches": []
+    },
+    {
+      "name": "groot_ode_runtime",
+      "path": "third_party/Isaac-GR00T-ODE",
+      "url": "https://github.com/NVIDIA/Isaac-GR00T.git",
+      "commit": "23ace64f17aa5015259b8609d371eb61a357c776",
+      "patches": []
+    },
+    {
       "name": "groot_n17",
       "path": "third_party/Isaac-GR00T",
       "url": "https://github.com/NVIDIA/Isaac-GR00T.git",

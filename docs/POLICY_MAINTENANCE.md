@@ -1,12 +1,13 @@
 # HumanWAM policy 维护
 
-按6个独立模型家族、8个注册入口维护。Gaussian、A2A及任务权重是家族内配置；
+按6个独立模型家族、9个注册入口维护。Gaussian、A2A及任务权重是家族内配置；
 ImageWAM的motion76与joint-reference因动作语义和checkpoint不同，分别注册。
 
 | Backend | 原生源码 | 训练和推理入口 | 当前边界 |
 |---|---|---|---|
 | `psi0` | `third_party/Psi0`及其PSI SONIC fork | 原生训练、RTC WebSocket与离线chunk | checkpoint拥有归一化和horizon，不自动当作feedback76 |
 | `groot_n17` | `third_party/Isaac-GR00T` + `GR00T-WholeBodyControl` | 原生finetune + ZeroMQ PolicyServer | 原生SONIC78；独立NEW_EMBODIMENT配方可训feedback76/H16 |
+| `groot_ode` | `third_party/ODE-POLICY` real-g1 + 独立 `Isaac-GR00T-ODE` | 原生prepare/features/单进程train + ZeroMQ policy RPC | 身体64维Euler ODE＋独立手12维、state44/H16；每次请求显式传实际发送的body carry |
 | `pi05` | `third_party/openpi` + 版本锁定A2A patch | OpenPI train + WebSocket服务 | 当前适配LIBERO7/H10，G1/76D需要单独模型架构与训练适配 |
 | `imagewam_delta` | `src/imagewam` + `scripts/wholebody` | 原生FM+IC训练 + 固定release/nativewholebody推理 | 新H16、旧H40显式选择，state不进视觉 |
 | `imagewam_joint_reference` | `src/imagewam` + 独立joint-reference配方 | joint47 v2训练、时钟与前瞻检查、SONIC v1包导出 | body29＋Inspire12＋相对heading旋转6D；历史16、预测40、执行16；不兼容motion76完整checkpoint |
@@ -36,7 +37,7 @@ docs/policies/          每类policy的原生依赖、数据、部署约定
 ## 当前G1任务支持范围
 
 统一registry、命令和接口检查不代表所有policy已经能用同一份G1数据训练或部署。
-截至2026-11-14，当前实现保留如下区别：
+截至2026-11-20，当前实现保留如下区别：
 
 | 路线 | 输入state / 输出action / 预测窗口 | 当前完成范围 |
 |---|---|---|
@@ -44,6 +45,7 @@ docs/policies/          每类policy的原生依赖、数据、部署约定
 | ImageWAM joint47 v2 | 44，另有当前root与时钟 / 47 / H40、执行16 | 训练、损失、配对数据与SONIC离线导出检查；尚无该配方已训练权重 |
 | GR00T默认stock SONIC | 46 / 78 / H40 | 原生接口；须匹配SONIC checkpoint，不能将通用基座当已训练SONIC策略 |
 | GR00T自有feedback76 | 44 / 76 / H16 | 独立NEW_EMBODIMENT数据映射与训练配方；尚未验证此统一入口的匹配完整任务checkpoint |
+| GR00T ODE Policy | 44 / 76 / H16 | 固定公开real-g1源码、原生数据/训练/预测和显式carry；未在此统一入口加载完整GPU权重或测试真机，见[ODE说明](policies/GROOT_ODE.md) |
 | π₀.₅ | LIBERO 8 / 7 / H10 | Gaussian与JAX LoRA Δ-flow；未适配G1的44/76，R1Lite Torch发布runtime另保留 |
 | Fast-WAM官方任务 | LIBERO 8 / 7或RoboTwin 14 / 14，H32 | 原生Gaussian FM；未添加A2A/IC，没有真实GPU推理检查 |
 | Fast-WAM G1 feedback76 | 44 / 76 / H16 | 与GR00T自有配方对齐的数据映射、原生训练与ZeroMQ协议；需要新训练权重，未做GPU或真机测试，见[接入说明](policies/FASTWAM_SONIC.md) |
@@ -108,7 +110,7 @@ humanwam audit-data /path/to/lerobot-dataset
 
 ## 推理与协议
 
-八个注册入口都提供`build_policy(config)`、`predict(observation)`、`reset()`，
+九个注册入口都提供`build_policy(config)`、`predict(observation)`、`reset()`，
 但输入保持各自的原生字段、归一化与动作含义。输出附带或保留原生动作空间。
 不能把GR00T78D command hand、ImageWAM motion76 measured hand、joint41/47和LIBERO7D控制量混用。
 joint路径必须保留`body_target_source`，区分WBC电机qtarget、实测关节与原始运动参考。

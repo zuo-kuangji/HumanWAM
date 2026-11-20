@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "backend": "groot_ode",
+  "python": "${GROOT_ODE_PYTHON}",
+  "source_dir": "${HUMANWAM_ROOT}/third_party/ODE-POLICY",
+  "options": {
+    "native_config": "${HUMANWAM_ROOT}/configs/humanwam/groot-ode.yaml",
+    "gr00t_source_dir": "${HUMANWAM_ROOT}/third_party/Isaac-GR00T-ODE",
+    "host": "127.0.0.1",
+    "port": 5558
+  }
+}

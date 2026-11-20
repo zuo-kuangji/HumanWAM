@@ -1,5 +1,9 @@
 # G1 部署：模型服务与 SONIC v1.1
 
+Jindou Jia 等人的 GR00T ODE Policy 使用独立的 `groot_ode` 入口，固定源码、
+训练步骤、manifest 权重和实际发送动作 carry 见[ODE 接入说明](policies/GROOT_ODE.md)。
+它的预测接口不隐式推进控制历史；公开原生机器人循环与下文 ImageWAM 路线分别维护。
+
 FastWAM 的 GR00T feedback76/H16 policy RPC、数据映射和独立训练入口见
 [FastWAM SONIC 接入说明](policies/FASTWAM_SONIC.md)。它复用既有 feedback76 执行链路，
 需要自己的匹配权重；下文仍专门描述两条 ImageWAM 路线。

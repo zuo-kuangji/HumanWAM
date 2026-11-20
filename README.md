@@ -1,6 +1,6 @@
 # HumanWAM
 
-HumanWAM maintains six policy families through eight registered entries: GR00T N1.7 + SONIC,
+HumanWAM maintains six policy families through nine registered entries: GR00T N1.7 + SONIC,
 π₀.₅, ImageWAM Δ-flow, Fast-WAM, DiT4DiT and Psi-Zero. ImageWAM provides separate
 motion-token and joint-reference training modes with distinct action and checkpoint schemas.
 
@@ -15,6 +15,7 @@ motion-token and joint-reference training modes with distinct action and checkpo
 - [Base weights, initialization and checkpoint loading](docs/MODEL_INITIALIZATION.md)
 - [Runtime validation record](docs/policies/RUNTIME_VALIDATION_20261109.md)
 - [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
+- [GR00T ODE Policy / G1: native training, prediction and issued-action carry](docs/policies/GROOT_ODE.md)
 - [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
 - [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
 - [ImageWAM joint47 v2: prediction, execution and reference labels](docs/G1_JOINT_REFERENCE_DELTA.md)

@@ -16,6 +16,8 @@ def run(*args, cwd=None):
 def bootstrap(only=None):
     lock = json.loads((ROOT / "backends.lock.json").read_text())
     selected = set(only or [row["name"] for row in lock["sources"]])
+    if "groot_ode" in selected:
+        selected.add("groot_ode_runtime")
     if selected - {row["name"] for row in lock["sources"]}:
         raise ValueError("Unknown source selected")
     for row in lock["sources"]:
@@ -43,5 +45,5 @@ def bootstrap(only=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--only", nargs="+", choices=["groot_n17", "sonic", "pi05", "dit4dit", "psi0", "fastwam"])
+    parser.add_argument("--only", nargs="+", choices=["groot_n17", "groot_ode", "groot_ode_runtime", "sonic", "pi05", "dit4dit", "psi0", "fastwam"])
     bootstrap(parser.parse_args().only)

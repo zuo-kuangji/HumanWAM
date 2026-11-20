@@ -17,7 +17,7 @@ from enum import Enum
 class MsgSerializer:
     """Compatible numeric ndarray envelopes; never deserialize pickle data."""
 
-    def __init__(self):
+    def __init__(self, *, legacy_npy=False):
         import msgpack
         import msgpack_numpy
         import numpy
@@ -25,10 +25,18 @@ class MsgSerializer:
         self.msgpack = msgpack
         self.mnp = msgpack_numpy
         self.np = numpy
+        self.legacy_npy = legacy_npy
 
     def _encode(self, value):
         if isinstance(value, self.np.ndarray) and value.dtype.hasobject:
             raise TypeError("Object arrays are not supported by the SONIC policy protocol")
+        if self.legacy_npy:
+            if isinstance(value, self.np.ndarray):
+                stream = io.BytesIO()
+                self.np.save(stream, value, allow_pickle=False)
+                return {"__ndarray_class__": True, "as_npy": stream.getvalue()}
+            if isinstance(value, self.np.generic):
+                return value.item()
         return self.mnp.encode(value)
 
     def _decode(self, value):
@@ -65,7 +73,7 @@ def _json_enum(value):
     raise TypeError(f"Unsupported modality metadata type: {type(value).__name__}")
 
 
-def _modality_envelopes(modalities):
+def _modality_envelopes(modalities, *, legacy_npy=False):
     """Let the native client reconstruct its own ModalityConfig dataclasses."""
     result = {}
     for key, value in modalities.items():
@@ -74,7 +82,11 @@ def _modality_envelopes(modalities):
         if not isinstance(value, dict):
             raise TypeError("Modality definitions must be mappings or dataclasses")
         # Use a JSON payload, as accepted by both native marker spellings.
-        result[key] = {"__ModalityConfig__": True, "as_json": json.dumps(value, default=_json_enum)}
+        encoded = json.dumps(value, default=_json_enum)
+        if legacy_npy:
+            result[key] = {"__ModalityConfig_class__": True, "as_json": json.loads(encoded)}
+        else:
+            result[key] = {"__ModalityConfig__": True, "as_json": encoded}
     return result
 
 
@@ -85,7 +97,11 @@ class PolicyServer:
         import zmq
 
         self.zmq = zmq
-        self.serializer = MsgSerializer()
+        wire_format = getattr(policy, "wire_format", "msgpack_numpy")
+        if wire_format not in {"msgpack_numpy", "gr00t_npy"}:
+            raise ValueError("Unknown GR00T policy wire format")
+        self.legacy_npy = wire_format == "gr00t_npy"
+        self.serializer = MsgSerializer(legacy_npy=self.legacy_npy)
         self.policy = policy
         self.api_token = api_token
         self.running = True
@@ -114,7 +130,7 @@ class PolicyServer:
             self.running = False
             return None
         if endpoint == "get_modality_config":
-            return _modality_envelopes(self.policy.get_modality_config())
+            return _modality_envelopes(self.policy.get_modality_config(), legacy_npy=self.legacy_npy)
         data = request.get("data", {})
         if not isinstance(data, dict):
             raise ValueError("Policy request data must be a mapping")
