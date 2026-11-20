@@ -99,7 +99,20 @@ TASKS = {
     "a7": Task(P / "a3-a7-20261109/a7-cabinet-close-expert-v1/1935a98e8f55d4d1d2d1615ddb97c2679713595c", None, 100, 30664, "g1", 30.0),
     "a18": Task(P / "a18-h2-dataset-audit-8e956a10/dataset", None, 100, 72752, "h2", 30.0),
     "a14": Task(P / "a14-unscrew-bulb-v1-b4390fc/data", None, 100, 185638, "h2", 30.0),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2, 3 cameras)
-    "a17": Task(P / "a17-unscrew-bottle-v1-407e6e2/data", None, 100, 115333, "h2", 30.0),  # HF a17-unscrew-bottle-expert-v1 @407e6e2 (H2, like a18)
+    "a17": Task(P / "a17-unscrew-bottle-v1-407e6e2/data", None, 100, 115333, "h2", 30.0),
+    # 2026-11-20 user: every task on its latest HF data (FastWAM > Delta Flow > pi0.5 > DiT4DiT); all episodes per the
+    # 11-14 rule except B6 v6 (fixed first 500, 11-18) and B7 black trimmed (first 100 of 107, as every B7 run).
+    "a3v4": Task(P / "a3-fridge-open-v4-6393d4a/data", None, 125, 37226, "g1", 50.0),
+    "a7v4": Task(P / "a7-cabinet-close-v4-90cc2b5/data", None, 100, 26693, "g1", 50.0),
+    "a10v3": Task(P / "a10-trolley-push-v3-6e410c5/data", None, 148, 125290, "g1", 50.0),
+    "basketv2": Task(P / "basket-trimv2-c4df4d4/data", None, 100, 54433, "g1", 50.0),
+    "b1": Task(P / "b1-riceball-microwave-v1-36da298/data", None, 115, 105102, "g1", 50.0),
+    "b5": Task(P / "b5-chair-push-v1-b85b7e9/data", None, 100, 43075, "g1", 50.0),
+    "b5ss": Task(P / "b5-chair-push-standing-start-v1-913f5a1/data", None, 100, 30908, "g1", 50.0),
+    "b6v6": Task(P / "b6-pedal-bin-v6-ad2f5bf/data", 500, 500, 305667, "g1", 50.0),
+    "b7t": Task(P / "b7-black-clothes-hamper-trim-949da46/data", 100, 100, 78170, "g1", 50.0),
+    "b7gt": Task(P / "b7-green-clothes-hamper-v2trim-22e3b83/data", None, 421, 331117, "g1", 50.0),
+    "b8": Task(P / "b8-table-wipe-v1-3b2e618/data", None, 100, 61498, "g1", 50.0),  # HF a17-unscrew-bottle-expert-v1 @407e6e2 (H2, like a18)
 }
 
 

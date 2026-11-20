@@ -1265,6 +1265,12 @@ SUBDIR.update({("fastwam", "b7gt"): "b512"})
 SUBDIR.update({("deltaflow", "b5ss"): "b256", ("deltaflow", "b7gt"): "b256"})
 EPISODES_OF.update(b7gt=421)
 
+# 2026-11-20 user: pi0.5 on every G1 task latest data; new subdirs where an older pi0.5 run already sits at <task>/b256/
+SUBDIR.update({("pi05", "a3v4"): "b256", ("pi05", "a7v4"): "b256", ("pi05", "a10v3"): "b256", ("pi05", "basketv2"): "b256-trimv2", ("pi05", "b1"): "b256", ("pi05", "b5"): "b256", ("pi05", "b5ss"): "b256", ("pi05", "b6v6"): "b256-v6", ("pi05", "b7t"): "b256-trim", ("pi05", "b7gt"): "b256", ("pi05", "b8"): "b256"})
+
+# 2026-11-20 user: DiT4DiT on every G1 task latest data (global batch 64) -> dit4dit/<task dir>/b64/
+SUBDIR.update({("dit4dit", "a3v4"): "b64", ("dit4dit", "a7v4"): "b64", ("dit4dit", "a10v3"): "b64", ("dit4dit", "basketv2"): "b64", ("dit4dit", "b1"): "b64", ("dit4dit", "b5"): "b64", ("dit4dit", "b5ss"): "b64", ("dit4dit", "b6v6"): "b64", ("dit4dit", "b7t"): "b64", ("dit4dit", "b7gt"): "b64", ("dit4dit", "b8"): "b64"})
+
 
 def main():
     lock = open(A / "daemon.lock", "w")

@@ -14,6 +14,9 @@ TASKDIR = {"b6": "b6-pedal-bin", "a3": "a3-fridge-open", "a7": "a7-cabinet-close
            "b7": "b7-black-clothes-hamper", "a6": "a6-door-pull", "c6": "c6-bathroom-door-fetch"}
 SUB = {"a3": "b256", "a7": "b256", "b6": "b256", "a18": "b256", "trolley": "b256", "basket": "b256", "a17": "b256",
        "b7": "b256"}  # everything except the new tasks A6 / C6 goes to <task>/b256/
+# 2026-11-20 user: pi0.5 on every G1 task latest data (task dirs as hb_autoupload TASKDIR, subdirs as its SUBDIR)
+TASKDIR.update({'a3v4': 'a3-fridge-open-v4', 'a7v4': 'a7-cabinet-close-v4', 'a10v3': 'a10-trolley-push-v3', 'basketv2': 'a20-basket-transfer', 'b1': 'b1-riceball-microwave', 'b5': 'b5-chair-push', 'b5ss': 'b5-chair-push-standing-start', 'b6v6': 'b6-pedal-bin', 'b7t': 'b7-black-clothes-hamper', 'b7gt': 'b7-green-clothes-hamper', 'b8': 'b8-table-wipe'})
+SUB.update({'a3v4': 'b256', 'a7v4': 'b256', 'a10v3': 'b256', 'basketv2': 'b256-trimv2', 'b1': 'b256', 'b5': 'b256', 'b5ss': 'b256', 'b6v6': 'b256-v6', 'b7t': 'b256-trim', 'b7gt': 'b256', 'b8': 'b256'})
 sys.path.insert(0, str(G / "hb_pi05"))
 sys.path.insert(0, str(P / "hf-sidecar-tools-20261110"))
 import hb_g1_config as C  # noqa: E402

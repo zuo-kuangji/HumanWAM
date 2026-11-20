@@ -7,6 +7,7 @@
 H=$(dirname "$(realpath "$0")")
 T=${1:?usage: dit4dit_native_relay.sh <task>}
 case $T in b6) i=0 ;; a3) i=1 ;; a7) i=2 ;; a18) i=3 ;; trolley) i=4 ;; basket) i=5 ;; a17) i=6 ;; b7) i=7 ;; a6) i=8 ;; c6) i=9 ;; a14) i=10 ;;
+  a3v4) i=11 ;; a7v4) i=12 ;; a10v3) i=13 ;; basketv2) i=14 ;; b1) i=15 ;; b5) i=16 ;; b5ss) i=17 ;; b6v6) i=18 ;; b7t) i=19 ;; b7gt) i=20 ;; b8) i=21 ;;  # 2026-11-20 user: latest data of every G1 task
   *) echo "unknown task $T"; exit 64 ;; esac
 # 2026-11-12 user: DiT4DiT global batch 64 = 32 GPUs x 2 for every task
 C="2"
