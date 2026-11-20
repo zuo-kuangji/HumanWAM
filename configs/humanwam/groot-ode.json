@@ -2,7 +2,7 @@
   "version": 1,
   "backend": "groot_ode",
   "python": "${GROOT_ODE_PYTHON}",
-  "source_dir": "${HUMANWAM_ROOT}/third_party/ODE-POLICY",
+  "source_dir": "${HUMANWAM_ROOT}/packages/ode_g1",
   "options": {
     "native_config": "${HUMANWAM_ROOT}/configs/humanwam/groot-ode.yaml",
     "gr00t_source_dir": "${HUMANWAM_ROOT}/third_party/Isaac-GR00T-ODE",

@@ -1,4 +1,4 @@
-"""Public G1 ODE adapter contracts; injected model boundary is not GPU validation."""
+"""HumanWAM-owned G1 ODE adapter contracts; injected model boundary is not GPU validation."""
 
 import copy
 import hashlib
@@ -16,8 +16,8 @@ import yaml
 from humanwam.backends import groot_ode as module
 
 ROOT = Path(__file__).resolve().parents[3]
-SOURCE = ROOT / "third_party/ODE-POLICY"
-pytestmark = pytest.mark.skipif(not (SOURCE / "groot/src/ode_g1/config.py").is_file(), reason="Pinned ODE source absent")
+SOURCE = ROOT / "packages/ode_g1"
+pytestmark = pytest.mark.skipif(not (SOURCE / "src/ode_g1/config.py").is_file(), reason="Owned ODE package absent")
 
 
 def digest(value):
@@ -39,7 +39,7 @@ def config(tmp_path):
         stats[name + "_bounds"] = {"q01": low, "q99": high}
     (tmp_path / "ode_config.json").write_text(json.dumps(head))
     (tmp_path / "normalization.json").write_text(json.dumps(stats))
-    # Explicit fixture only; actual public loader still rejects non-model files.
+    # Explicit fixture only; actual owned loader still rejects non-model files.
     data = b"not-a-model; runtime is injected in these contract tests"
     (tmp_path / "final_head.safetensors").write_bytes(data)
     binding = {
@@ -230,6 +230,16 @@ def test_import_and_construction_are_model_and_transport_lazy(config):
     subprocess.run([sys.executable, "-c", script], check=True, capture_output=True)
 
 
+def test_owned_package_does_not_require_upstream_git_head_or_clean_worktree(config, monkeypatch):
+    def no_external_pin(*args):
+        raise AssertionError("Owned ODE code must not be pinned to an external Git commit")
+
+    monkeypatch.setattr(module, "_git_source", no_external_pin)
+    policy = module.GrootODEPolicy(config, runtime_factory=Runtime)
+    assert policy.source == SOURCE
+    assert policy._runtime is None
+
+
 def test_wrong_gr00t_installation_is_rejected_before_loading(config, monkeypatch):
     wrong = ROOT / "third_party/Isaac-GR00T/gr00t/__init__.py"
     monkeypatch.setattr(module.importlib.util, "find_spec", lambda name: SimpleNamespace(origin=str(wrong)))
@@ -281,7 +291,7 @@ def test_native_clients_receive_real_ode_actions_over_legacy_zmq(config, observa
 def test_actual_native_runtime_uses_affine_sent_token_and_never_commits(config, observation):
     import torch
 
-    package = str(SOURCE / "groot/src")
+    package = str(SOURCE / "src")
     if package not in sys.path:
         sys.path.insert(0, package)
     from ode_g1.data import TaskNormalizer

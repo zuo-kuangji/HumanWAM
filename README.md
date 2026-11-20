@@ -25,8 +25,9 @@ motion-token and joint-reference training modes with distinct action and checkpo
 - [DiT4DiT](docs/policies/DIT4DIT.md)
 - [Psi-Zero / SONIC](docs/policies/PSI0.md)
 
-The orchestration package lives in `packages/humanwam`; upstream implementations are
-pinned git submodules with their original attribution and licenses. Policies use separate
+The orchestration package lives in `packages/humanwam`. GR00T ODE source is maintained
+directly in `packages/ode_g1`, with its upstream citation and license notices. Other upstream
+implementations use pinned git submodules. Policies use separate
 environments and their native action spaces. New motion-token training defaults to 16
 samples. Joint47 v2 uses 16 historical samples and predicts 40 samples, of which 16 source
 intervals form the execution segment and the remainder supplies controller lookahead.

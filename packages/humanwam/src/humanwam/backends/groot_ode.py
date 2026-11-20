@@ -1,4 +1,4 @@
-"""Lazy public ODE-POLICY G1 adapter with explicit last-sent-token requests.
+"""HumanWAM-owned G1 ODE adapter with explicit last-sent-token requests.
 
 Every prediction supplies normalized r0 explicitly. Previewed actions never
 advance execution history, and a network reset is not a robot acknowledgement.
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from .groot_ode_commands import gr00t_source_root, load_native_config, source_root
 
-ODE_SOURCE_COMMIT = "fd8bec470faf7793702533358867db02819e8f27"
+UPSTREAM_SOURCE_COMMIT = "fd8bec470faf7793702533358867db02819e8f27"
 GR00T_SOURCE_COMMIT = "23ace64f17aa5015259b8609d371eb61a357c776"
 CAMERAS = ("ego_view", "chest")
 NATIVE_CAMERAS = tuple("observation.images." + key for key in CAMERAS)
@@ -61,11 +61,11 @@ def _binding_digest(binding):
 
 
 def _checkpoint_manifest(cfg):
-    """CPU preflight; the public loader additionally validates tensors and base weights."""
+    """CPU preflight; the owned loader additionally validates tensors and base weights."""
     root = Path(cfg["inference"]["checkpoint_dir"] or cfg["paths"]["output"]).resolve()
     manifest = json.loads((root / "policy_manifest.json").read_text())
     if manifest.get("schema") != "ode-g1-policy-v1":
-        raise ValueError("Use a public ODE G1 policy_manifest.json checkpoint")
+        raise ValueError("Use a manifest-bound ODE G1 checkpoint")
     binding = manifest["binding"]
     if _binding_digest(binding) != manifest["binding_sha256"]:
         raise ValueError("ODE checkpoint binding changed")
@@ -87,7 +87,7 @@ def _checkpoint_manifest(cfg):
     if cfg["dataset"]["revision"] is not None and task["revision"] != cfg["dataset"]["revision"]:
         raise ValueError("ODE checkpoint task revision differs from native configuration")
     # The native TaskNormalizer is NumPy-only, but model package imports remain
-    # lazy. Its complete normalization validation runs in public load_policy.
+    # lazy. Its complete normalization validation runs in owned load_policy.
     if stats.get("schema") != "g1-task-ode-q01q99-fixed-hands-v1":
         raise ValueError("Incompatible ODE G1 normalization schema")
     head = manifest["head"]
@@ -101,7 +101,6 @@ def _checkpoint_manifest(cfg):
 
 def _native_imports(source, options=None):
     """Select the exact ODE package, leaving other GR00T environments untouched."""
-    _git_source(source, ODE_SOURCE_COMMIT)
     configured_groot = gr00t_source_root(options or {}, source)
     spec = importlib.util.find_spec("gr00t")
     if spec is None or not spec.origin:
@@ -119,10 +118,10 @@ def _native_imports(source, options=None):
             file = getattr(module, "__file__", None)
             if file and not Path(file).resolve().is_relative_to(groot_root):
                 raise ValueError("A different GR00T environment is already imported")
-    package = source / "groot/src"
+    package = source / "src"
     existing = importlib.util.find_spec("ode_g1")
     if existing and (not existing.origin or Path(existing.origin).resolve() != package / "ode_g1/__init__.py"):
-        raise ValueError("A different ode_g1 installation shadows the pinned source")
+        raise ValueError("A different ode_g1 installation shadows the HumanWAM-owned package")
     if str(package) not in sys.path:
         sys.path.insert(0, str(package))
     for name, module in tuple(sys.modules.items()):
@@ -167,14 +166,13 @@ class _NativeRuntime:
 class GrootODEPolicy:
     """GR00T feedback76 modalities, with mandatory request-owned causal r0."""
 
-    # The public ODE environment pins GR00T23ace, whose client predates mnp
+    # The ODE environment pins GR00T23ace, whose client predates mnp
     # ndarray envelopes and the newer ModalityConfig marker spelling.
     wire_format = "gr00t_npy"
 
     def __init__(self, config, *, runtime_factory=None):
         self.config = dict(config)
         self.source = source_root(config["source_dir"])
-        _git_source(self.source, ODE_SOURCE_COMMIT)
         self.native_config = load_native_config(config, self.source)
         if self.native_config["head"]["horizon"] != 16:
             raise ValueError("HumanWAM SONIC alignment requires the H16 ODE checkpoint")
@@ -256,7 +254,7 @@ class GrootODEPolicy:
             "method": "control_step_sonic_latent_ode", "horizon": 16,
             "action_space": "sonic_motion64_inspire12", "normalized": False,
             "action_frequency_hz": 30, "carry_source": "request_last_actually_sent_body64_or_explicit_BOS",
-            "robot_execution_verified": False, "upstream_commit": ODE_SOURCE_COMMIT,
+            "robot_execution_verified": False, "upstream_commit": UPSTREAM_SOURCE_COMMIT,
         }
 
     def get_action(self, observation, options=None):

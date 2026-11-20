@@ -24,7 +24,8 @@
 - [DiT4DiT](docs/policies/DIT4DIT.md)
 - [Psi-Zero / SONIC](docs/policies/PSI0.md)
 
-新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
+统一入口位于 `packages/humanwam`，GR00T ODE 的实现直接放在 `packages/ode_g1` 内维护，
+保留作者引用和许可证。其他上游框架仍用固定 commit 的 git submodule 维护。
 各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
 ImageWAM motion-token新训练默认16步；joint47 v2历史16、总预测40、执行16。
 下文继承的旧motion-token40步配置与joint47的40点lookahead不是同一配方。

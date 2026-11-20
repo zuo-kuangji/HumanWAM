@@ -1,8 +1,11 @@
 # GR00T N1.7 + SONIC integration component
 
-Jindou Jia et al.'s public GR00T ODE head uses the separate
-[`groot_ode` entry](GROOT_ODE.md), pinned to ODE-POLICY `real-g1` and its own
-Isaac-GR00T revision. It requires a manifest-bound ODE bundle and explicit
+The GR00T ODE implementation is maintained directly in HumanWAM's
+[`packages/ode_g1`](../../packages/ode_g1) and exposed through the
+[`groot_ode` entry](GROOT_ODE.md). Its original ODE-POLICY `real-g1` source is
+credited in [UPSTREAM.md](../../packages/ode_g1/UPSTREAM.md); ODE-POLICY is not
+a runtime submodule dependency. The separate Isaac-GR00T framework revision
+remains an external dependency. ODE requires a manifest-bound bundle and explicit
 last-sent body-token carry. The native FM adapter below does not load that format.
 
 Both upstream repositories were actually cloned for this integration:

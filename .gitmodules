@@ -16,10 +16,6 @@
 [submodule "third_party/FastWAM"]
 	path = third_party/FastWAM
 	url = https://github.com/yuantianyuan01/FastWAM.git
-[submodule "third_party/ODE-POLICY"]
-	path = third_party/ODE-POLICY
-	url = https://github.com/NTUMARS/ODE-POLICY.git
-	branch = real-g1
 [submodule "third_party/Isaac-GR00T-ODE"]
 	path = third_party/Isaac-GR00T-ODE
 	url = https://github.com/NVIDIA/Isaac-GR00T.git
