@@ -3,6 +3,7 @@
   "backend": "fastwam",
   "source_dir": "${HUMANWAM_ROOT}/third_party/FastWAM",
   "options": {
+    "method": "gaussian_fm",
     "task": "libero_uncond_2cam224_1e-4",
     "model_cache_root": "${FASTWAM_MODEL_CACHE}",
     "output_dir": "${FASTWAM_OUTPUT}",

@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "backend": "fastwam_sonic",
+  "python": "${FASTWAM_PYTHON}",
+  "source_dir": "${HUMANWAM_ROOT}/third_party/FastWAM",
+  "options": {
+    "profile": "feedback76_h16",
+    "method": "gaussian_fm",
+    "dataset_dir": "${FASTWAM_SONIC_DATA_ROOT}",
+    "text_embedding_cache_dir": "${FASTWAM_SONIC_TEXT_CACHE}",
+    "action_init": "${FASTWAM_SONIC_ACTION_INIT}",
+    "model_cache_root": "${FASTWAM_MODEL_CACHE}",
+    "output_dir": "${FASTWAM_SONIC_OUTPUT}",
+    "num_processes": 8,
+    "overrides": {
+      "batch_size": 16,
+      "gradient_accumulation_steps": 1,
+      "num_epochs": 10,
+      "learning_rate": 0.0001,
+      "wandb.enabled": false
+    }
+  }
+}

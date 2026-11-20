@@ -1,29 +1,33 @@
 # HumanWAM
 
-HumanWAM maintains six policy families through seven registered entries: GR00T N1.7 + SONIC,
+HumanWAM maintains six policy families through nine registered entries: GR00T N1.7 + SONIC,
 π₀.₅, ImageWAM Δ-flow, Fast-WAM, DiT4DiT and Psi-Zero. ImageWAM provides separate
 motion-token and joint-reference training modes with distinct action and checkpoint schemas.
 
 - [G1 training modes and reproducible commands](docs/TRAINING_MODES.md)
 - [G1 deployment: model services, HTTP clients and SONIC v1.1](docs/G1_DEPLOYMENT.md)
-- [Training augmentation v2: paired RGB, probabilistic state noise and conditioning dropout](docs/DATA_AUGMENTATION.md)
-- [Augmentation v2 verification: 456 CPU checks](docs/policies/AUGMENTATION_V2_VALIDATION_20261110.md)
+- [Training augmentation v3: paired RGB noise, JPEG, jitter and state conditioning](docs/DATA_AUGMENTATION.md)
+- [Augmentation v3 verification: 588 CPU checks](docs/policies/AUGMENTATION_V3_VALIDATION_20261110.md)
+- [Historical augmentation v2 verification: 456 CPU checks](docs/policies/AUGMENTATION_V2_VALIDATION_20261110.md)
 - [Historical augmentation v1 verification: 431 CPU checks](docs/policies/AUGMENTATION_VALIDATION_20261110.md)
 - [Two-route CPU validation and limitations](docs/policies/TRAINING_ROUTES_VALIDATION_20261110.md)
 - [Installation, repository structure and maintenance](docs/POLICY_MAINTENANCE.md)
 - [Base weights, initialization and checkpoint loading](docs/MODEL_INITIALIZATION.md)
 - [Runtime validation record](docs/policies/RUNTIME_VALIDATION_20261109.md)
 - [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
+- [GR00T ODE Policy / G1: native training, prediction and issued-action carry](docs/policies/GROOT_ODE.md)
 - [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
 - [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
 - [ImageWAM joint47 v2: prediction, execution and reference labels](docs/G1_JOINT_REFERENCE_DELTA.md)
 - [SONIC joint-reference timing and protocol export](docs/policies/SONIC_JOINT_REFERENCE.md)
 - [Fast-WAM native Gaussian FM](docs/policies/FASTWAM.md)
+- [Fast-WAM G1 / SONIC: GR00T feedback76/H16 interface](docs/policies/FASTWAM_SONIC.md)
 - [DiT4DiT](docs/policies/DIT4DIT.md)
 - [Psi-Zero / SONIC](docs/policies/PSI0.md)
 
-The orchestration package lives in `packages/humanwam`; upstream implementations are
-pinned git submodules with their original attribution and licenses. Policies use separate
+The orchestration package lives in `packages/humanwam`. GR00T ODE source is maintained
+directly in `packages/ode_g1`, with its upstream citation and license notices. Other upstream
+implementations use pinned git submodules. Policies use separate
 environments and their native action spaces. New motion-token training defaults to 16
 samples. Joint47 v2 uses 16 historical samples and predicts 40 samples, of which 16 source
 intervals form the execution segment and the remainder supplies controller lookahead.

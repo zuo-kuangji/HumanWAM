@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "packages/humanwam/**"
+      - "packages/ode_g1/**"
       - "configs/humanwam/**"
       - "configs/wholebody/**"
       - "scripts/wholebody/**"
@@ -20,10 +21,12 @@ on:
       - "patches/**"
       - "backends.lock.json"
       - ".gitmodules"
+      - "third_party/Isaac-GR00T-ODE"
       - ".github/workflows/policies.yml"
   pull_request:
     paths:
       - "packages/humanwam/**"
+      - "packages/ode_g1/**"
       - "configs/humanwam/**"
       - "configs/wholebody/**"
       - "scripts/wholebody/**"
@@ -40,6 +43,7 @@ on:
       - "patches/**"
       - "backends.lock.json"
       - ".gitmodules"
+      - "third_party/Isaac-GR00T-ODE"
       - ".github/workflows/policies.yml"
 
 permissions:
@@ -64,9 +68,10 @@ jobs:
           GIT_LFS_SKIP_SMUDGE: "1"
         run: >-
           git submodule update --init --depth 1 --filter=blob:none
-          third_party/GR00T-WholeBodyControl third_party/FastWAM
+          third_party/GR00T-WholeBodyControl third_party/FastWAM third_party/Isaac-GR00T
+          third_party/Isaac-GR00T-ODE
       - name: Install orchestration and test dependencies
-        run: python -m pip install -e './packages/humanwam[test]' omegaconf==2.3.0
+        run: python -m pip install -e './packages/humanwam[test,data]' omegaconf==2.3.0
       - name: CPU policy and orchestration contracts
         env:
           PYTHONPATH: src
@@ -79,3 +84,33 @@ jobs:
           tests/test_wholebody_cli.py
       - name: Lightweight package lint
         run: python -m ruff check packages/humanwam
+
+  ode-native-cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Fetch external GR00T framework sources
+        env:
+          GIT_LFS_SKIP_SMUDGE: "1"
+        run: >-
+          git submodule update --init --depth 1 --filter=blob:none
+          third_party/Isaac-GR00T-ODE third_party/Isaac-GR00T
+      - name: Install CPU-only test runtime
+        run: |
+          python -m pip install torch==2.7.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -e './packages/humanwam[test,data]' 'numpy>=1.26,<2' safetensors
+          python -m pip install --no-deps -e packages/ode_g1
+      - name: Build standalone ODE package with attribution
+        run: |
+          python -m pip install build
+          python -m build --outdir /tmp/humanwam-ode-dist packages/ode_g1
+      - name: Native ODE optimizer, exact resume, manifests and issued-prefix carry
+        env:
+          CUDA_VISIBLE_DEVICES: ""
+          OMP_NUM_THREADS: "1"
+        run: python -m pytest -q packages/ode_g1/tests packages/humanwam/tests/test_groot_ode.py

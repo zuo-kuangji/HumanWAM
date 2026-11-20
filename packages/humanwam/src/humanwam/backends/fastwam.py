@@ -155,12 +155,10 @@ class _NativeRuntime:
         import torch
         from fastwam.datasets.lerobot.utils.normalizer import load_dataset_stats_from_json
         from fastwam.utils.config_resolvers import register_default_resolvers
-        from hydra import compose, initialize_config_dir
         from hydra.utils import instantiate
 
         register_default_resolvers()
-        with initialize_config_dir(config_dir=str(root / "configs"), version_base="1.3"):
-            cfg = compose(config_name="train", overrides=["task=" + profile["task"]])
+        cfg = self._compose_config(root, profile)
         if cfg.model._target_ != "fastwam.runtime.create_fastwam":
             raise ValueError("Release adapter only supports the official uncond FastWAM factory")
         cfg.model.load_text_encoder = True
@@ -192,11 +190,21 @@ class _NativeRuntime:
         self.processor.set_normalizer_from_stats(stats)
         self.torch = torch
 
-    def infer(self, image, state, prompt, **kwargs):
+    def _compose_config(self, root, profile):
+        from hydra import compose, initialize_config_dir
+
+        with initialize_config_dir(config_dir=str(root / "configs"), version_base="1.3"):
+            return compose(config_name="train", overrides=["task=" + profile["task"]])
+
+    def _prepare_image(self, image):
         torch = self.torch
         image = torch.from_numpy(image.copy()).permute(2, 0, 1).unsqueeze(0)
         image = image.to(device=self.model.device, dtype=self.model.torch_dtype)
-        image = image * (2.0 / 255.0) - 1.0
+        return image * (2.0 / 255.0) - 1.0
+
+    def infer(self, image, state, prompt, **kwargs):
+        torch = self.torch
+        image = self._prepare_image(image)
         batch = {"state": {"default": torch.as_tensor(state.copy()).unsqueeze(0)}}
         batch = self.processor.action_state_transform(batch)
         batch = self.processor.normalizer.forward(batch)

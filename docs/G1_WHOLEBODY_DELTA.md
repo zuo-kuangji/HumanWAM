@@ -273,11 +273,14 @@ python scripts/wholebody/build_config.py \
 ```
 
 产生 `production.yaml`、`smoke.yaml`、`build_receipt.json`。
-新配置默认使用augmentation v2。视觉增强先按50%样本概率开启，两台相机共用此开关；
+新配置默认使用augmentation v3，新增配对Gaussian像素噪声、JPEG压缩，
+并将仿射抖动范围增至±4%平移、±3°旋转和0.96–1.04 scale。
+视觉增强先按50%样本概率开启，两台相机共用此开关；
 各增强子项的概率以总开关开启为条件，相机内当前/未来共享参数。
 当前state轻噪声概率为25%，整份投影state条件dropout概率为10%。
 state gate包含encoder bias，FM与IC共用，不改原始测量、标签或历史。
-完整参数和SHA随配置与权重记录；旧v1 provenance保持可读，新训练不静默复用其维度屏蔽语义。
+完整参数和SHA随配置与权重记录。显式v2 profile仍可训练，保留原抖动范围且不自动加入像素噪声或JPEG；
+旧v1/v2 provenance保持可读，新训练不静默复用v1的维度屏蔽语义。
 使用 `--no-augmentation` 关闭这组训练增强，或用 `--augmentation-config PATH` 指定自己的profile。
 参数、配对规则及推理行为见[数据增强说明](DATA_AUGMENTATION.md)。
 生成的 train、model 与 EVALUATION 配置统一记录 horizon，并把具体未来图像、动作与历史

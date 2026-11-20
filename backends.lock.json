@@ -2,6 +2,13 @@
   "version": 1,
   "sources": [
     {
+      "name": "groot_ode_runtime",
+      "path": "third_party/Isaac-GR00T-ODE",
+      "url": "https://github.com/NVIDIA/Isaac-GR00T.git",
+      "commit": "23ace64f17aa5015259b8609d371eb61a357c776",
+      "patches": []
+    },
+    {
       "name": "groot_n17",
       "path": "third_party/Isaac-GR00T",
       "url": "https://github.com/NVIDIA/Isaac-GR00T.git",
@@ -60,6 +67,15 @@
       "patches": []
     }
   ],
+  "local_packages": {
+    "groot_ode": {
+      "path": "packages/ode_g1",
+      "upstream_repository": "https://github.com/NTUMARS/ODE-POLICY",
+      "upstream_revision": "fd8bec470faf7793702533358867db02819e8f27",
+      "upstream_path": "groot",
+      "attribution": "packages/ode_g1/UPSTREAM.md"
+    }
+  },
   "imagewam": {
     "upstream_repository": "https://github.com/zuo-kuangji/HumanWAM",
     "base_commit": "9cb38e1075ad1ac7379f56fec6daadc532508b5f",

@@ -16,6 +16,7 @@ from imagewam.augmentation_config import normalize_visual_config
 
 
 DEFAULT_VISUAL_AUGMENTATION = normalize_visual_config()
+VISUAL_OPERATIONS = ("exposure", "overexposure", "color", "jitter", "blur", "pixel_noise", "jpeg")
 
 
 def _plain(value):
@@ -77,10 +78,14 @@ class WholeBodyVisualAugmenter:
         self.config = normalize_visual_config(config)
         self.camera_mode = self.config["camera_mode"]
 
+    @staticmethod
+    def empty_parameters():
+        return dict.fromkeys(VISUAL_OPERATIONS)
+
     def sample_parameters(self, generator, *, apply_probability=True):
         if not isinstance(generator, torch.Generator) or generator.device.type != "cpu":
             raise ValueError("Visual augmentation requires a caller-owned CPU torch.Generator")
-        result = {key: None for key in ("exposure", "overexposure", "color", "jitter", "blur")}
+        result = self.empty_parameters()
         if not self.config["enabled"]:
             return result
         if apply_probability and not _event(self.config.get("probability", 1.0), generator):
@@ -101,8 +106,16 @@ class WholeBodyVisualAugmenter:
                                for k in ("translation_x", "translation_y")}
                 result[key].update(rotation_degrees=_uniform((-block["rotation_degrees"], block["rotation_degrees"]), generator),
                                    scale=_uniform(block["scale"], generator))
-            else:
+            elif key == "blur":
                 result[key] = {"sigma": _uniform(block["sigma"], generator), "kernel_size": block["kernel_size"]}
+            elif key == "pixel_noise":
+                result[key] = {
+                    "std": _uniform(block["std"], generator),
+                    "seed": int(torch.randint(2**63 - 1, (), generator=generator)),
+                }
+            elif key == "jpeg":
+                lo, hi = block["quality"]
+                result[key] = {"quality": lo if lo == hi else int(torch.randint(lo, hi + 1, (), generator=generator))}
         return result
 
     def apply(self, frames, *, generator, parameters=None, apply_probability=True):
@@ -115,8 +128,24 @@ class WholeBodyVisualAugmenter:
             return frames.clone()
         params = (self.sample_parameters(generator, apply_probability=apply_probability)
                   if parameters is None else _plain(parameters))
-        if not isinstance(params, dict) or set(params) != {"exposure", "overexposure", "color", "jitter", "blur"}:
+        # Historical explicit five-operation parameter dictionaries remain no-ops
+        # for newly introduced operations, rather than silently sampling them.
+        old_keys = set(VISUAL_OPERATIONS[:5])
+        if (not isinstance(params, dict) or not old_keys <= set(params)
+                or set(params) - set(VISUAL_OPERATIONS)):
             raise ValueError("Explicit paired visual parameters have an invalid schema")
+        params = {**self.empty_parameters(), **params}
+        noise = params["pixel_noise"]
+        if noise is not None:
+            if (not isinstance(noise, dict) or set(noise) != {"std", "seed"}
+                    or isinstance(noise["std"], bool) or not isinstance(noise["std"], (int, float))
+                    or not math.isfinite(noise["std"]) or not 0 <= noise["std"] <= 0.1
+                    or type(noise["seed"]) is not int or not 0 <= noise["seed"] < 2**63):
+                raise ValueError("Pixel noise requires finite std in[0,0.1] and an explicit integer seed")
+        jpeg = params["jpeg"]
+        if jpeg is not None and (not isinstance(jpeg, dict) or set(jpeg) != {"quality"}
+                                 or type(jpeg["quality"]) is not int or not 1 <= jpeg["quality"] <= 100):
+            raise ValueError("JPEG quality must be an integer in1..100")
         if all(value is None for value in params.values()):
             return frames.clone()
         image = frames.float().clone()
@@ -153,4 +182,25 @@ class WholeBodyVisualAugmenter:
             kernel = kernel / kernel.sum()
             weights = (kernel[:, None] * kernel[None, :])[None, None].expand(3, 1, size, size)
             image = F.conv2d(F.pad(image, (size//2,)*4, mode="replicate"), weights, groups=3)
+        if noise is not None and noise["std"]:
+            # A private replayable seed makes explicit parameters reusable across
+            # frames/cameras without consuming global RNG or reading future RGB.
+            noise_generator = torch.Generator(device="cpu").manual_seed(noise["seed"])
+            grain = torch.randn((1, 3, *image.shape[-2:]), generator=noise_generator)
+            image = (image + grain.to(device=image.device) * noise["std"]).clamp(0, 1)
+        if jpeg is not None:
+            from io import BytesIO
+            import numpy as np
+            from PIL import Image
+
+            decoded = []
+            for frame in image:
+                pixels = (frame.clamp(0, 1) * 255).round().to(torch.uint8).permute(1, 2, 0).cpu().numpy()
+                with BytesIO() as stream:
+                    Image.fromarray(pixels).save(stream, format="JPEG", quality=jpeg["quality"], subsampling=0)
+                    stream.seek(0)
+                    with Image.open(stream) as compressed:
+                        restored = np.array(compressed.convert("RGB"), copy=True)
+                decoded.append(torch.from_numpy(restored).permute(2, 0, 1).to(device=image.device).float() / 255)
+            image = torch.stack(decoded)
         return image.clamp(0, 1).to(dtype=frames.dtype)

@@ -269,7 +269,7 @@ def argument_parser():
     augmentation = parser.add_mutually_exclusive_group()
     augmentation.add_argument(
         "--augmentation-config", type=Path,
-        help="Training-only augmentation YAML; defaults to configs/wholebody/augmentation_v2.yaml",
+        help="Training-only augmentation YAML; defaults to configs/wholebody/augmentation_v3.yaml",
     )
     augmentation.add_argument(
         "--no-augmentation", action="store_true",
@@ -293,7 +293,7 @@ def argument_parser():
 
 
 def resolve_training_augmentation(args):
-    from imagewam.augmentation_config import SCHEMA, augmentation_sha256, normalize_augmentation
+    from imagewam.augmentation_config import PREVIOUS_SCHEMA, SCHEMA, augmentation_sha256, normalize_augmentation
     from omegaconf import OmegaConf
 
     custom = getattr(args, "augmentation_config", None)
@@ -304,11 +304,11 @@ def resolve_training_augmentation(args):
         config, source = normalize_augmentation(None), None
     else:
         profile = (Path(custom) if custom is not None else
-                   Path(__file__).resolve().parents[2] / "configs/wholebody/augmentation_v2.yaml")
+                   Path(__file__).resolve().parents[2] / "configs/wholebody/augmentation_v3.yaml")
         profile = profile.expanduser().resolve(strict=True)
         config = normalize_augmentation(OmegaConf.to_container(OmegaConf.load(profile), resolve=True))
         source = str(profile)
-    require(not config["enabled"] or config["schema"] == SCHEMA,
+    require(not config["enabled"] or config["schema"] in {SCHEMA, PREVIOUS_SCHEMA},
             "New training requires the whole-state conditioning gate profile, not legacy dimension dropout")
     return config, augmentation_sha256(config), source
 

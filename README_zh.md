@@ -1,11 +1,12 @@
 # HumanWAM
 
-统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow、Fast-WAM、DiT4DiT 和 Psi-Zero 六个 policy 家族，共七个注册入口。ImageWAM 的 motion76 与 joint-reference 使用独立入口和动作schema。
+统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow、Fast-WAM、DiT4DiT 和 Psi-Zero 六个 policy 家族，共九个注册入口。GR00T 原生与 ODE、ImageWAM motion76 与 joint-reference、FastWAM 官方任务与 G1 feedback76 分别使用独立入口和动作schema。
 
 - [两种G1训练方式、初始化与完整复现命令](docs/TRAINING_MODES.md)
 - [G1部署：模型服务、HTTP客户端与SONIC v1.1接线](docs/G1_DEPLOYMENT.md)
-- [训练增强v2：配对图像、概率state噪声与整份条件dropout](docs/DATA_AUGMENTATION.md)
-- [增强v2验证：456项CPU检查](docs/policies/AUGMENTATION_V2_VALIDATION_20261110.md)
+- [训练增强v3：配对像素噪声、JPEG、抖动与state条件增强](docs/DATA_AUGMENTATION.md)
+- [增强v3验证：588项CPU检查](docs/policies/AUGMENTATION_V3_VALIDATION_20261110.md)
+- [历史增强v2验证：456项CPU检查](docs/policies/AUGMENTATION_V2_VALIDATION_20261110.md)
 - [历史增强v1验证：431项CPU检查](docs/policies/AUGMENTATION_VALIDATION_20261110.md)
 - [两条路线的295项CPU验证及验证范围](docs/policies/TRAINING_ROUTES_VALIDATION_20261110.md)
 
@@ -13,15 +14,18 @@
 - [初始权重、下载与恢复说明](docs/MODEL_INITIALIZATION.md)
 - [实际运行验证结果](docs/policies/RUNTIME_VALIDATION_20261109.md)
 - [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
+- [GR00T ODE Policy / G1：原生训练、推理与实际发送动作的 carry](docs/policies/GROOT_ODE.md)
 - [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
 - [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
 - [ImageWAM joint47 v2：预测40、执行16与真实参考来源](docs/G1_JOINT_REFERENCE_DELTA.md)
 - [SONIC joint-reference 离线导出与协议](docs/policies/SONIC_JOINT_REFERENCE.md)
 - [Fast-WAM 原生 Gaussian FM](docs/policies/FASTWAM.md)
+- [Fast-WAM G1 / SONIC：对齐 GR00T feedback76/H16 接口](docs/policies/FASTWAM_SONIC.md)
 - [DiT4DiT](docs/policies/DIT4DIT.md)
 - [Psi-Zero / SONIC](docs/policies/PSI0.md)
 
-新入口位于 `packages/humanwam`，上游代码用固定 commit 的 git submodule 维护。
+统一入口位于 `packages/humanwam`，GR00T ODE 的实现直接放在 `packages/ode_g1` 内维护，
+保留作者引用和许可证。其他上游框架仍用固定 commit 的 git submodule 维护。
 各模型使用独立环境和原生动作空间，旧权重与服务器实验保持原样。
 ImageWAM motion-token新训练默认16步；joint47 v2历史16、总预测40、执行16。
 下文继承的旧motion-token40步配置与joint47的40点lookahead不是同一配方。

@@ -198,6 +198,46 @@ class ContractTests(unittest.TestCase):
 
 
 class LaunchGuardTests(unittest.TestCase):
+    def _training_fixture(self, root):
+        source = root / "native-source"
+        (source / "scripts").mkdir(parents=True)
+        (source / "scripts/train.py").touch()
+        (source / "configs/task").mkdir(parents=True)
+        (source / "configs/task/libero_uncond_2cam224_1e-4.yaml").write_text("{}\n")
+        return source, {"output_dir": str(root / "new-run"), "model_cache_root": str(root)}
+
+    def test_explicit_gaussian_method_retains_the_original_training_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, config = self._training_fixture(Path(tmp))
+            original = commands.build_train_command(config, source)
+            explicit = commands.build_train_command(dict(config, method="gaussian_fm"), source)
+            self.assertEqual(explicit, original)
+
+    def test_training_rejects_non_gaussian_methods_and_top_level_inference_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, config = self._training_fixture(Path(tmp))
+            for method in ("delta_flow", "a2a", None, False):
+                with self.subTest(method=method), self.assertRaisesRegex(ValueError, "Gaussian FM"):
+                    commands.build_train_command(dict(config, method=method), source)
+            for name, value in (
+                ("action_dim", 7), ("action_dim", 76),
+                ("state_dim", 8), ("state_dim", 44),
+                ("horizon", 32), ("horizon", 16),
+                ("profile", "libero_uncond_2cam224"), ("profile", "g1"),
+                ("action_schema", "sonic76"),
+            ):
+                with self.subTest(field=name, value=value), self.assertRaisesRegex(ValueError, name):
+                    commands.build_train_command(dict(config, **{name: value}), source)
+
+    def test_explicit_native_overrides_are_forwarded_without_claiming_a_new_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, config = self._training_fixture(Path(tmp))
+            config["overrides"] = {"data.train.num_frames": 17, "batch_size": 8}
+            command = commands.build_train_command(config, source)
+            self.assertIn("task=libero_uncond_2cam224_1e-4", command["argv"])
+            self.assertIn("data.train.num_frames=17", command["argv"])
+            self.assertIn("batch_size=8", command["argv"])
+
     def test_lazy_native_load_rechecks_exact_statistics_bytes_before_model_import(self):
         import hashlib
 
