@@ -147,6 +147,8 @@ cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/pre
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/eval-action-mse/mse_hold_const.sh
 # 2026-11-20 user: A14 screw-bulb cropped-v3 (newest A14) on GR00T, then Psi-Zero, then FastWAM; each skips (exit 3) unless a14cr3-20261120/<model>.ok
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_groot/groot_quad16_a14cr3.sh
+# 2026-11-20 20:2x: const re-eval retry (item 98 idled: eval queues not running / fmdit_upload counted as training)
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/eval-action-mse/mse_hold_const2.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_a14cr3.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_a14cr3.sh
 # 2026-11-20 user: FastWAM continuation, 2000 more steps (peak lr 3e-5) on the 7 tasks still improving at 4000

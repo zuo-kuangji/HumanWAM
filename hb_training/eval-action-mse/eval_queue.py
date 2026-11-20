@@ -53,7 +53,7 @@ TRAIN_RE = re.compile(r"(torchrun|deepspeed|accelerate(\s|-)launch|accelerate\.c
 # permanent per-node loops that never mean "training is using the GPUs" (DLC entry scripts, relay/nodectl daemons,
 # log tees); relay items are judged by the relay-state rule instead
 IGNORE_BASE = (r"continuation-\d+-30d/(retry\d+_)?launch_node\.sh|^tee |^sleep |hb_relay\.sh|hb_nodectl\w*\.sh|"
-               r"hb_sync_bai\.py|hb_autoupload\.py")  # 11-16: master-0 hourly git-sync loop (runs the psi0 env python) is not training
+               r"hb_sync_bai\.py|hb_autoupload\.py|fmdit_upload\.py")  # 11-16: master-0 hourly git-sync loop (runs the psi0 env python) is not training
 FREE_KILL_RC = {-15, -9, 143, 137}
 NODE_OF_HOST = (("master-0", 0), ("worker-0", 1), ("worker-1", 2), ("worker-2", 3))
 
