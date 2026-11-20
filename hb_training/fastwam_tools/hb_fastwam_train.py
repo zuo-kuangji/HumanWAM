@@ -5,8 +5,13 @@ fastwam_sonic_training.compose_sonic_config: 17 raw samples = 16 actions + 5 vid
 side, min/max statistics, absolute labels, action scheduler shift 1.0, original Wan files.
 Arguments: key=value Hydra overrides (JSON values parsed). Env: FASTWAM_SRC, DIFFSYNTH_MODEL_BASE_PATH, HB_AUG_DIR.
 HB_MODEL_YAML=<path> writes the resolved model config; HB_COMPOSE_ONLY=1 prints the config; HB_DATA_SAMPLE=1 reads one
-augmented training sample on CPU; HB_FW_AUG=0 disables the augmentation (benchmark only)."""
-import json, os, sys
+augmented training sample on CPU; HB_FW_AUG=0 disables the augmentation (benchmark only).
+HB_AUG_PROFILE=unified opts into the shared HumanWAM implementation (default hb_v2);
+HB_AUG_SEED=42 seeds its stable dataset episode/frame/epoch identity. CLI equivalents are
+hb_aug_profile=unified hb_aug_seed=42; they are consumed here, not passed to native Hydra."""
+import json
+import os
+import sys
 from pathlib import Path
 
 ROOT = Path(os.environ["FASTWAM_SRC"]).resolve()
@@ -34,9 +39,9 @@ FIXED = {
 
 
 def build(overrides):
+    from fastwam.utils.config_resolvers import register_default_resolvers
     from hydra import compose, initialize_config_dir
     from omegaconf import OmegaConf
-    from fastwam.utils.config_resolvers import register_default_resolvers
     register_default_resolvers()
     with initialize_config_dir(config_dir=str(ROOT / "configs"), version_base="1.3"):
         cfg = compose(config_name="train", overrides=["task=" + TASK])
@@ -55,10 +60,28 @@ def parse(argv):
     for a in argv:
         k, v = a.split("=", 1)
         try:
-            out[k] = json.loads(v)
+            value = json.loads(v)
         except ValueError:
-            out[k] = v
+            value = v
+        if k == "hb_aug_profile":
+            if value not in {"hb_v2", "unified"}:
+                raise ValueError("hb_aug_profile must be hb_v2 or unified")
+            os.environ["HB_AUG_PROFILE"] = value
+        elif k == "hb_aug_seed":
+            if type(value) is not int or value < 0:
+                raise ValueError("hb_aug_seed must be a nonnegative integer")
+            os.environ["HB_AUG_SEED"] = str(value)
+        else:
+            out[k] = value
     return out
+
+
+def install_augmentation():
+    if os.environ.get("HB_FW_AUG", "1") == "0":
+        return "disabled"
+    import hb_fastwam_aug
+    hb_fastwam_aug.install()
+    return os.environ.get("HB_AUG_PROFILE", "hb_v2")
 
 
 if __name__ == "__main__":
@@ -73,15 +96,15 @@ if __name__ == "__main__":
         raise SystemExit(0)
     import fastwam.runtime as native
     assert Path(native.__file__).resolve() == ROOT / "src/fastwam/runtime.py", native.__file__
-    if os.environ.get("HB_FW_AUG", "1") != "0":
-        import hb_fastwam_aug
-        hb_fastwam_aug.install()
-    print("HBFW_RECIPE", json.dumps(dict(profile=os.environ.get("HB_FW_PROFILE", "g1"), cameras=CAMS, state_dim=SDIM,
-                                         action_dim=ADIM, perturbed_joints=int(os.environ["HB_FW_JOINTS"]),
-                                         aug=os.environ.get("HB_FW_AUG", "1") != "0",
-                                         batch_size=cfg.batch_size, max_steps=cfg.max_steps, lr=cfg.learning_rate)), flush=True)
+    augmentation_profile = install_augmentation()
+    print("HBFW_RECIPE", json.dumps({
+        "profile": os.environ.get("HB_FW_PROFILE", "g1"), "cameras": CAMS, "state_dim": SDIM,
+        "action_dim": ADIM, "perturbed_joints": int(os.environ["HB_FW_JOINTS"]),
+        "aug": os.environ.get("HB_FW_AUG", "1") != "0", "aug_profile": augmentation_profile,
+        "aug_seed": int(os.environ.get("HB_AUG_SEED", "42")),
+        "batch_size": cfg.batch_size, "max_steps": cfg.max_steps, "lr": cfg.learning_rate,
+    }), flush=True)
     if os.environ.get("HB_DATA_SAMPLE"):  # CPU check: build the dataset and read augmented samples, no model
-        from omegaconf import open_dict
         from fastwam.utils import misc
         misc.register_work_dir(os.environ.get("HB_SAMPLE_WORKDIR", "/tmp/hbfw-sample"))
         tr, _ = native.build_datasets(cfg.data)

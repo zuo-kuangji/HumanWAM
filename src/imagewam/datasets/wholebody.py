@@ -437,8 +437,26 @@ class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
         return int(self.ends[-1])
 
     def _configure_augmentation(self, augmentation, *, split):
+        from imagewam.augmentation_config import UNIFIED_SCHEMA
+        if augmentation is not None and augmentation.get("schema") == UNIFIED_SCHEMA:
+            from imagewam.datasets.unified_augmentation import UnifiedTrainingAugmentation
+            self.augmentation = UnifiedTrainingAugmentation(augmentation, training=split == "train")
+            return
         from imagewam.datasets.proprio_augmentation import TrainingAugmentation
         self.augmentation = TrainingAugmentation(augmentation, training=split == "train")
+
+    def _unified_training_observation(self, episode, anchor, indices, raw_state):
+        augmentation = getattr(self, "augmentation", None)
+        if not getattr(augmentation, "unified", False):
+            return None
+        # Decode each camera separately, then transform the complete [T,V,C,H,W]
+        # clip once. Never apply independent shared recipes to each camera.
+        clip = torch.stack([self._frames(episode, camera, indices) for camera in CAMERAS], dim=1)
+        clip, raw_current = augmentation.apply_observation(
+            clip, raw_state, episode=episode, frame=anchor,
+        )
+        video = torch.cat([clip[:, camera] for camera in range(len(CAMERAS))], dim=-1)
+        return video, self.normalizer.forward(raw_current, "state"), torch.tensor(True, dtype=torch.bool)
 
     def set_epoch(self, epoch):
         """Publish the augmentation epoch to persistent DataLoader workers."""
@@ -509,10 +527,14 @@ class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
         anchor = int(index - (self.ends[ep_position - 1] if ep_position else 0))
         states, actions = self.episodes[episode]
         window = window_indices(anchor, len(actions), self.action_horizon, self.past_action_size)
-        generator = self._augmentation_generator()
-        visual_parameters = self._training_visual_parameters(generator=generator)
-        video = torch.cat([self._training_camera_frames(episode, cam, window["image"].tolist(),
-                          generator=generator, parameters=visual_parameters) for cam in CAMERAS], dim=-1)
+        unified = self._unified_training_observation(episode, anchor, window["image"].tolist(), states[anchor])
+        if unified is None:
+            generator = self._augmentation_generator()
+            visual_parameters = self._training_visual_parameters(generator=generator)
+            video = torch.cat([self._training_camera_frames(episode, cam, window["image"].tolist(),
+                              generator=generator, parameters=visual_parameters) for cam in CAMERAS], dim=-1)
+        else:
+            video, current_state, state_condition_keep = unified
         video = (video * 2.0 - 1.0).permute(1, 0, 2, 3).contiguous()
         action = self.normalizer.forward(actions[window["action"]], "action")
         past = self.normalizer.forward(actions[window["past_action"]], "action")
@@ -520,9 +542,10 @@ class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
             # At episode start no logged action is causally available. Using
             # actions[0] here would leak the first target through its source.
             past = np.zeros_like(past)
-        current_state = self.normalizer.forward(states[anchor], "state")
-        current_state = self._training_current_state(current_state, states[anchor], generator=generator)
-        state_condition_keep = self._training_state_keep(generator=generator)
+        if unified is None:
+            current_state = self.normalizer.forward(states[anchor], "state")
+            current_state = self._training_current_state(current_state, states[anchor], generator=generator)
+            state_condition_keep = self._training_state_keep(generator=generator)
         # Never return future-state values through the proprio time dimension.
         proprio = np.repeat(current_state[None], self.action_horizon, axis=0)
         return {"video": video, "action": torch.from_numpy(action),

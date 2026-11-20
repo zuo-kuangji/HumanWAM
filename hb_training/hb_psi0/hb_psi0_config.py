@@ -24,6 +24,10 @@ unchanged. Structure mirrors src/psi/config/train/finetune_sonic_psi0_config.py;
     - native img_aug / view_aug must be off; HB v2 visual augmentation (hb_aug_v2.augment) is applied
       jointly to all cameras of the sample at the model input resolution (after the native
       resize + center crop), then the native Qwen3-VL input builder runs unchanged.
+
+HB_AUG_PROFILE=unified replaces HB v2 image/state perturbations with the shared
+HumanWAM recipe. It uses real LeRobot episode/frame IDs and the existing shared
+training epoch; the legacy random state delay is disabled in this profile.
 """
 # No `from __future__ import annotations` (same as the upstream config modules): tyro/pydantic then see
 # real classes, not strings that must be resolved through the aliased module name.
@@ -62,6 +66,28 @@ _RNG: dict[str, Any] = {"pid": None, "rng": None, "count": 0}
 # i.e. before any worker is forked; torch DataLoader uses fork on Linux).
 _EPOCH = multiprocessing.RawValue("q", 0)
 BIAS_DEG, NOISE_DEG = 2.0, 0.25  # = hb_aug_v2.perturb_joints constants
+_PROFILE = os.environ.get("HB_AUG_PROFILE", "hb_v2")
+if _PROFILE not in {"hb_v2", "unified"}:
+    raise ValueError(f"Unknown HB_AUG_PROFILE: {_PROFILE!r}; choose hb_v2 or unified")
+_UNIFIED = _PROFILE == "unified"
+if _UNIFIED:
+    from humanwam.augmentation import SampleKey, UnifiedAugmentation
+
+    _shared_aug = UnifiedAugmentation(seed=int(os.environ.get("HB_AUG_SEED", "42")))
+    print(f"HB_AUG_PROFILE=unified seed={_shared_aug.seed}: Psi0/ACT uses real LeRobot episode/frame IDs and shared training epoch", flush=True)
+
+
+def unified_sample(data):
+    """Real LeRobot current anchor IDs plus the existing fork-shared epoch."""
+    values = {}
+    for key in ("episode_index", "frame_index"):
+        if key not in data:
+            raise ValueError(f"Unified augmentation requires LeRobot {key}")
+        value = np.asarray(data[key])
+        if value.size != 1 or not np.issubdtype(value.dtype, np.integer):
+            raise ValueError(f"{key} must be one integer LeRobot anchor ID")
+        values[key] = int(value.reshape(-1)[0])
+    return SampleKey(episode=values["episode_index"], frame=values["frame_index"], epoch=get_epoch())
 
 
 def set_epoch(epoch: int) -> None:
@@ -94,7 +120,8 @@ def _log_aug(p: dict, shape) -> None:
     if log and _RNG["count"] in (1, 100):
         with open(f"{log}.{os.getpid()}", "a") as f:
             f.write(json.dumps({"count": _RNG["count"], "shape": list(shape), "boost": p["boost"],
-                                "version": A.VERSION}) + "\n")
+                                "version": _shared_aug.profile if _UNIFIED else A.VERSION,
+                                **({"seed": _shared_aug.seed} if _UNIFIED else {})}) + "\n")
 
 
 class HbSonicRepackTransform(ps.SonicRepackTransform):
@@ -117,7 +144,7 @@ class HbSonicRepackTransform(ps.SonicRepackTransform):
         no_aug = kwargs.get("no_aug", False)
         D = self.hb_delay_max_frames
         k = 0
-        if not no_aug and D > 0 and self.hb_delay_prob > 0 and hb_rng().random() < self.hb_delay_prob:
+        if not _UNIFIED and not no_aug and D > 0 and self.hb_delay_prob > 0 and hb_rng().random() < self.hb_delay_prob:
             k = int(hb_rng().integers(1, D + 1))
         data = dict(data)
         for s_key in self.state_keys:
@@ -132,6 +159,14 @@ class HbSonicRepackTransform(ps.SonicRepackTransform):
             raise ValueError(f"repacked state {out['states'].shape} / action {out['actions'].shape} must equal "
                              f"pad dims {self.pad_state_dim}/{self.pad_action_dim} exactly (no zero padding)")
         nb = self.hb_body_dims
+        if _UNIFIED and not no_aug:
+            # Carry identity through the bounds normalizer, then remove it at
+            # the model-input builder. No additional random delay in this profile.
+            sample = unified_sample(data)
+            out["_hb_unified_sample"] = sample
+            if self.hb_joint_perturb and nb > 0:
+                out["states"] = _shared_aug.apply_state(out["states"], body_dims=nb, sample=sample)
+            return out
         if not no_aug and self.hb_joint_perturb and nb > 0:
             if "episode_index" not in data:
                 raise KeyError("episode_index missing from the LeRobot item (needed for the per-trajectory bias)")
@@ -153,13 +188,22 @@ class HbPsi0ModelTransform(pt.Psi0ModelTransform):
             to_input = v2.Compose([self.resize(), self.center_crop()])  # native geometry, model input res
             imgs = [to_input(im) for im in data["observations"]]
             x = torch.stack([pil_to_tensor(im) for im in imgs]).float().div(255.0)[None]  # [1, V, 3, H, W]
-            x, p = A.augment(x, hb_rng())
+            if _UNIFIED:
+                sample = data.get("_hb_unified_sample")
+                if not isinstance(sample, SampleKey):
+                    raise ValueError("Unified Psi0 images require repack sample identity")
+                x = _shared_aug.apply_rgb(x, sample=sample, observation_mask=[True])
+                p = {"boost": None}
+            else:
+                x, p = A.augment(x, hb_rng())
             u8 = (x[0] * 255.0 + 0.5).clamp(0, 255).to(torch.uint8)
             data = dict(data)
             data["observations"] = [to_pil_image(u8[i]) for i in range(u8.shape[0])]
             _log_aug(p, x.shape)
         # Native path; images are already at resize/center_crop size, so its NEAREST resize and
         # center crop are identities, and no_aug=True keeps its (disabled) augmentation off.
+        if "_hb_unified_sample" in data:
+            data = {key: value for key, value in data.items() if key != "_hb_unified_sample"}
         return super().__call__(data, vlm_processor=vlm_processor, no_aug=True, **kwargs)
 
 
