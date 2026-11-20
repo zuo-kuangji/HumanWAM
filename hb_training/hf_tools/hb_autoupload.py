@@ -1285,6 +1285,40 @@ EPISODES_OF.update(a14cr3=100)
 FW_TASKS = FW_TASKS + ("a14cr3",)
 SUBDIR.update({("groot2x32", "a14cr3"): "cropped-v3-b512", ("psi0", "a14cr3"): "cropped-v3-b512", ("fastwam", "a14cr3"): "cropped-v3-b512"})
 
+# 2026-11-20 user: FastWAM continuation, 2000 more steps (weights only, fresh AdamW, warmup 5 % to peak lr 3e-5 =
+# 0.3 x the original 1e-4, cosine) on the 7 tasks whose action nMSE still fell at step 4000. Run runs/<task>-cont2k,
+# uploaded to fastwam/<task dir>/b512-cont2k/step-005000 and step-006000 (total steps); the 4000-step b512/ stays.
+FWC_TASKS = ("b5", "b8", "a7v4", "a10v3", "basketv2", "b1", "b6v6")
+for _b in FWC_TASKS:
+    _k = _b + "-cont2k"
+    for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+        if _b in _d:
+            _d.setdefault(_k, _d[_b])
+    SUBDIR[("fastwam", _k)] = "b512-cont2k"
+FW_TASKS = FW_TASKS + tuple(_b + "-cont2k" for _b in FWC_TASKS)
+_collect_fastwam_v1 = collect_fastwam
+
+
+def collect_fastwam(task):
+    c = _collect_fastwam_v1(task)
+    if c is None or not task.endswith("-cont2k"):
+        return c
+    base = task[:-len("-cont2k")]
+    for e in c["eps"]:
+        e["step"] += 4000
+        e["name"] = f"step-{e['step']:06d}"
+    c["proto"].update(total_steps=6000, save_steps=[e["step"] for e in c["eps"]], continuation_steps=2000,
+                      continued_from=f"fastwam/{TASKDIR[base]}/{SUBDIR.get(('fastwam', base), 'b512')}/step-004000",
+                      continuation="weights only (DiT + proprio encoder loaded before DeepSpeed init, "
+                                   "code/hb_fastwam_cont.py): fresh AdamW, warmup 5 % to peak lr 3e-5 (0.3 x the "
+                                   "original 1e-4), cosine to 1 % over 2000 steps; same data, normalization, "
+                                   "augmentation and batch as the 4000-step run")
+    c["common"]["code/fastwam_cont.sh"] = G / "hb_fastwam" / "fastwam_cont.sh"
+    return c
+
+
+COLLECT.update(fastwam=collect_fastwam)
+
 
 def main():
     lock = open(A / "daemon.lock", "w")
