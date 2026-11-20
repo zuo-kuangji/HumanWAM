@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -12,8 +13,7 @@ import yaml
 from humanwam.backends import groot_ode_commands as commands
 
 ROOT = Path(__file__).resolve().parents[3]
-SOURCE = ROOT / "third_party/ODE-POLICY"
-pytestmark = pytest.mark.skipif(not (SOURCE / "groot/src/ode_g1/config.py").is_file(), reason="Pinned ODE source absent")
+SOURCE = ROOT / "packages/ode_g1"
 
 
 @pytest.fixture
@@ -38,16 +38,16 @@ def test_native_validator_preserves_local_path_resolution_without_model_import(o
 
 
 @pytest.mark.parametrize("stage", ["inspect", "prepare", "features", "train"])
-def test_stages_use_the_published_module_and_no_scheduler_or_shell(options, stage):
+def test_stages_use_the_local_module_and_no_scheduler_or_shell(options, stage):
     command = commands.build_native_command(options, SOURCE, stage)
     assert command["argv"] == [sys.executable, "-m", "ode_g1", stage, "--config", options["native_config"]]
     assert command["cwd"] == str(SOURCE)
     assert command["env"]["HF_HUB_OFFLINE"] == "1"
-    first = SOURCE.parent / "Isaac-GR00T-ODE" if stage in {"features", "train"} else SOURCE / "groot/src"
+    first = ROOT / "third_party/Isaac-GR00T-ODE" if stage in {"features", "train"} else SOURCE / "src"
     assert command["env"]["PYTHONPATH"].split(os.pathsep)[0] == str(first)
 
 
-def test_built_inspect_command_runs_against_real_pinned_cli(options):
+def test_built_inspect_command_runs_against_local_cli(options):
     command = commands.build_native_command(options, SOURCE, "inspect")
     result = subprocess.run(command["argv"], cwd=command["cwd"], env={**os.environ, **command["env"]}, capture_output=True, text=True, check=True)
     actual = json.loads(result.stdout)
@@ -81,7 +81,7 @@ def test_single_process_recipe_rejects_ddp_and_robot_execution(options):
 
 def test_model_stages_reject_the_wrong_gr00t_revision_or_changed_tracked_source(options, monkeypatch):
     def wrong_commit(argv, **kwargs):
-        value = commands.ODE_SOURCE_COMMIT if argv[2] == str(SOURCE) else "7aa0bca50f1097f8b17f5c274c98264b72a1419f"
+        value = "7aa0bca50f1097f8b17f5c274c98264b72a1419f"
         return subprocess.CompletedProcess(argv, 0, stdout=value + "\n" if "rev-parse" in argv else "")
 
     monkeypatch.setattr(commands.subprocess, "run", wrong_commit)
@@ -89,10 +89,7 @@ def test_model_stages_reject_the_wrong_gr00t_revision_or_changed_tracked_source(
         commands.build_train_command(options, SOURCE)
 
     def dirty_source(argv, **kwargs):
-        if argv[2] == str(SOURCE):
-            value = commands.ODE_SOURCE_COMMIT + "\n" if "rev-parse" in argv else ""
-        else:
-            value = commands.GR00T_SOURCE_COMMIT + "\n" if "rev-parse" in argv else " M gr00t/model/gr00t_n1d7/gr00t_n1d7.py\n"
+        value = commands.GR00T_SOURCE_COMMIT + "\n" if "rev-parse" in argv else " M gr00t/model/gr00t_n1d7/gr00t_n1d7.py\n"
         return subprocess.CompletedProcess(argv, 0, stdout=value)
 
     monkeypatch.setattr(commands.subprocess, "run", dirty_source)
@@ -100,22 +97,16 @@ def test_model_stages_reject_the_wrong_gr00t_revision_or_changed_tracked_source(
         commands.build_native_command(options, SOURCE, "features")
 
 
-@pytest.mark.parametrize("stage", ["inspect", "prepare", "features", "train", "serve"])
-@pytest.mark.parametrize("dirty", [False, True])
-def test_all_routes_reject_wrong_or_changed_ode_source_before_import(options, monkeypatch, stage, dirty):
-    def bad_ode_source(argv, **kwargs):
-        if "rev-parse" in argv:
-            value = commands.ODE_SOURCE_COMMIT + "\n" if dirty else "0" * 40 + "\n"
-        else:
-            value = " M groot/src/ode_g1/config.py\n" if dirty else ""
-        return subprocess.CompletedProcess(argv, 0, stdout=value)
-
-    monkeypatch.setattr(commands.subprocess, "run", bad_ode_source)
-    with pytest.raises(ValueError, match="ODE-POLICY real-g1"):
-        if stage == "serve":
-            commands.build_serve_command(options, SOURCE)
-        else:
-            commands.build_native_command(options, SOURCE, stage)
+def test_local_package_can_be_edited_and_used_without_an_external_git_checkout(options, tmp_path):
+    local = tmp_path / "our-package"
+    shutil.copytree(SOURCE / "src", local / "src")
+    config_file = local / "src/ode_g1/config.py"
+    config_file.write_text(config_file.read_text() + "\n# Local development belongs to HumanWAM.\n")
+    assert not (local / ".git").exists()
+    command = commands.build_native_command(options, local, "inspect")
+    result = subprocess.run(command["argv"], cwd=command["cwd"], env={**os.environ, **command["env"]}, capture_output=True, text=True, check=True)
+    assert json.loads(result.stdout)["head"]["horizon"] == 16
+    assert command["env"]["PYTHONPATH"].split(os.pathsep)[0] == str(local / "src")
 
 
 def test_serve_uses_policy_rpc_and_loopback_default(options):

@@ -1,4 +1,4 @@
-"""Pinned ODE-POLICY G1 commands; construction never starts models or hardware."""
+"""HumanWAM's local ODE G1 commands; construction starts no models or hardware."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ import subprocess
 from pathlib import Path
 
 GR00T_SOURCE_COMMIT = "23ace64f17aa5015259b8609d371eb61a357c776"
-ODE_SOURCE_COMMIT = "fd8bec470faf7793702533358867db02819e8f27"
 NATIVE_CAMERAS = ["observation.images.ego_view", "observation.images.chest"]
 
 
@@ -31,9 +30,9 @@ def pin_source(root, expected_commit, label):
 
 def source_root(source_dir):
     root = Path(source_dir).expanduser().resolve()
-    for name in ("groot/src/ode_g1/config.py", "groot/src/ode_g1/cli.py"):
+    for name in ("src/ode_g1/config.py", "src/ode_g1/cli.py"):
         if not (root / name).is_file():
-            raise FileNotFoundError(f"Pinned ODE-POLICY real-g1 source missing: {root / name}")
+            raise FileNotFoundError(f"HumanWAM ODE G1 package missing: {root / name}")
     return root
 
 
@@ -50,18 +49,17 @@ def _overrides(config):
 
 
 def load_native_config(config, source_dir):
-    """Run the pinned native validator without importing Torch or ode_g1.
+    """Run the local native validator without importing Torch or ode_g1.
 
     Loading config.py by filename avoids silently using another installed
     ``ode_g1`` version. The native validator owns YAML defaults, path expansion,
     field names and architecture constraints.
     """
     root = source_root(source_dir)
-    pin_source(root, ODE_SOURCE_COMMIT, "ODE-POLICY real-g1")
     path = Path(config["native_config"]).expanduser().resolve(strict=True)
     if not path.is_file():
         raise ValueError("native_config must be a native ODE G1 YAML file")
-    spec = importlib.util.spec_from_file_location("_humanwam_pinned_ode_g1_config", root / "groot/src/ode_g1/config.py")
+    spec = importlib.util.spec_from_file_location("_humanwam_local_ode_g1_config", root / "src/ode_g1/config.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     cfg = module.load_config(path, _overrides(config))
@@ -72,13 +70,13 @@ def load_native_config(config, source_dir):
     if cfg["dataset"]["camera_keys"] != NATIVE_CAMERAS:
         raise ValueError("HumanWAM GR00T ODE requires ego_view then chest camera order")
     if type(config.get("num_processes", 1)) is not int or config.get("num_processes", 1) != 1:
-        raise ValueError("The published ODE G1 trainer supports one optimizer process, without DDP")
+        raise ValueError("The ODE G1 trainer supports one optimizer process, without DDP")
     return cfg
 
 
 def gr00t_source_root(config, ode_root):
     """Require the separate published ODE runtime, never the standard N1.7 pin."""
-    root = Path(config.get("gr00t_source_dir", ode_root.parent / "Isaac-GR00T-ODE")).expanduser().resolve()
+    root = Path(config.get("gr00t_source_dir", ode_root.parents[1] / "third_party/Isaac-GR00T-ODE")).expanduser().resolve()
     if not (root / "gr00t/model/gr00t_n1d7/gr00t_n1d7.py").is_file():
         raise FileNotFoundError(f"Pinned ODE Isaac-GR00T source missing: {root}")
     return pin_source(root, GR00T_SOURCE_COMMIT, "separate Isaac-GR00T ODE")
@@ -86,7 +84,7 @@ def gr00t_source_root(config, ode_root):
 
 def _environment(root, gr00t_root=None):
     package_src = Path(__file__).resolve().parents[2]
-    paths = [str(root / "groot/src"), str(package_src), os.environ.get("PYTHONPATH", "")]
+    paths = [str(root / "src"), str(package_src), os.environ.get("PYTHONPATH", "")]
     if gr00t_root is not None:
         paths.insert(0, str(gr00t_root))
     return {
@@ -177,7 +175,7 @@ def main(argv=None):
     if config["backend"] != "groot_ode":
         raise ValueError("Use a groot_ode HumanWAM config")
     root = repository_root()
-    source = Path(config.get("source_dir", root / "third_party/ODE-POLICY"))
+    source = Path(config.get("source_dir", root / "packages/ode_g1"))
     if not source.is_absolute():
         source = root / source
     options = {**config["options"], "python": config.get("python", "python3")}

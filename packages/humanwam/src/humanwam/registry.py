@@ -21,7 +21,7 @@ BACKENDS = {
         "GR00T ODE Policy + SONIC",
         "humanwam.backends.groot_ode",
         "humanwam.backends.groot_ode_commands",
-        "third_party/ODE-POLICY",
+        "packages/ode_g1",
         "current GR00T feedback76 RGB/state44/language plus explicit episode-start or last-sent body64",
         "H16 ODE body64 + separate Inspire6/6 decoder; stateless preview, no implicit carry commit",
         "Isolated ODE G1 Python3.10/GR00T23ace environment; distinct from native N1.7 runtime",

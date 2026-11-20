@@ -17,6 +17,9 @@ def bootstrap(only=None):
     lock = json.loads((ROOT / "backends.lock.json").read_text())
     selected = set(only or [row["name"] for row in lock["sources"]])
     if "groot_ode" in selected:
+        # The ODE implementation is tracked locally; only its external GR00T
+        # framework needs source preparation.
+        selected.remove("groot_ode")
         selected.add("groot_ode_runtime")
     if selected - {row["name"] for row in lock["sources"]}:
         raise ValueError("Unknown source selected")
