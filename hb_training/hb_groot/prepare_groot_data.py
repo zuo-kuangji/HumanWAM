@@ -47,15 +47,16 @@ TASKS = {
     "a17cr2": (P / "a17-unscrew-bottle-cropped-v2-3520b70/data", None),  # HF a17-unscrew-bottle-expert-cropped-v2 @3520b70, head + chest (user 2026-11-15)
     "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2, 3 cameras)
     "a14v2": (P / "a14-unscrew-bulb-v2-8411a6d/data", None),  # HF a14-unscrew-bulb-expert-v2 @8411a6da: + action.planner (H2 guide 2026-11-14)
+    "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None),  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed from v2 @8411a6d; user 2026-11-20: newest A14)
 }
 CONFIG = {"a18": "h2w3_body31_hand44_h16.py", "a17": "h2w3_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py",
           "a18c2": "h2_body31_hand44_h16.py", "a17c2": "h2_body31_hand44_h16.py",
           "a18cr2": "h2_body31_hand44_h16.py", "a17cr2": "h2_body31_hand44_h16.py",
-          "a14v2": "h2_body31_hand44_planner7_h16.py"}  # 2026-11-14 H2 guide: action82 incl. the planner command
+          "a14v2": "h2_body31_hand44_planner7_h16.py", "a14cr3": "h2_body31_hand44_planner7_h16.py"}  # 2026-11-14 H2 guide: action82 incl. the planner command
 # model-input cameras per H2 task (user 2026-11-12 22:0x: EVERY H2 task uses head + chest + wrist; third_person never)
 CAMS = {"a18": ("head", "chest", "wrist"), "a17": ("head", "chest", "wrist"), "a14": ("head", "chest", "wrist"),
-        "a18c2": ("head", "chest"), "a17c2": ("head", "chest"), "a18cr2": ("head", "chest"), "a17cr2": ("head", "chest"), "a14v2": ("head", "chest")}  # 2026-11-14: 2-camera re-train (user)
-PLANNER = {"a14v2"}  # tasks whose action adds action.planner (7) after body_target + hands (H2 guide a14 2.2)
+        "a18c2": ("head", "chest"), "a17c2": ("head", "chest"), "a18cr2": ("head", "chest"), "a17cr2": ("head", "chest"), "a14v2": ("head", "chest"), "a14cr3": ("head", "chest")}  # 2026-11-14: 2-camera re-train (user)
+PLANNER = {"a14v2", "a14cr3"}  # tasks whose action adds action.planner (7) after body_target + hands (H2 guide a14 2.2)
 H2_GROUPS = {"left_leg": (0, 6), "right_leg": (6, 12), "waist": (12, 15), "left_arm": (15, 22), "right_arm": (22, 29),
              "head": (29, 31), "left_hand": (31, 53), "right_hand": (53, 75)}
 

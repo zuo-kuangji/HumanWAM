@@ -1,0 +1,32 @@
+{
+  "source": "/mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/deltaflow-runs/HumanWAM",
+  "source_record_sha256": "6d071fbccd08778aae250bfc1d307839943a5f33270f09524f947fcd6d05c8ca",
+  "created": "2026-11-14T13:46:36Z",
+  "changes": [
+    "wholebody.py: train exactly episodes 0-99 (\"first_100\"), later episodes shelved",
+    "hb_aug_v2.py: unchanged copy of the shared spec-v2 implementation",
+    "wholebody_hbaug.py: WholeBodyHBAugV2LeRobotDataset(WholeBodyRobustLeRobotDataset), visual aug -> hb_aug_v2, 44-D proprio, NO joint velocity (wholebody_velocity.py stays in the tree, unused); proprio aligned with GR00T A20 (per-sample perturb_joints, no delay, no history drop; 2026-11-12)",
+    "train_deltaflow.py: 40-epoch entry, full state at every save, --resume",
+    "wholebody_delta.py: the state44 copy of real30-from-sim60-20261108 (the B6 60-epoch copy hard-codes the 73-D velocity state)",
+    "wholebody.py (2026-11-12 04:3x): timestamp check rtol 1e-7 added (float32 timestamps of 75 s C6 episodes differ by 3.6e-6 s from i/30; 1e-5 s at 75 s << 1 frame)",
+    "HB 2026-11-14 (user: no forced 100 episodes): wholebody.py and train_deltaflow.py accept training episodes 0..N-1 (B1: all 115) instead of exactly 0-99; nothing else changed",
+    "HB 2026-11-15: train_deltaflow.py accepts the fixed-step schedule recorded in data-verified.json (8000 / 16000 steps; the 40-epoch check rejected every fixed-step run), training episodes 0..N-1, and the legacy a18 e40 recipe (H2PourDataset + b6-visual-aug-v2) for runs prepared with recipe legacy-a18-e40",
+    "HB 2026-11-15 (eval session): train_deltaflow.py installs the in-training open-loop action MSE hook (hb_deltaflow/hb_inloop_deltaflow.py, every 250 steps, HB_INLOOP_EVERY=0 = off); record updated 17:xx",
+    "HB 2026-11-15 17:xx (user: B6 v6 continuation): data-verified.json \"init_weights\" {path, bytes} starts a fresh run from a weights .pt (cfg.resume = that file -> loaded before accelerator.prepare; optimizer, LR schedule and global step start fresh); runs without init_weights are unchanged"
+  ],
+  "sha256": {
+    "scripts/accelerate_configs/accelerate_zero1_ds.yaml": "5b9e24f38c199fdff6bbd17981d86e2624f855f707660094c99f711efc8e0833",
+    "scripts/wholebody/train_a3a7.py": "2cf154f91de516f96da9b93f4b8e235fab13344461b2aeb5d048e4f78a63dec8",
+    "scripts/wholebody/train_deltaflow.py": "11fd60c38f34ee1181dd92342d2f871352d43789d543c6fc4ca39e85b425768a",
+    "src/imagewam/datasets/hb_aug_v2.py": "9f7713cea4f846efcfc924234267ced48210357f419d67915c10b504316bedde",
+    "src/imagewam/datasets/wholebody.py": "de8709c215d094cfca62bab70ac9c3d7cdc33fbdf34d0dda7e2732b8e04d05ef",
+    "src/imagewam/datasets/wholebody_augmented.py": "641bb399f54206fe1c923c4b24fd1b9797787616154915523f10a9480daf7da3",
+    "src/imagewam/datasets/wholebody_augmented_v3.py": "0e34ea3a71dde2f05bd4bd314ec97787bf3d1809c1cedc3dff5e8610b7723366",
+    "src/imagewam/datasets/wholebody_hbaug.py": "1a02a6b5710661ca08e7da246b12e222392e2fb5c17a4e98516fc8942bf183ed",
+    "src/imagewam/datasets/wholebody_velocity.py": "a5788736652772aea2fcf305b47ca6a6c11e1ea798fe8e2cf7bcdd1a242b23ea",
+    "src/imagewam/runtime.py": "3ebc45f61b0c22fb659012a7d76bea671a42e1e528b5c917ae1e8827e88b890b",
+    "src/imagewam/trainer.py": "cdcd48e09d1d7b81cae3a829bd415ed4b53ff1b290aacac1ce2217876f475b1a",
+    "src/imagewam/wholebody_delta.py": "523244263496679f7046035f5df3d34590b7086e25173938d8a175dad963b9f3"
+  },
+  "updated": "2026-11-15T09:30:22Z"
+}

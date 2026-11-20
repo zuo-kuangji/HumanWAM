@@ -112,6 +112,25 @@ def main():
         rels |= {str(x.relative_to(dst)) for x in dst.rglob("*") if x.is_file()} if dst.exists() else set()
         for rel in sorted(rels):
             copy(tree / rel, dst / rel)
+    # 2026-11-20: Delta Flow variant trees (all-episode G1, H2 pour 82-dim planner, H2 three-camera): only the
+    # files that differ from their base tree, so the snapshot stays small -> hb_deltaflow/code/<variant>/
+    for sub, tree, base in (("g1-allep", "HumanWAM-allep", "HumanWAM"), ("h2p", "HumanWAM-h2p", "HumanWAM-h2"),
+                            ("h2w3", "HumanWAM-h2w3", "HumanWAM-h2")):
+        tree, base = G / "deltaflow-runs" / tree, G / "deltaflow-runs" / base
+        rec = tree / "deltaflow-code.json"
+        if not rec.is_file():
+            continue
+        dst = T / "hb_deltaflow/code" / sub
+        keep = {"deltaflow-code.json"}
+        for rel in json.loads(rec.read_text())["sha256"]:
+            s, b = tree / rel, base / rel
+            if s.is_file() and (not b.is_file() or s.read_bytes() != b.read_bytes()):
+                keep.add(rel)
+        for rel in sorted(keep):
+            copy(tree / rel, dst / rel)
+        for x in (list(dst.rglob("*")) if dst.exists() else []):
+            if x.is_file() and str(x.relative_to(dst)) not in keep:
+                x.unlink()
     if EVAL.is_dir():
         sync_eval()
     # 2026-11-16: FastWAM data conversion / training entry / augmentation hooks

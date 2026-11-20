@@ -72,6 +72,7 @@ TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "a17": (P / "a17-unscrew-bottle-v1-407e6e2/data", None, "h2"),  # HF a17-unscrew-bottle-expert-v1 @407e6e2
     "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None, "h2"),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2)
     "a14v2": (P / "a14-unscrew-bulb-v2-8411a6d/data", None, "h2p"),  # HF a14-unscrew-bulb-expert-v2 @8411a6da (+ planner)
+    "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None, "h2p"),  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed v2, + planner; user 2026-11-20)
 }
 BODY = ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint",
         "left_ankle_roll_joint", "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",

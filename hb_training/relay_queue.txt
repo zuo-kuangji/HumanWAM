@@ -140,9 +140,15 @@ cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/pre
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a7v4.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_b7t.sh
 # 2026-11-20 user: FastWAM before Delta Flow; b5ss (B5 standing start v1) prepared but never queued
-cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_b5ss.sh
+# removed 2026-11-20 user (FastWAM B5 standing-start not needed): cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_b5ss.sh
 # 2026-11-20 user: FastWAM before Delta Flow; b7gt = B7 green, HF @22e3b83 trimmed v2, all 421 episodes (prep log fastwam/prep-b7green-20261120.log)
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_b7gt.sh
+# 2026-11-20 user: re-evaluate the 42 checkpoints under the new nMSE (constant dims removed); <= 60 min
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/eval-action-mse/mse_hold_const.sh
+# 2026-11-20 user: A14 screw-bulb cropped-v3 (newest A14) on GR00T, then Psi-Zero, then FastWAM; each skips (exit 3) unless a14cr3-20261120/<model>.ok
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_groot/groot_quad16_a14cr3.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_quad_a14cr3.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_a14cr3.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_b5.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_b8.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a17cr2lg.sh

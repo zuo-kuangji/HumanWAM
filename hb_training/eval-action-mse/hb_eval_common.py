@@ -28,6 +28,10 @@ HORIZON = 16
 STRIDE = 16
 N_TRAIN_EVAL = 10
 STD_FLOOR_FRAC = 0.05  # per-dim std floor = 5 % of the median std of the action vector
+# 2026-11-20 user: a dim whose std over all training frames is ~0 (never moves in this task, e.g. A18 left Sharpa
+# hand) has no meaningful normalised error -> excluded from every nMSE; its raw error is reported in "const_dims"
+CONST_STD_EPS = 1e-6
+METRIC = "nmse-v2: dims constant over training excluded"
 
 # task -> (source LeRobot v2.1 root, number of TRAINING episodes = fixed first N (None = all recorded), layout)
 TASKS = {
@@ -129,8 +133,11 @@ def load_stats(task):
 
 
 def norm_std(stats):
+    """per-dim divisor; np.inf marks a dim that is constant over training (excluded from nMSE, see CONST_STD_EPS)"""
     std = stats["action_std"].astype(np.float64)
-    return np.maximum(std, STD_FLOOR_FRAC * float(np.median(std)))
+    out = np.maximum(std, STD_FLOOR_FRAC * float(np.median(std)))
+    out[std < CONST_STD_EPS] = np.inf
+    return out
 
 
 def iter_episodes(task, split, max_episodes=None):
@@ -147,6 +154,8 @@ class Accumulator:
     def __init__(self, std, groups, horizon=HORIZON):
         self.std = np.asarray(std, dtype=np.float64)
         self.groups = groups
+        self.live = np.isfinite(self.std)  # False = constant over training -> not part of nMSE
+        self.n_live = int(self.live.sum())
         D = len(self.std)
         self.sse_raw = np.zeros(D)
         self.sae_raw = np.zeros(D)
@@ -165,7 +174,7 @@ class Accumulator:
         if not np.isfinite(pred[v]).all():
             raise FloatingPointError("non-finite prediction")
         e = (pred - gt)[v]
-        en = e / self.std
+        en = np.where(self.live, e / np.where(self.live, self.std, 1.0), 0.0)
         self.sse_raw += (e ** 2).sum(0)
         self.sae_raw += np.abs(e).sum(0)
         self.sse_n += (en ** 2).sum(0)
@@ -175,18 +184,28 @@ class Accumulator:
         self.step_rows[k] += 1
         s = self.per_episode.setdefault(int(ep), [0.0, 0])
         s[0] += float((en ** 2).sum())
-        s[1] += int(v.sum()) * len(self.std)
+        s[1] += int(v.sum()) * self.n_live
 
     def result(self):
-        D = len(self.std)
+        L = self.live
+        D = max(self.n_live, 1)
         n = max(self.rows, 1)
-        out = {"rows": self.rows, "mse_raw": float(self.sse_raw.sum() / (n * D)),
-               "mae_raw": float(self.sae_raw.sum() / (n * D)), "nmse": float(self.sse_n.sum() / (n * D)),
+        out = {"rows": self.rows, "metric": METRIC, "dims_scored": self.n_live,
+               "mse_raw": float(self.sse_raw[L].sum() / (n * D)),
+               "mae_raw": float(self.sae_raw[L].sum() / (n * D)), "nmse": float(self.sse_n[L].sum() / (n * D)),
                "groups": {}, "nmse_by_step": (self.step_sse_n / np.maximum(self.step_rows, 1) / D).tolist(),
                "nmse_by_dim": (self.sse_n / n).tolist()}
         for g, (a, b) in self.groups.items():
-            out["groups"][g] = {"mse_raw": float(self.sse_raw[a:b].sum() / (n * (b - a))),
-                                "nmse": float(self.sse_n[a:b].sum() / (n * (b - a)))}
+            k = int(L[a:b].sum())
+            if k:
+                out["groups"][g] = {"mse_raw": float(self.sse_raw[a:b][L[a:b]].sum() / (n * k)),
+                                    "nmse": float(self.sse_n[a:b][L[a:b]].sum() / (n * k))}
+        c = ~L
+        if c.any():
+            k = int(c.sum())
+            m = float(self.sse_raw[c].sum() / (n * k))
+            out["const_dims"] = {"n": k, "idx": np.nonzero(c)[0].tolist(), "mse_raw": m, "rms_raw": float(np.sqrt(m)),
+                                 "mae_raw": float(self.sae_raw[c].sum() / (n * k))}
         pe = {ep: s / max(c, 1) for ep, (s, c) in sorted(self.per_episode.items())}
         out["nmse_per_episode"] = pe
         vals = np.array(list(pe.values()))

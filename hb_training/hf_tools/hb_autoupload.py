@@ -1271,6 +1271,20 @@ SUBDIR.update({("pi05", "a3v4"): "b256", ("pi05", "a7v4"): "b256", ("pi05", "a10
 # 2026-11-20 user: DiT4DiT on every G1 task latest data (global batch 64) -> dit4dit/<task dir>/b64/
 SUBDIR.update({("dit4dit", "a3v4"): "b64", ("dit4dit", "a7v4"): "b64", ("dit4dit", "a10v3"): "b64", ("dit4dit", "basketv2"): "b64", ("dit4dit", "b1"): "b64", ("dit4dit", "b5"): "b64", ("dit4dit", "b5ss"): "b64", ("dit4dit", "b6v6"): "b64", ("dit4dit", "b7t"): "b64", ("dit4dit", "b7gt"): "b64", ("dit4dit", "b8"): "b64"})
 
+# 2026-11-20 user: A14 screw-bulb cropped-v3 (newest A14, trimmed from v2 @8411a6d) on GR00T (4 x 16), Psi-Zero (4 x 16), FastWAM
+H2DATA["a14cr3"] = "humanoid-benchmark/a14-screw-bulb-expert-cropped-v3 @ 79fe08a556b72999e17964d381d84e6e7332a68b"
+H2REF["a14cr3"] = "a14-unscrew-bulb/v2-b512 (A14 v2, untrimmed)"
+H2ACTION["a14cr3"] = H2ACTION["a14v2"]
+for _d, _v in ((TASKDIR, dict(a14cr3=TASKDIR["a14"])), (DESC, dict(a14cr3=DESC["a14"])),
+               (TASKNAME, dict(a14cr3="A14 screw in a bulb, cropped-v3 data (H2, cameras head + chest, action82 with the planner command)")),
+               (HFDATA, dict(a14cr3="a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed from v2 @8411a6d, all 100 episodes)")),
+               (ROBOT, dict(a14cr3="H2 (Sharpa hands)"))):
+    for _k, _x in _v.items():
+        _d.setdefault(_k, _x)
+EPISODES_OF.update(a14cr3=100)
+FW_TASKS = FW_TASKS + ("a14cr3",)
+SUBDIR.update({("groot2x32", "a14cr3"): "cropped-v3-b512", ("psi0", "a14cr3"): "cropped-v3-b512", ("fastwam", "a14cr3"): "cropped-v3-b512"})
+
 
 def main():
     lock = open(A / "daemon.lock", "w")

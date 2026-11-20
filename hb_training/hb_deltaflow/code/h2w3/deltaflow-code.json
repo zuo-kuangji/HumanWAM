@@ -1,0 +1,29 @@
+{
+  "source": "/mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/deltaflow-runs/HumanWAM-h2",
+  "created": "2026-11-13T05:31:40Z",
+  "changes": [
+    "h2_pour_delta.py: unchanged original 78-D H2 model (no joint velocity)",
+    "hb_aug_v2.py: unchanged copy of the shared spec-v2 implementation",
+    "h2_hbaug.py: H2HBAugV2Dataset (aug v2 + 31-joint proprio aug aligned with GR00T A20: per-sample perturb_joints, no delay, no history drop; 78-D state, no velocity)",
+    "h2_pour.py: total frame count read from meta/info.json (was the A18 constant 72752) so A17 loads",
+    "train_deltaflow.py: shared 40-epoch entry, full state at every save, --resume",
+    "h2_pour.py: CAMERAS head, chest, wrist (2026-11-13 user rule: every H2 task trains with 3 cameras)",
+    "h2_pour_delta.py: three side-by-side 224px views -> 224x672 input, 14x42 = 588 FLUX.2 tokens per image (only the shape checks / protocol changed; the model code path is the native multi-view one)",
+    "HB 2026-11-15: train_deltaflow.py accepts the fixed-step schedule recorded in data-verified.json (8000 / 16000 steps; the 40-epoch check rejected every fixed-step run), training episodes 0..N-1, and the legacy a18 e40 recipe (H2PourDataset + b6-visual-aug-v2) for runs prepared with recipe legacy-a18-e40",
+    "HB 2026-11-15 (eval session): train_deltaflow.py installs the in-training open-loop action MSE hook (hb_deltaflow/hb_inloop_deltaflow.py, every 250 steps, HB_INLOOP_EVERY=0 = off); record updated 17:xx",
+    "HB 2026-11-15 17:xx (user: B6 v6 continuation): data-verified.json \"init_weights\" {path, bytes} starts a fresh run from a weights .pt (cfg.resume = that file -> loaded before accelerator.prepare; optimizer, LR schedule and global step start fresh); runs without init_weights are unchanged"
+  ],
+  "sha256": {
+    "scripts/accelerate_configs/accelerate_zero1_ds.yaml": "5b9e24f38c199fdff6bbd17981d86e2624f855f707660094c99f711efc8e0833",
+    "scripts/wholebody/train_deltaflow.py": "11fd60c38f34ee1181dd92342d2f871352d43789d543c6fc4ca39e85b425768a",
+    "scripts/wholebody/train_h2_pour.py": "69c6974418b9ed02cae4c9cca7177e3c32a213d9cc833ecd3d0c95489d901a5e",
+    "src/imagewam/datasets/h2_hbaug.py": "f0280a777271a6ff641d2442c322d664e8ed0e834927fec4db3b7844ddd63b62",
+    "src/imagewam/datasets/h2_pour.py": "fc0fa1b13350fdbd57deb63b6c246e1cfd6e6e84c15e9304adf0774c566ac9a1",
+    "src/imagewam/datasets/hb_aug_v2.py": "9f7713cea4f846efcfc924234267ced48210357f419d67915c10b504316bedde",
+    "src/imagewam/datasets/wholebody.py": "4d81de5a73109752128a41a65b01121afe12de15cac42f215157c4e30008ccf9",
+    "src/imagewam/h2_pour_delta.py": "3a804db6339631308eda76856ea0251f211ed92ace3f80b66cf4f3ecb013a296",
+    "src/imagewam/runtime.py": "3ebc45f61b0c22fb659012a7d76bea671a42e1e528b5c917ae1e8827e88b890b",
+    "src/imagewam/trainer.py": "cdcd48e09d1d7b81cae3a829bd415ed4b53ff1b290aacac1ce2217876f475b1a"
+  },
+  "updated": "2026-11-15T09:30:22Z"
+}
