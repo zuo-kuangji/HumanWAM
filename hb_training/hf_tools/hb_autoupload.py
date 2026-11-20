@@ -1288,7 +1288,7 @@ SUBDIR.update({("groot2x32", "a14cr3"): "cropped-v3-b512", ("psi0", "a14cr3"): "
 # 2026-11-20 user: FastWAM continuation, 2000 more steps (weights only, fresh AdamW, warmup 5 % to peak lr 3e-5 =
 # 0.3 x the original 1e-4, cosine) on the 7 tasks whose action nMSE still fell at step 4000. Run runs/<task>-cont2k,
 # uploaded to fastwam/<task dir>/b512-cont2k/step-005000 and step-006000 (total steps); the 4000-step b512/ stays.
-FWC_TASKS = ("b5", "b8", "a7v4", "a10v3", "basketv2", "b1", "b6v6")
+FWC_TASKS = ("b5", "b8", "a7v4", "a10v3", "basketv2", "b1", "b6v6", "a18cr2", "a3v4")  # 11-20 22:3x: + a18cr2, a3v4 after the const-dim re-eval
 for _b in FWC_TASKS:
     _k = _b + "-cont2k"
     for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
