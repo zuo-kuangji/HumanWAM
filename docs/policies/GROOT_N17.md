@@ -1,5 +1,10 @@
 # GR00T N1.7 + SONIC integration component
 
+Jindou Jia et al.'s public GR00T ODE head uses the separate
+[`groot_ode` entry](GROOT_ODE.md), pinned to ODE-POLICY `real-g1` and its own
+Isaac-GR00T revision. It requires a manifest-bound ODE bundle and explicit
+last-sent body-token carry. The native FM adapter below does not load that format.
+
 Both upstream repositories were actually cloned for this integration:
 
 | Repository | Pinned commit |

@@ -1,6 +1,6 @@
 # HumanWAM
 
-统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow、Fast-WAM、DiT4DiT 和 Psi-Zero 六个 policy 家族，共八个注册入口。ImageWAM 的 motion76 与 joint-reference、FastWAM 的官方任务与 G1 feedback76 分别使用独立入口和动作schema。
+统一维护 GR00T N1.7＋SONIC、π₀.₅、ImageWAM Δ-flow、Fast-WAM、DiT4DiT 和 Psi-Zero 六个 policy 家族，共九个注册入口。GR00T 原生与 ODE、ImageWAM motion76 与 joint-reference、FastWAM 官方任务与 G1 feedback76 分别使用独立入口和动作schema。
 
 - [两种G1训练方式、初始化与完整复现命令](docs/TRAINING_MODES.md)
 - [G1部署：模型服务、HTTP客户端与SONIC v1.1接线](docs/G1_DEPLOYMENT.md)
@@ -14,6 +14,7 @@
 - [初始权重、下载与恢复说明](docs/MODEL_INITIALIZATION.md)
 - [实际运行验证结果](docs/policies/RUNTIME_VALIDATION_20261109.md)
 - [GR00T N1.7 / SONIC](docs/policies/GROOT_N17.md)
+- [GR00T ODE Policy / G1：原生训练、推理与实际发送动作的 carry](docs/policies/GROOT_ODE.md)
 - [π₀.₅ Gaussian / A2A](docs/policies/PI05.md)
 - [ImageWAM Δ-flow H16 / legacy H40](docs/policies/IMAGEWAM_DELTA.md)
 - [ImageWAM joint47 v2：预测40、执行16与真实参考来源](docs/G1_JOINT_REFERENCE_DELTA.md)

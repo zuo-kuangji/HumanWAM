@@ -1,0 +1,45 @@
+# Native ode-g1 config. Environment paths are expanded by its pinned validator.
+# Source dataset must remain available for prepared-data/cache identity checks.
+device: cuda
+paths:
+  dataset_root: ${GROOT_ODE_DATA_ROOT}
+  prepared: ${GROOT_ODE_RUN_ROOT}/prepared
+  feature_cache: ${GROOT_ODE_RUN_ROOT}/features
+  output: ${GROOT_ODE_RUN_ROOT}/train
+dataset:
+  name: humanwam-g1-ode
+  repo_id: local
+  instruction: null
+  camera_keys: [observation.images.ego_view, observation.images.chest]
+base_model:
+  path: ${GROOT_ODE_BASE_MODEL}
+  revision: 2fc962b973bccdd5d8ce4f67cc63b264d6886495
+  cosmos_path: ${GROOT_ODE_COSMOS}
+  cosmos_revision: 9ce19a195e423419c349abfc86fd07178b230561
+  allow_download: false
+  channels_last_3d: true
+head:
+  horizon: 16
+  body_dim: 64
+  hand_dim: 12
+  state_dim: 44
+  feature_dim: 1024
+  cond_dim: 512
+  width: 512
+  layers: 4
+  field_scale: 1.0
+features:
+  batch_size: 16
+  max_ram_frames: 32
+  require_cache_hits: true
+training:
+  epochs: 90
+  batch_size: 112
+  learning_rate: 1.0e-5
+  weight_decay: 1.0e-5
+  checkpoint_milestone_epochs: [60, 70, 80, 90]
+  resume: null
+inference:
+  checkpoint_dir: null  # Defaults to paths.output; use a native manifest-bound run.
+  verify_head_sha256: true
+# Robot-specific deployment endpoints remain unset in the native defaults.

@@ -1,11 +1,12 @@
 # 六个 policy 家族的基础权重、初始化与部署
 
 本仓库提供代码、原生入口和配置，不附带模型权重。下面的下载命令供操作者执行，本次整理没有启动大模型下载。每种 policy 使用独立环境，先按 [维护说明](POLICY_MAINTENANCE.md) 准备固定版本源码。示例中 `MODEL_ROOT` 是自行指定的绝对路径。
-六个家族共八个注册入口，ImageWAM motion76与joint41/47、FastWAM官方任务与G1 feedback76分别维护。新增Fast-WAM未做GPU推理，joint-reference尚无已训练权重。
+六个家族共九个注册入口，GR00T原生与ODE、ImageWAM motion76与joint41/47、FastWAM官方任务与G1 feedback76分别维护。新增Fast-WAM未做GPU推理，joint-reference尚无已训练权重。
 
 | Policy | 从基础模型开始训练 | 已训练模型的部署材料 | 固定来源与限制 |
 |---|---|---|---|
 | GR00T N1.7 | `nvidia/GR00T-N1.7-3B`，按目标 embodiment 新建训练 recipe | 完整 HF checkpoint、processor、该 checkpoint 的 modality 与归一化统计 | 基础权重 revision `2fc962b973bccdd5d8ce4f67cc63b264d6886495`。基础模型不含 `UNITREE_G1_SONIC`，不能改标签后直接当 SONIC 模型 |
+| GR00T ODE Policy | 同一固定GR00T基座与Cosmos，独立23ace源码；新建ODE head并训练context reader | 原生 `final_head.safetensors`、`ode_config.json`、`normalization.json`、`policy_manifest.json` 及匹配base身份 | H16/state44/action76，身体64维Euler积分、手12维独立输出；历史实验权重需显式迁移，见[ODE说明](policies/GROOT_ODE.md) |
 | π₀.₅ | OpenPI `gs://openpi-assets/checkpoints/pi05_base/params` | 任务 checkpoint 的 `params/` 与 `assets/`，匹配原生 config | GCS 路径没有本仓库核实的不可变权重 SHA。固定 OpenPI 源码与 A2A patch，下载后另存文件校验清单 |
 | ImageWAM Δ-flow | FLUX.2 klein-base-4B、FLUX.2-dev AE、Qwen3-4B，生成基础模型派生的动作共享初始化 | 任务 MoT 权重、model config、统计、文本缓存，以及 factory 所需基础文件 | motion76默认预测16；joint47 v2历史16、预测40含前瞻尾、执行16。历史motion H40和joint v1必须使用各自协议 |
 | Fast-WAM | Wan2.2-TI2V-5B video DiT、原始VAE/T5及Wan tokenizer，生成动作共享backbone初始化 | 官方任务完整MoT`.pt`＋对应统计，另需VAE/T5/tokenizer | 官方HF revision `8eaceeb24c3cc92ff2a9c9a9d266a4941b836705`；LIBERO A7/S8/H32、RoboTwin A14/S14/H32，原生Gaussian FM |

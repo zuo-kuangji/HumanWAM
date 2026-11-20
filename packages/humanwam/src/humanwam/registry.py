@@ -17,6 +17,15 @@ class Backend:
 
 
 BACKENDS = {
+    "groot_ode": Backend(
+        "GR00T ODE Policy + SONIC",
+        "humanwam.backends.groot_ode",
+        "humanwam.backends.groot_ode_commands",
+        "third_party/ODE-POLICY",
+        "current GR00T feedback76 RGB/state44/language plus explicit episode-start or last-sent body64",
+        "H16 ODE body64 + separate Inspire6/6 decoder; stateless preview, no implicit carry commit",
+        "Isolated ODE G1 Python3.10/GR00T23ace environment; distinct from native N1.7 runtime",
+    ),
     "fastwam_sonic": Backend(
         "Fast-WAM G1 feedback76 + SONIC",
         "humanwam.backends.fastwam_sonic",
@@ -123,7 +132,7 @@ def build_command(config, action, root):
     module = importlib.import_module(spec.commands)
     options = dict(config.get("options", {}))
     options.setdefault("python", config.get("python", "python3"))
-    if config["backend"] in ("imagewam_delta", "imagewam_joint_reference", "fastwam", "fastwam_sonic"):
+    if config["backend"] in ("imagewam_delta", "imagewam_joint_reference", "fastwam", "fastwam_sonic", "groot_ode"):
         options.setdefault("launcher_config", config.get("_config_path"))
     source = Path(config.get("source_dir", root / spec.source))
     if not source.is_absolute():
