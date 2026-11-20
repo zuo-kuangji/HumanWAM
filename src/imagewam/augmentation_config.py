@@ -9,6 +9,7 @@ import math
 SCHEMA = "wholebody_training_augmentation_v3"
 PREVIOUS_SCHEMA = "wholebody_training_augmentation_v2"
 LEGACY_SCHEMA = "wholebody_training_augmentation_v1"
+UNIFIED_SCHEMA = "humanwam_unified_augmentation_v1"
 
 _VISUAL_V1 = {
     "enabled": True,
@@ -200,6 +201,18 @@ def normalize_augmentation(config=None):
     if not isinstance(supplied, Mapping):
         raise ValueError("augmentation must be a configuration mapping")
     schema = supplied.get("schema", SCHEMA)
+    if schema == UNIFIED_SCHEMA:
+        # The shared engine owns this fixed recipe. Keep its selection explicit
+        # and CPU-safe; legacy profile normalization/hashes are unchanged.
+        result = _merge(
+            {"schema": UNIFIED_SCHEMA, "enabled": True, "seed": 42},
+            supplied,
+            "augmentation",
+        )
+        _boolean(result["enabled"], "augmentation.enabled")
+        if type(result["seed"]) is not int or not 0 <= result["seed"] < 2**63:
+            raise ValueError("augmentation.seed must be a nonnegative signed64-bit integer")
+        return result
     if schema not in (SCHEMA, PREVIOUS_SCHEMA, LEGACY_SCHEMA):
         raise ValueError("Unknown training augmentation schema")
     legacy = schema == LEGACY_SCHEMA

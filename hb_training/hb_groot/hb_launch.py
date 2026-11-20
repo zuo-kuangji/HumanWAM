@@ -5,6 +5,10 @@ Patches Gr00tN1d7Processor in training mode only:
   used), then hb_aug_v2 is applied jointly to all cameras of the sample;
 - proprio: the body-joint state groups (HB_BODY_STATE_KEYS) get the v2 bias + noise before normalization.
 Then runs the pinned upstream gr00t/experiment/launch_finetune.py unchanged.
+
+HB_AUG_PROFILE=unified selects the shared HumanWAM recipe instead. It uses
+loader episode IDs and row-step anchors with epoch=0; native sharded scheduling
+does not provide the trainer's epoch at this processor boundary.
 """
 import json
 import os
@@ -25,6 +29,41 @@ Proc = P.Gr00tN1d7Processor
 BODY_KEYS = [k for k in os.environ.get("HB_BODY_STATE_KEYS", "left_leg,right_leg,waist,left_arm,right_arm").split(",") if k]
 LOG = os.environ.get("HB_AUG_LOG")
 _state = {"rng": None, "count": 0}
+_PROFILE = os.environ.get("HB_AUG_PROFILE", "hb_v2")
+if _PROFILE not in {"hb_v2", "unified"}:
+    raise ValueError(f"Unknown HB_AUG_PROFILE: {_PROFILE!r}; choose hb_v2 or unified")
+_UNIFIED = _PROFILE == "unified"
+if _UNIFIED:
+    from humanwam.augmentation import SampleKey, UnifiedAugmentation
+
+    _shared_aug = UnifiedAugmentation(seed=int(os.environ.get("HB_AUG_SEED", "42")))
+
+    # Native processing drops the episode ID when producing its modality-only
+    # dataframe. Attach the real loader ID before extraction; no content hash or
+    # worker-local counter substitutes for a sample identity.
+    from gr00t.data.dataset import sharded_single_step_dataset as _steps
+    from gr00t.data.dataset.lerobot_episode_loader import LeRobotEpisodeLoader as _EpisodeLoader
+
+    _orig_parquet = _EpisodeLoader._load_parquet_data
+    _orig_extract = _steps.extract_step_data
+
+    def _load_parquet_with_identity(self, episode_index):
+        frame = _orig_parquet(self, episode_index)
+        frame.attrs["hb_episode_index"] = int(episode_index)
+        return frame
+
+    def _extract_with_identity(episode_data, step_index, *args, **kwargs):
+        if "hb_episode_index" not in episode_data.attrs:
+            raise ValueError("Unified GR00T augmentation requires real loader episode identity")
+        sample = SampleKey(episode=int(episode_data.attrs["hb_episode_index"]), frame=int(step_index), epoch=0)
+        content = _orig_extract(episode_data, step_index, *args, **kwargs)
+        content.metadata = {**getattr(content, "metadata", {}), "hb_unified_sample": sample}
+        return content
+
+    _EpisodeLoader._load_parquet_data = _load_parquet_with_identity
+    _steps.extract_step_data = _extract_with_identity
+    print(f"HB_AUG_PROFILE=unified seed={_shared_aug.seed}: GR00T uses real episode/step IDs; epoch=0 "
+          "(native sharded processor has no training-epoch identity)", flush=True)
 
 
 def _rng():
@@ -51,17 +90,57 @@ def _apply_vlm_processing(self, images, language):
     if views and isinstance(images, torch.Tensor):
         shape = images.shape
         x = images.reshape(-1, views, *shape[1:]).float().div(255.0)
-        x, p = A.augment(x, _rng())
+        if _UNIFIED:
+            sample = getattr(self, "_hb_unified_sample", None)
+            if not isinstance(sample, SampleKey):
+                raise ValueError("Unified GR00T augmentation requires sample metadata")
+            x = _shared_aug.apply_rgb(x, sample=sample, observation_mask=self._hb_observation_mask)
+            p = {"boost": None}
+        else:
+            x, p = A.augment(x, _rng())
         images = (x * 255.0 + 0.5).clamp(0, 255).to(torch.uint8).reshape(shape)
         _state["count"] += 1
         if LOG and _state["count"] in (1, 50):
             with open(f"{LOG}.{os.getpid()}", "a") as f:
                 f.write(json.dumps({"count": _state["count"], "views": views, "hw": list(shape[-2:]),
-                                    "boost": p["boost"], "version": A.VERSION}) + "\n")
+                                    "boost": p["boost"], "version": _shared_aug.profile if _UNIFIED else A.VERSION,
+                                    **({"epoch_source": "fixed_zero_native_unavailable", "epoch": 0, "seed": _shared_aug.seed} if _UNIFIED else {})}) + "\n")
     return _orig_apply(self, images, language)
 
 
 def _call(self, messages):
+    if _UNIFIED and getattr(self, "training", False):
+        import copy
+
+        content = messages[0]["content"]
+        sample = getattr(content, "metadata", {}).get("hb_unified_sample")
+        if not isinstance(sample, SampleKey):
+            raise ValueError("Unified GR00T augmentation requires real episode/frame sample metadata")
+        # Copy raw state before normalization, preserving actions and all other
+        # state fields exactly. One combined body vector preserves joint order.
+        content = copy.copy(content)
+        content.states = dict(content.states)
+        keys = [key for key in BODY_KEYS if key in content.states]
+        if keys:
+            pieces = [np.asarray(content.states[key]) for key in keys]
+            widths = [piece.shape[-1] for piece in pieces]
+            joints = _shared_aug.apply_state(np.concatenate(pieces, axis=-1), body_dims=sum(widths), sample=sample)
+            offset = 0
+            for key, width in zip(keys, widths):
+                content.states[key] = joints[..., offset:offset + width].copy()
+                offset += width
+        # No augmentation metadata is passed through to the native processor or
+        # model. Image processing reads scoped context on this processor only.
+        content.metadata = {key: value for key, value in content.metadata.items() if key != "hb_unified_sample"}
+        wrapped = [{**messages[0], "content": content}]
+        config = self.modality_configs[content.embodiment.value]["video"]
+        previous = (getattr(self, "_hb_unified_sample", None), getattr(self, "_hb_observation_mask", None))
+        self._hb_unified_sample = sample
+        self._hb_observation_mask = [index <= 0 for index in config.delta_indices]
+        try:
+            return _orig_call(self, wrapped)
+        finally:
+            self._hb_unified_sample, self._hb_observation_mask = previous
     if getattr(self, "training", False) and BODY_KEYS:
         states = messages[0]["content"].states
         for key in BODY_KEYS:

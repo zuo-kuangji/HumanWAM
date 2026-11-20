@@ -1,0 +1,8 @@
+# Opt in with --augmentation-config configs/wholebody/augmentation_unified_v1.yaml.
+# The default remains augmentation_v3.yaml. Requires the local humanwam package.
+# RGB clip-level effects use the shared engine; sensor effects apply only to
+# the current observation. Body29 noise is applied in raw radians before stats.
+# This profile does not add model-state dropout or change action/history labels.
+schema: humanwam_unified_augmentation_v1
+enabled: true
+seed: 42

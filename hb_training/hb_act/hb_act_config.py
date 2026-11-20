@@ -49,7 +49,14 @@ class HbACTModelTransform(pt.ACTModelTransform):
         geom = v2.Compose([v2.ToImage(), v2.ToDtype(torch.float32, scale=True), self.resize(), self.center_crop()])
         x = torch.stack([geom(img) for img in data["observations"]])  # (V, 3, 224, 224) in [0, 1], native geometry
         if self.hb_aug and not no_aug:
-            y, p = HP.A.augment(x[None], HP.hb_rng())  # [T=1, V, 3, H, W]: colour shared, geometry/light per camera
+            if HP._UNIFIED:
+                sample = data.get("_hb_unified_sample")
+                if not isinstance(sample, HP.SampleKey):
+                    raise ValueError("Unified ACT images require repack sample identity")
+                y = HP._shared_aug.apply_rgb(x[None], sample=sample, observation_mask=[True])
+                p = {"boost": None}
+            else:
+                y, p = HP.A.augment(x[None], HP.hb_rng())  # [T=1, V, 3, H, W]: colour shared, geometry/light per camera
             x = y[0].clamp(0.0, 1.0)
             HP._log_aug(p, y.shape)
         images = self.normalize()(x)

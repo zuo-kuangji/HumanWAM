@@ -183,6 +183,15 @@ class HBCachedDataset(torch.utils.data.Dataset):
         self.fps = float(meta["fps"])
         self.control_hz = float(meta.get("control_hz", self.fps))
         self.seed = int(os.environ.get("HB_AUG_SEED", "42")) if seed is None else int(seed)
+        self._shared_augmentation = None
+        if self.augment:
+            profile = os.environ.get("HB_AUG_PROFILE", "hb_v2")
+            if profile == "unified":
+                from humanwam.augmentation import UnifiedAugmentation
+
+                self._shared_augmentation = UnifiedAugmentation(seed=self.seed)
+            elif profile != "hb_v2":
+                raise ValueError(f"Unknown HB_AUG_PROFILE: {profile!r}")
         self._frames = self._rng = self._pid = None
 
     def __len__(self):
@@ -219,7 +228,15 @@ class HBCachedDataset(torch.utils.data.Dataset):
         cams = self.layout.cameras
         imgs = np.stack([np.asarray(self._frames[c][i]) for c in cams])  # [2, 224, 224, 3] uint8
         actions = self.action[idx].copy()
-        if self.augment:
+        if self._shared_augmentation is not None:
+            from humanwam.augmentation import SampleKey
+
+            sample = SampleKey(int(self.episode[i]), i - int(self.ep_start[i]), epoch)
+            imgs = self._augment_images(imgs, sample=sample)
+            state = self._shared_augmentation.apply_state(
+                self.state[i], body_dims=self.layout.n_body, sample=sample
+            )
+        elif self.augment:
             imgs = self._augment_images(imgs)
             state, _ = self.proprio(i, epoch)
         else:
@@ -227,9 +244,12 @@ class HBCachedDataset(torch.utils.data.Dataset):
         return {**{f"observation/{c}": imgs[k] for k, c in enumerate(cams)}, "observation/state": state,
                 "actions": actions, "prompt": self.prompt}
 
-    def _augment_images(self, imgs: np.ndarray) -> np.ndarray:
+    def _augment_images(self, imgs: np.ndarray, *, sample=None) -> np.ndarray:
         x = torch.from_numpy(imgs).permute(0, 3, 1, 2).float().div_(255.0)[None]  # [T=1, V=2, 3, 224, 224]
-        x, _ = aug.augment(x, self._rng)
+        if self._shared_augmentation is None:
+            x, _ = aug.augment(x, self._rng)
+        else:
+            x = self._shared_augmentation.apply_rgb(x, sample=sample, observation_mask=[True])
         out = x[0].mul(255.0).round_().clamp_(0, 255).to(torch.uint8).permute(0, 2, 3, 1).numpy().copy()
         top, bottom, left, right = self.box  # keep OpenPI's letterbox exactly black, as at inference
         out[:, :top] = 0

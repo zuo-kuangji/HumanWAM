@@ -1255,13 +1255,17 @@ class JointReferenceLeRobotDataset(WholeBodyLeRobotDataset):
             recipe_version=self.recipe_version,
             execution_horizon=self.timing.get("execution_horizon", 16),
         )
-        generator = self._augmentation_generator()
-        visual_parameters = self._training_visual_parameters(generator=generator)
-        video = torch.cat(
-            [self._training_camera_frames(episode, cam, window["image"].tolist(),
-                 generator=generator, parameters=visual_parameters) for cam in CAMERAS],
-            dim=-1,
-        )
+        unified = self._unified_training_observation(episode, anchor, window["image"].tolist(), states[anchor])
+        if unified is None:
+            generator = self._augmentation_generator()
+            visual_parameters = self._training_visual_parameters(generator=generator)
+            video = torch.cat(
+                [self._training_camera_frames(episode, cam, window["image"].tolist(),
+                     generator=generator, parameters=visual_parameters) for cam in CAMERAS],
+                dim=-1,
+            )
+        else:
+            video, current, state_condition_keep = unified
         action = self.normalizer.forward(actions[window["action"]], "action")
         past = self.normalizer.forward(actions[window["past_action"]], "action")
         if self.recipe_version == "v2" and self.action_dim == 47:
@@ -1277,9 +1281,10 @@ class JointReferenceLeRobotDataset(WholeBodyLeRobotDataset):
             action = self.normalizer.forward(future_raw, "action")
             past = self.normalizer.forward(past_raw, "action")
         past[window["past_action_is_pad"]] = 0.0
-        current = self.normalizer.forward(states[anchor], "state")
-        current = self._training_current_state(current, states[anchor], generator=generator)
-        state_condition_keep = self._training_state_keep(generator=generator)
+        if unified is None:
+            current = self.normalizer.forward(states[anchor], "state")
+            current = self._training_current_state(current, states[anchor], generator=generator)
+            state_condition_keep = self._training_state_keep(generator=generator)
         orientation_masks = {}
         if self.action_dim == 47:
             validity = arrays[2]

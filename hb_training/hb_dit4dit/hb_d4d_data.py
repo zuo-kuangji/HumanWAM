@@ -236,6 +236,15 @@ class HBD4DDataset(torch.utils.data.Dataset):
         self.fps = float(meta["fps"])
         self.control_hz = float(meta.get("control_hz", self.fps))
         self.seed = int(os.environ.get("HB_AUG_SEED", "42")) if seed is None else int(seed)
+        self._shared_augmentation = None
+        if self.augment:
+            profile = os.environ.get("HB_AUG_PROFILE", "hb_v2")
+            if profile == "unified":
+                from humanwam.augmentation import UnifiedAugmentation
+
+                self._shared_augmentation = UnifiedAugmentation(seed=self.seed)
+            elif profile != "hb_v2":
+                raise ValueError(f"Unknown HB_AUG_PROFILE: {profile!r}")
         self._frames = self._rng = self._pid = None
         self._aug_log = None
 
@@ -286,9 +295,19 @@ class HBD4DDataset(torch.utils.data.Dataset):
         if self.augment:
             obs_mask = torch.zeros(x.shape[0], dtype=torch.bool)
             obs_mask[0] = True  # frame 0 = observation; frames 1.. = future-image targets
-            x, p = aug.augment(x, self._rng, obs_mask)
-            self._log_aug(p, i, epoch)
-            raw_state, _ = self.proprio(i, epoch)
+            if self._shared_augmentation is None:
+                x, p = aug.augment(x, self._rng, obs_mask)
+                self._log_aug(p, i, epoch)
+                raw_state, _ = self.proprio(i, epoch)
+            else:
+                from humanwam.augmentation import SampleKey
+
+                sample = SampleKey(int(self.episode[i]), i - int(self.ep_start[i]), epoch)
+                x = self._shared_augmentation.apply_rgb(x, sample=sample, observation_mask=obs_mask)
+                raw_state = self._shared_augmentation.apply_state(
+                    self.state[i].astype(np.float64), body_dims=self.layout.n_body, sample=sample
+                )
+                self._log_aug({}, i, epoch)
         else:
             raw_state = self.state[i].astype(np.float64)
         frames = torch.cat([x[:, v] for v in range(x.shape[1])], dim=-1).clamp_(0, 1).to(torch.float16)  # [T, 3, H, V*W]
@@ -301,7 +320,8 @@ class HBD4DDataset(torch.utils.data.Dataset):
         if self._aug_log is None or self._aug_log[1] >= 20:
             return
         path, k = self._aug_log
-        rec = {"row": int(i), "pass": int(epoch), "version": aug.VERSION,
+        version = self._shared_augmentation.profile if self._shared_augmentation else aug.VERSION
+        rec = {"row": int(i), "pass": int(epoch), "version": version,
                **{a: b for a, b in p.items() if a in ("boost", "exposure", "contrast", "saturation", "hue", "gamma",
                                                       "temperature", "geometry", "noise", "jpeg")}}
         try:
