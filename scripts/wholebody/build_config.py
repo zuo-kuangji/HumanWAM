@@ -293,7 +293,7 @@ def argument_parser():
 
 
 def resolve_training_augmentation(args):
-    from imagewam.augmentation_config import PREVIOUS_SCHEMA, SCHEMA, UNIFIED_SCHEMA, augmentation_sha256, normalize_augmentation
+    from imagewam.augmentation_config import PREVIOUS_SCHEMA, SCHEMA, UNIFIED_SCHEMAS, augmentation_sha256, normalize_augmentation
     from omegaconf import OmegaConf
 
     custom = getattr(args, "augmentation_config", None)
@@ -308,7 +308,7 @@ def resolve_training_augmentation(args):
         profile = profile.expanduser().resolve(strict=True)
         config = normalize_augmentation(OmegaConf.to_container(OmegaConf.load(profile), resolve=True))
         source = str(profile)
-    require(not config["enabled"] or config["schema"] in {SCHEMA, PREVIOUS_SCHEMA, UNIFIED_SCHEMA},
+    require(not config["enabled"] or config["schema"] in (SCHEMA, PREVIOUS_SCHEMA, *UNIFIED_SCHEMAS),
             "New training requires a whole-state conditioning profile (v2 or v3) or the explicit unified profile")
     return config, augmentation_sha256(config), source
 

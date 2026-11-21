@@ -2,6 +2,7 @@
 
 在已分配的训练环境中生成两套逐节点命令。计划使用同一份已转换的 `b6v6` 数据、
 ActionDiT 初始化、模型和 T5 缓存、每卡 batch、训练 seed 与总步数。唯一的训练变量是增强配方。
+`unified` 组显式使用统一配方 v2，保留 5% 原图，进入增强后有 15% 概率选中一个强档。
 
 ```bash
 python hb_training/fastwam_tools/hb_fastwam_compare.py \

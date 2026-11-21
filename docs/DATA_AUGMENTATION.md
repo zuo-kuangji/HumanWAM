@@ -2,20 +2,25 @@
 
 ## 跨模型统一配方
 
-新实验可以显式选择 [HumanWAM 统一配方](../configs/wholebody/augmentation_unified_v1.yaml)。
+新实验可以显式选择 [HumanWAM 统一配方 v2](../configs/wholebody/augmentation_unified_v2.yaml)。
 标准 ImageWAM motion76 和 joint47 可在生成训练配置时加
-`--augmentation-config configs/wholebody/augmentation_unified_v1.yaml`。
+`--augmentation-config configs/wholebody/augmentation_unified_v2.yaml`。
 在模型环境中先安装 `python -m pip install -e packages/humanwam`，并使用该模型已有的 PyTorch 和 torchvision。
-新 profile 使用 `humanwam_unified_augmentation_v1` 标识。已有 ImageWAM v3 默认配置和历史 HB v2 的入口继续
-按各自配方运行。历史 checkpoint 续训沿用保存的配方，切换配方时应创建新实验。
+新 profile 使用 `humanwam_unified_augmentation_v2` 标识。已有 ImageWAM v3 默认配置和历史 HB v2 的入口按各自配方运行。
+历史 checkpoint 续训沿用保存的配方。之前的 20% 原图配方可显式选择
+[`augmentation_unified_v1.yaml`](../configs/wholebody/augmentation_unified_v1.yaml) 或 `HB_AUG_PROFILE=unified_v1`。
 
 | 部分 | 统一配方的试跑设置 |
 |---|---|
-| 视觉采样 | 20% 样本图像原样通过，其余使用常规轻扰动。在进入增强的样本中，15% 随机选一个较强项，四选一为仿射、过曝、像素噪声、JPEG。 |
+| 视觉采样 | 5% 样本图像原样通过，其余使用常规轻扰动。在进入增强的样本中，15% 随机选一个较强项，四选一为仿射、过曝、像素噪声、JPEG。全体样本中 80.75% 仅有轻扰动，14.25% 含一个较强项。 |
 | 场景变化 | 曝光、对比度、饱和度、色相、gamma 和色温在相机间共享。几何、局部光斑和单通道白平衡按相机抽取。同一路整段共享参数，覆盖当前图像与未来图像监督。 |
 | 几何和过曝 | 常规旋转 ±1.5° 加轻微裁切。较强仿射使用 ±4% 平移、±3° 旋转和 0.96–1.04 缩放；较强过曝使用 1.25–1.8 增益。 |
 | 传感器和光学 | 只加到观测帧。常规噪声 σ 为 4/255，JPEG 质量 70–95；较强档分别为 8/255、50–80。模糊与压缩参数按相机在片段内固定，像素噪声逐帧抽样。 |
 | 本体状态 | 归一化前给身体关节加 ±2° 的均匀偏置和 σ 0.25° 的高斯噪声，噪声裁在 ±3σ。同一观测窗口内每个关节共享自己的偏置。G1 扰动前29个关节，H2 扰动前31个关节。 |
+
+进入视觉增强后，每个样本都会使用整体光色和轻几何。局部光斑和单通道白平衡分别以 30% 概率触发。
+常规观测帧按相机抽取像素噪声（50%）、JPEG（35%）、高斯模糊（15%）、运动模糊（15%）、
+锐化（15%）和离焦（10%），这些可选项可以叠加。
 
 统一实现位于 [humanwam.augmentation](../packages/humanwam/src/humanwam/augmentation.py)。
 各 adapter 用实际的 episode、frame 和可用的 epoch 标识选择可重放参数，再走各模型自己的确定性预处理和归一化。
@@ -23,7 +28,7 @@
 模型原有正则独立配置。随机增强只用于训练。
 
 HB FastWAM、GR00T、Psi-Zero、ACT、Pi0.5 和 DiT4DiT 使用
-`HB_AUG_PROFILE=unified HB_AUG_SEED=42` 选择试跑方案。
+`HB_AUG_PROFILE=unified_v2 HB_AUG_SEED=42` 选择试跑方案，`unified` 是当前版本的别名。
 GR00T 的后处理器拿到 episode 与行号，epoch 固定为 0，因此同一帧在不同 epoch 重放同一扰动。
 独立 ODE 训练消费预先缓存的特征，继续使用原特征提取流程。接入统一视觉增强需在特征提取前处理图像，
 并为新增强重新生成对应缓存。

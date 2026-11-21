@@ -211,3 +211,35 @@ def test_native_resume_epoch_indices_survive_accelerate_rank_sharding(native):
             np.testing.assert_array_equal(item["proprio"][0], expected)
             count += 1
     assert count == 2  # Four anchors minus the two globally consumed by resume.
+
+
+@pytest.mark.parametrize("selector,version", [
+    ("unified", "humanwam_unified_augmentation_v2"),
+    ("unified_v2", "humanwam_unified_augmentation_v2"),
+    ("unified_v1", "humanwam_unified_augmentation_v1"),
+])
+def test_versioned_profiles_report_effective_version_and_use_the_selected_engine(native, selector, version):
+    patch, Processor, Dataset, _ = native
+    assert patch.install(selector, seed=42) == version
+    assert patch.install(selector, seed=42) == version
+    assert Processor._hb_aug_version == version
+    engine = UnifiedAugmentation.from_hb_profile(selector, seed=42)
+    pixels = torch.linspace(0.1, 0.9, 2 * 17 * 3 * 32 * 32).reshape(2, 17, 3, 32, 32)
+    mask = torch.zeros(17, dtype=torch.bool)
+    mask[0] = True
+    expected = engine.apply_rgb(pixels.permute(1, 0, 2, 3, 4), sample=SampleKey(7, 13, 3), observation_mask=mask)
+    item = Dataset(Processor())[(0, 3)]
+    torch.testing.assert_close(item["pixel_values"], expected.permute(1, 0, 2, 3, 4), rtol=0, atol=0)
+
+
+@pytest.mark.parametrize("selector", ["unified", "unified_v1", "unified_v2"])
+def test_training_cli_preserves_explicit_version_and_returns_effective_version(monkeypatch, tmp_path, selector):
+    monkeypatch.setenv("FASTWAM_SRC", str(tmp_path))
+    monkeypatch.setenv("HB_FW_AUG", "1")
+    module = load_module("hb_fastwam_train_versions", TOOLS / "hb_fastwam_train.py")
+    assert module.parse(["hb_aug_profile=" + selector, "hb_aug_seed=42", "batch_size=8"]) == {"batch_size": 8}
+    expected = UnifiedAugmentation.from_hb_profile(selector, seed=42).profile
+    fake = ModuleType("hb_fastwam_aug")
+    fake.install = lambda: expected
+    monkeypatch.setitem(sys.modules, "hb_fastwam_aug", fake)
+    assert module.install_augmentation() == expected

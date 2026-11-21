@@ -6,7 +6,8 @@ Patches Gr00tN1d7Processor in training mode only:
 - proprio: the body-joint state groups (HB_BODY_STATE_KEYS) get the v2 bias + noise before normalization.
 Then runs the pinned upstream gr00t/experiment/launch_finetune.py unchanged.
 
-HB_AUG_PROFILE=unified selects the shared HumanWAM recipe instead. It uses
+HB_AUG_PROFILE=unified (or unified_v2) selects the shared 5% recipe;
+unified_v1 explicitly retains its earlier 20% recipe. It uses
 loader episode IDs and row-step anchors with epoch=0; native sharded scheduling
 does not provide the trainer's epoch at this processor boundary.
 """
@@ -30,13 +31,13 @@ BODY_KEYS = [k for k in os.environ.get("HB_BODY_STATE_KEYS", "left_leg,right_leg
 LOG = os.environ.get("HB_AUG_LOG")
 _state = {"rng": None, "count": 0}
 _PROFILE = os.environ.get("HB_AUG_PROFILE", "hb_v2")
-if _PROFILE not in {"hb_v2", "unified"}:
-    raise ValueError(f"Unknown HB_AUG_PROFILE: {_PROFILE!r}; choose hb_v2 or unified")
-_UNIFIED = _PROFILE == "unified"
+if _PROFILE not in {"hb_v2", "unified", "unified_v1", "unified_v2"}:
+    raise ValueError(f"Unknown HB_AUG_PROFILE: {_PROFILE!r}; choose hb_v2, unified, unified_v1 or unified_v2")
+_UNIFIED = _PROFILE != "hb_v2"
 if _UNIFIED:
     from humanwam.augmentation import SampleKey, UnifiedAugmentation
 
-    _shared_aug = UnifiedAugmentation(seed=int(os.environ.get("HB_AUG_SEED", "42")))
+    _shared_aug = UnifiedAugmentation.from_hb_profile(_PROFILE, seed=int(os.environ.get("HB_AUG_SEED", "42")))
 
     # Native processing drops the episode ID when producing its modality-only
     # dataframe. Attach the real loader ID before extraction; no content hash or
@@ -62,7 +63,7 @@ if _UNIFIED:
 
     _EpisodeLoader._load_parquet_data = _load_parquet_with_identity
     _steps.extract_step_data = _extract_with_identity
-    print(f"HB_AUG_PROFILE=unified seed={_shared_aug.seed}: GR00T uses real episode/step IDs; epoch=0 "
+    print(f"HB_AUG_PROFILE={_PROFILE} profile={_shared_aug.profile} seed={_shared_aug.seed}: GR00T uses real episode/step IDs; epoch=0 "
           "(native sharded processor has no training-epoch identity)", flush=True)
 
 
@@ -104,7 +105,7 @@ def _apply_vlm_processing(self, images, language):
             with open(f"{LOG}.{os.getpid()}", "a") as f:
                 f.write(json.dumps({"count": _state["count"], "views": views, "hw": list(shape[-2:]),
                                     "boost": p["boost"], "version": _shared_aug.profile if _UNIFIED else A.VERSION,
-                                    **({"epoch_source": "fixed_zero_native_unavailable", "epoch": 0, "seed": _shared_aug.seed} if _UNIFIED else {})}) + "\n")
+                                    **({"epoch_source": "fixed_zero_native_unavailable", "epoch": 0, "seed": _shared_aug.seed, "profile": _shared_aug.profile} if _UNIFIED else {})}) + "\n")
     return _orig_apply(self, images, language)
 
 

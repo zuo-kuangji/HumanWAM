@@ -83,9 +83,11 @@ def build_comparison_plan(*, python, fastwam_source, data_root, action_init, mod
     ]
     runs = {}
     for offset, profile in enumerate(outputs):
+        selector = "unified_v2" if profile == "unified" else "hb_v2"
+        version = "humanwam_unified_augmentation_v2" if profile == "unified" else "hb-aug-v2-20261109"
         environment = {
             "FASTWAM_SRC": str(paths["fastwam_source"]), "HB_FW_PROFILE": "g1", "HB_FW_JOINTS": "29",
-            "HB_FW_AUG": "1", "HB_AUG_PROFILE": profile, "HB_AUG_SEED": str(seed),
+            "HB_FW_AUG": "1", "HB_AUG_PROFILE": selector, "HB_AUG_SEED": str(seed),
             "HB_INLOOP_EVERY": "0", "HB_MODEL_YAML": "", "HB_COMPOSE_ONLY": "", "HB_DATA_SAMPLE": "",
             "HB_AUG_DIR": str(hb_root / "hb_groot"),
             "DIFFSYNTH_MODEL_BASE_PATH": str(paths["model_cache"]), "DIFFSYNTH_SKIP_DOWNLOAD": "true",
@@ -107,7 +109,7 @@ def build_comparison_plan(*, python, fastwam_source, data_root, action_init, mod
                 "argv": argv, "cwd": str(paths["fastwam_source"]), "env": environment,
                 "unset_env": list(DISTRIBUTED_ENV), "unset_env_prefixes": ["PET_"],
             })
-        runs[profile] = {"output_dir": str(outputs[profile]), "ranks": ranks}
+        runs[profile] = {"output_dir": str(outputs[profile]), "augmentation_profile": version, "ranks": ranks}
     return {
         "task": "b6v6", "model_profile": "g1", "horizon": 16,
         "per_gpu_batch": batch, "global_batch": batch * machines * 8,

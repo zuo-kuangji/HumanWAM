@@ -239,12 +239,10 @@ class HBD4DDataset(torch.utils.data.Dataset):
         self._shared_augmentation = None
         if self.augment:
             profile = os.environ.get("HB_AUG_PROFILE", "hb_v2")
-            if profile == "unified":
+            if profile != "hb_v2":
                 from humanwam.augmentation import UnifiedAugmentation
 
-                self._shared_augmentation = UnifiedAugmentation(seed=self.seed)
-            elif profile != "hb_v2":
-                raise ValueError(f"Unknown HB_AUG_PROFILE: {profile!r}")
+                self._shared_augmentation = UnifiedAugmentation.from_hb_profile(profile, seed=self.seed)
         self._frames = self._rng = self._pid = None
         self._aug_log = None
 

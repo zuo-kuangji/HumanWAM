@@ -1,0 +1,7 @@
+# Opt in with --augmentation-config configs/wholebody/augmentation_unified_v2.yaml.
+# Unified v2 keeps 5% of RGB clips clean and selects a strong effect for 15% of
+# the remaining clips. The original unified_v1 profile retains 20% clean RGB.
+# ImageWAM's default remains augmentation_v3.yaml. Requires the humanwam package.
+schema: humanwam_unified_augmentation_v2
+enabled: true
+seed: 42

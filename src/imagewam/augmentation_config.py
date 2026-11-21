@@ -10,6 +10,8 @@ SCHEMA = "wholebody_training_augmentation_v3"
 PREVIOUS_SCHEMA = "wholebody_training_augmentation_v2"
 LEGACY_SCHEMA = "wholebody_training_augmentation_v1"
 UNIFIED_SCHEMA = "humanwam_unified_augmentation_v1"
+UNIFIED_V2_SCHEMA = "humanwam_unified_augmentation_v2"
+UNIFIED_SCHEMAS = (UNIFIED_SCHEMA, UNIFIED_V2_SCHEMA)
 
 _VISUAL_V1 = {
     "enabled": True,
@@ -201,11 +203,11 @@ def normalize_augmentation(config=None):
     if not isinstance(supplied, Mapping):
         raise ValueError("augmentation must be a configuration mapping")
     schema = supplied.get("schema", SCHEMA)
-    if schema == UNIFIED_SCHEMA:
+    if schema in UNIFIED_SCHEMAS:
         # The shared engine owns this fixed recipe. Keep its selection explicit
         # and CPU-safe; legacy profile normalization/hashes are unchanged.
         result = _merge(
-            {"schema": UNIFIED_SCHEMA, "enabled": True, "seed": 42},
+            {"schema": schema, "enabled": True, "seed": 42},
             supplied,
             "augmentation",
         )

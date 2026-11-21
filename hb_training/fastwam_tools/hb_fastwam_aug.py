@@ -6,7 +6,8 @@
   hands and gravity untouched; supervision labels untouched. Normalization statistics are computed on the raw data.
 FastWAM's own image augmentation is only a resize (no colour jitter / crop), so nothing native is stacked.
 Installed in the main process before the dataloaders fork; HB_FW_JOINTS sets the number of perturbed joints.
-HB_AUG_PROFILE=unified explicitly selects humanwam.augmentation instead. Its identity is the real
+HB_AUG_PROFILE=unified (or unified_v2) explicitly selects the shared v2 recipe (5% clean RGB).
+unified_v1 preserves the earlier 20% clean recipe. Its identity is the real
 episode/frame plus the sampler's resumed epoch, carried with each index through worker prefetch.
 The legacy default remains hb_v2."""
 import importlib
@@ -47,8 +48,8 @@ def _identity(data, SampleKey):
 
 def install(profile=None, seed=None):
     profile = profile or os.environ.get("HB_AUG_PROFILE", "hb_v2")
-    if profile not in {"hb_v2", "unified"}:
-        raise ValueError("HB_AUG_PROFILE must be hb_v2 or unified")
+    if profile not in {"hb_v2", "unified", "unified_v1", "unified_v2"}:
+        raise ValueError("HB_AUG_PROFILE must be hb_v2, unified, unified_v1 or unified_v2")
     from fastwam.datasets.lerobot.base_lerobot_dataset import BaseLerobotDataset
     from fastwam.datasets.lerobot.processors.fastwam_processor import FastWAMProcessor
 
@@ -56,13 +57,13 @@ def install(profile=None, seed=None):
     if installed is not None:
         if installed != profile:
             raise ValueError("Start a fresh process when changing FastWAM augmentation profiles")
-        return
+        return FastWAMProcessor._hb_aug_version
     engine = None
-    if profile == "unified":
+    if profile != "hb_v2":
         from humanwam.augmentation import SampleKey, UnifiedAugmentation
 
         seed = int(os.environ.get("HB_AUG_SEED", "42")) if seed is None else seed
-        engine = UnifiedAugmentation(seed=seed)
+        engine = UnifiedAugmentation.from_hb_profile(profile, seed=seed)
         version = engine.profile
     else:
         sys.path.insert(0, os.environ.get("HB_AUG_DIR", ""))
@@ -150,4 +151,6 @@ def install(profile=None, seed=None):
     FastWAMProcessor.preprocess = preprocess
     BaseLerobotDataset.__getitem__ = getitem
     FastWAMProcessor._hb_aug_profile = profile
+    FastWAMProcessor._hb_aug_version = version
     print(f"HB_FW_AUG installed: {version}, joints {NJ}, seed {seed}", flush=True)
+    return version
