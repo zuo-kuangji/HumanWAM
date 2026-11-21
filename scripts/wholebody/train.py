@@ -54,7 +54,7 @@ def expected_microbatches(loader_length, accumulation, optimizer_updates):
 
 def training_augmentation_contract(cfg, *, dataset=None):
     """Validate task-bound training settings; missing legacy fields mean disabled."""
-    from imagewam.augmentation_config import PREVIOUS_SCHEMA, SCHEMA, UNIFIED_SCHEMA, augmentation_sha256, normalize_augmentation
+    from imagewam.augmentation_config import PREVIOUS_SCHEMA, SCHEMA, UNIFIED_SCHEMAS, augmentation_sha256, normalize_augmentation
 
     ds, contract = cfg["data"]["train"], cfg["wholebody_contract"]
     present = ("augmentation" in ds, "training_augmentation" in contract,
@@ -63,7 +63,7 @@ def training_augmentation_contract(cfg, *, dataset=None):
             "Dataset augmentation and its complete config/SHA contract must be recorded together")
     try:
         canonical = normalize_augmentation(contract.get("training_augmentation"))
-        require(not canonical["enabled"] or canonical["schema"] in {SCHEMA, PREVIOUS_SCHEMA, UNIFIED_SCHEMA},
+        require(not canonical["enabled"] or canonical["schema"] in (SCHEMA, PREVIOUS_SCHEMA, *UNIFIED_SCHEMAS),
                 "Enabled training augmentation requires a whole-state conditioning profile (v2 or v3) "
                 "or the explicit unified profile")
         digest = augmentation_sha256(canonical)

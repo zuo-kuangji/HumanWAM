@@ -437,8 +437,8 @@ class WholeBodyLeRobotDataset(torch.utils.data.Dataset):
         return int(self.ends[-1])
 
     def _configure_augmentation(self, augmentation, *, split):
-        from imagewam.augmentation_config import UNIFIED_SCHEMA
-        if augmentation is not None and augmentation.get("schema") == UNIFIED_SCHEMA:
+        from imagewam.augmentation_config import UNIFIED_SCHEMAS
+        if augmentation is not None and augmentation.get("schema") in UNIFIED_SCHEMAS:
             from imagewam.datasets.unified_augmentation import UnifiedTrainingAugmentation
             self.augmentation = UnifiedTrainingAugmentation(augmentation, training=split == "train")
             return

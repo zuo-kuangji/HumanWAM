@@ -53,16 +53,20 @@ def profile_startup(relative):
 
 
 @pytest.mark.parametrize("relative", ["hb_training/hb_groot/hb_launch.py", "hb_training/hb_psi0/hb_psi0_config.py"])
-def test_actual_profile_startup_honors_seed_and_rejects_unknown_profile(relative, monkeypatch, capsys):
-    monkeypatch.setenv("HB_AUG_PROFILE", "unified")
+@pytest.mark.parametrize("profile,resolved", [("unified", "v2"), ("unified_v2", "v2"), ("unified_v1", "v1")])
+def test_actual_profile_startup_honors_seed_and_rejects_unknown_profile(relative, profile, resolved, monkeypatch, capsys):
+    monkeypatch.setenv("HB_AUG_PROFILE", profile)
     monkeypatch.setenv("HB_AUG_SEED", "123")
     selected = profile_startup(relative)
     assert selected["_shared_aug"].seed == 123
-    assert "seed=123" in capsys.readouterr().out
+    assert selected["_shared_aug"].profile == "humanwam_unified_augmentation_" + resolved
+    startup_log = capsys.readouterr().out
+    assert "seed=123" in startup_log
+    assert "profile=humanwam_unified_augmentation_" + resolved in startup_log
     raw = np.zeros((1, 29), np.float32)
     sample = SampleKey(3, 7)
     np.testing.assert_array_equal(selected["_shared_aug"].apply_state(raw, body_dims=29, sample=sample),
-                                  UnifiedAugmentation(seed=123).apply_state(raw, body_dims=29, sample=sample))
+                                  UnifiedAugmentation.from_hb_profile(profile, seed=123).apply_state(raw, body_dims=29, sample=sample))
     monkeypatch.setenv("HB_AUG_SEED", "-1")
     with pytest.raises(ValueError):
         profile_startup(relative)

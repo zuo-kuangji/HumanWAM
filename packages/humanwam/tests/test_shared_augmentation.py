@@ -3,7 +3,37 @@ import math
 import numpy as np
 import pytest
 
-from humanwam.augmentation import SampleKey, UnifiedAugmentation
+from humanwam.augmentation import UNIFIED_V1, UNIFIED_V2, SampleKey, UnifiedAugmentation
+
+
+def test_v2_only_changes_clean_rgb_gate_and_v1_remains_replayable():
+    old = UnifiedAugmentation.from_hb_profile("unified_v1")
+    new = UnifiedAugmentation.from_hb_profile("unified_v2")
+    assert old.profile == UNIFIED_V1
+    assert new.profile == UnifiedAugmentation().profile == UNIFIED_V2
+    assert new.profile == UnifiedAugmentation.from_hb_profile("unified").profile
+    strong_kinds = ("affine", "overexposure", "noise", "jpeg")
+    observed_strong = set()
+    for frame in range(250):
+        key = SampleKey(7, frame, 3)
+        draws = np.random.default_rng([42, 7, frame, 3, 0, 0])
+        draw = draws.random()
+        previous = old.sample_rgb(key, cameras=2)
+        current = new.sample_rgb(key, cameras=2)
+        assert (previous is None) == (draw < 0.20)
+        assert (current is None) == (draw < 0.05)
+        if previous is not None:
+            assert current == previous
+        if current is not None:
+            expected = draws.choice(strong_kinds) if draws.random() < 0.15 else None
+            assert current["strong"] == expected
+            observed_strong.add(expected)
+    assert observed_strong == {*strong_kinds, None}
+    state = np.zeros((2, 44), dtype=np.float32)
+    np.testing.assert_array_equal(
+        new.apply_state(state, body_dims=29, sample=key),
+        old.apply_state(state, body_dims=29, sample=key),
+    )
 
 
 def test_raw_body_disturbance_keeps_other_channels_and_replays():

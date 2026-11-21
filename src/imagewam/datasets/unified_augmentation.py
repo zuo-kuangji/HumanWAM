@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import torch
 
-from imagewam.augmentation_config import UNIFIED_SCHEMA, normalize_augmentation
+from imagewam.augmentation_config import UNIFIED_SCHEMAS, normalize_augmentation
 
 
 class UnifiedTrainingAugmentation:
@@ -19,7 +19,7 @@ class UnifiedTrainingAugmentation:
 
     def __init__(self, config, *, training=True):
         self.config = normalize_augmentation(config)
-        if self.config["schema"] != UNIFIED_SCHEMA:
+        if self.config["schema"] not in UNIFIED_SCHEMAS:
             raise ValueError("Use the explicit HumanWAM unified augmentation profile")
         self.enabled = self.config["enabled"]
         if self.enabled and training is not True:
@@ -30,9 +30,9 @@ class UnifiedTrainingAugmentation:
         if self.enabled:
             from humanwam.augmentation import SampleKey, UnifiedAugmentation
 
-            if UnifiedAugmentation.profile != UNIFIED_SCHEMA:
+            self._engine = UnifiedAugmentation(seed=self.config["seed"], profile=self.config["schema"])
+            if self._engine.profile != self.config["schema"]:
                 raise ValueError("The installed shared augmentation engine has a different profile")
-            self._engine = UnifiedAugmentation(seed=self.config["seed"])
             self._sample_class = SampleKey
             self._epoch.share_memory_()
 

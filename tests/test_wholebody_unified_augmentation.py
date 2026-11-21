@@ -14,6 +14,7 @@ from test_wholebody_training_augmentation import synthetic_dataset
 from imagewam.augmentation_config import (
     SCHEMA,
     UNIFIED_SCHEMA,
+    UNIFIED_V2_SCHEMA,
     augmentation_sha256,
     default_augmentation,
     normalize_augmentation,
@@ -22,6 +23,7 @@ from imagewam.datasets.unified_augmentation import UnifiedTrainingAugmentation
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE = {"schema": UNIFIED_SCHEMA, "enabled": True, "seed": 42}
+PROFILE_V2 = {"schema": UNIFIED_V2_SCHEMA, "enabled": True, "seed": 42}
 
 
 class ScaledNormalizer:
@@ -35,22 +37,36 @@ class ScaledNormalizer:
         return result
 
 
-def test_profile_is_explicit_canonical_and_does_not_change_default():
+@pytest.mark.parametrize("version,canonical", [(1, PROFILE), (2, PROFILE_V2)])
+def test_profile_is_explicit_canonical_and_does_not_change_default(version, canonical):
     from omegaconf import OmegaConf
 
-    profile = OmegaConf.load(ROOT / "configs/wholebody/augmentation_unified_v1.yaml")
-    assert normalize_augmentation(profile) == PROFILE
-    assert normalize_augmentation({"schema": UNIFIED_SCHEMA}) == PROFILE
+    profile = OmegaConf.load(ROOT / f"configs/wholebody/augmentation_unified_v{version}.yaml")
+    assert normalize_augmentation(profile) == canonical
+    assert normalize_augmentation({"schema": canonical["schema"]}) == canonical
     assert normalize_augmentation({}) == default_augmentation()
     assert default_augmentation()["schema"] == SCHEMA
     assert augmentation_sha256(PROFILE) != augmentation_sha256(default_augmentation())
     for extra in ({"visual": {}}, {"proprio": {}}, {"state_dropout": 0.1}, {"seed": True}):
         with pytest.raises(ValueError):
-            normalize_augmentation({**PROFILE, **extra})
+            normalize_augmentation({**canonical, **extra})
+
+
+def test_unified_v1_provenance_hash_is_not_reinterpreted_as_v2():
+    assert augmentation_sha256(PROFILE) == "7d8dc40ae425150cf6fe53a56fdeb27bdfa874fd0131b91a21ede7e49bdeb5ed"
+    assert augmentation_sha256({**PROFILE, "enabled": False}) == "678a9b0371bcfee19436d3e0106a7e798a53af6148a4507dcc9e7c16559b2916"
+    assert augmentation_sha256(PROFILE) != augmentation_sha256(PROFILE_V2)
+
+
+@pytest.mark.parametrize("schema", [[], {}, None])
+def test_non_string_schema_still_raises_value_error(schema):
+    with pytest.raises(ValueError, match="schema"):
+        normalize_augmentation({"schema": schema})
 
 
 @pytest.mark.parametrize("route", ["motion", "joint"])
-def test_both_routes_apply_one_complete_clip_and_raw_state_before_normalization(route, monkeypatch):
+@pytest.mark.parametrize("profile", [PROFILE, PROFILE_V2])
+def test_both_routes_apply_one_complete_clip_and_raw_state_before_normalization(route, profile, monkeypatch):
     import humanwam.augmentation as shared
 
     calls = []
@@ -58,8 +74,9 @@ def test_both_routes_apply_one_complete_clip_and_raw_state_before_normalization(
     class RecordingEngine:
         profile = UNIFIED_SCHEMA
 
-        def __init__(self, seed):
+        def __init__(self, seed, profile):
             assert seed == 42
+            self.profile = profile
 
         def apply_rgb(self, clip, *, sample, observation_mask):
             calls.append(("rgb", sample, observation_mask.clone(), clip.clone()))
@@ -74,7 +91,7 @@ def test_both_routes_apply_one_complete_clip_and_raw_state_before_normalization(
             return result
 
     monkeypatch.setattr(shared, "UnifiedAugmentation", RecordingEngine)
-    dataset = synthetic_dataset(route, PROFILE)
+    dataset = synthetic_dataset(route, profile)
     dataset.normalizer = ScaledNormalizer()
     original = copy.deepcopy(dataset.episodes)
     baseline = synthetic_dataset(route, None)
@@ -102,8 +119,10 @@ def test_both_routes_apply_one_complete_clip_and_raw_state_before_normalization(
 
 
 @pytest.mark.parametrize("route", ["motion", "joint"])
-def test_real_engine_is_keyed_by_sample_epoch_not_iteration_order_and_keeps_labels_clean(route):
-    dataset = synthetic_dataset(route, PROFILE)
+@pytest.mark.parametrize("profile", [PROFILE, PROFILE_V2])
+def test_real_engine_is_keyed_by_sample_epoch_not_iteration_order_and_keeps_labels_clean(route, profile):
+    dataset = synthetic_dataset(route, profile)
+    assert dataset.augmentation._engine.profile == profile["schema"]
     baseline = synthetic_dataset(route, None)[42]
     first = dataset[42]
     dataset[18]
@@ -153,7 +172,8 @@ assert normalize_augmentation({'schema':'humanwam_unified_augmentation_v1'})['se
 from imagewam.datasets.wholebody import WholeBodyLeRobotDataset
 for config in (None, {'schema':'wholebody_training_augmentation_v2'},
                {'schema':'wholebody_training_augmentation_v3'},
-               {'schema':'humanwam_unified_augmentation_v1','enabled':False}):
+               {'schema':'humanwam_unified_augmentation_v1','enabled':False},
+               {'schema':'humanwam_unified_augmentation_v2','enabled':False}):
     dataset = object.__new__(WholeBodyLeRobotDataset)
     dataset._configure_augmentation(config, split='train')
 assert 'humanwam' not in sys.modules
@@ -173,17 +193,18 @@ def test_unified_profile_is_training_only_and_explicitly_disabled_is_noop():
     assert images.data_ptr() != actual.data_ptr() and not np.shares_memory(state, raw)
 
 
-def test_builder_and_training_contract_accept_unified_without_state_gate(tmp_path):
+@pytest.mark.parametrize("version,canonical", [(1, PROFILE), (2, PROFILE_V2)])
+def test_builder_and_training_contract_accept_unified_without_state_gate(tmp_path, version, canonical):
     from test_wholebody_training_cli import builder, fixture_config, trainer
 
-    args = type("Args", (), {"augmentation_config": ROOT / "configs/wholebody/augmentation_unified_v1.yaml",
+    args = type("Args", (), {"augmentation_config": ROOT / f"configs/wholebody/augmentation_unified_v{version}.yaml",
                              "no_augmentation": False})()
-    canonical, digest, source = builder.resolve_training_augmentation(args)
-    assert canonical == PROFILE and source.endswith("augmentation_unified_v1.yaml")
+    actual, digest, source = builder.resolve_training_augmentation(args)
+    assert actual == canonical and source.endswith(f"augmentation_unified_v{version}.yaml")
     cfg = fixture_config(tmp_path)
     cfg["data"]["train"]["augmentation"] = canonical
     cfg["wholebody_contract"].update(training_augmentation=canonical, training_augmentation_sha256=digest)
-    assert trainer.training_augmentation_contract(cfg)["config"] == PROFILE
+    assert trainer.training_augmentation_contract(cfg)["config"] == canonical
 
 
 def test_legacy_and_disabled_paths_do_not_import_the_shared_package():
@@ -195,9 +216,10 @@ class RejectShared(importlib.abc.MetaPathFinder):
             raise AssertionError('Shared dependency imported outside opt-in: ' + fullname)
         return None
 sys.meta_path.insert(0, RejectShared())
-from imagewam.augmentation_config import default_augmentation, UNIFIED_SCHEMA
+from imagewam.augmentation_config import default_augmentation, UNIFIED_SCHEMA, UNIFIED_V2_SCHEMA
 from imagewam.datasets.wholebody import WholeBodyLeRobotDataset
-for profile in (None, default_augmentation(), {'schema': UNIFIED_SCHEMA, 'enabled': False}):
+for profile in (None, default_augmentation(), {'schema': UNIFIED_SCHEMA, 'enabled': False},
+                {'schema': UNIFIED_V2_SCHEMA, 'enabled': False}):
     dataset = object.__new__(WholeBodyLeRobotDataset)
     dataset._configure_augmentation(profile, split='train')
 assert not any(k == 'humanwam' or k.startswith('humanwam.') for k in sys.modules)
@@ -207,8 +229,8 @@ assert not any(k == 'humanwam' or k.startswith('humanwam.') for k in sys.modules
 
 
 class UnifiedWorkerProbe(torch.utils.data.Dataset):
-    def __init__(self):
-        self.augmentation = UnifiedTrainingAugmentation(PROFILE)
+    def __init__(self, profile):
+        self.augmentation = UnifiedTrainingAugmentation(profile)
 
     def __len__(self):
         return 2
@@ -221,12 +243,13 @@ class UnifiedWorkerProbe(torch.utils.data.Dataset):
         return torch.from_numpy(raw)
 
 
-def test_sample_identity_survives_worker_count_and_epoch_reaches_persistent_workers():
-    local = UnifiedWorkerProbe()
+@pytest.mark.parametrize("profile", [PROFILE, PROFILE_V2])
+def test_sample_identity_survives_worker_count_and_epoch_reaches_persistent_workers(profile):
+    local = UnifiedWorkerProbe(profile)
     expected0 = torch.stack([local[i] for i in range(2)])
     local.augmentation.set_epoch(1)
     expected1 = torch.stack([local[i] for i in range(2)])
-    worker_dataset = UnifiedWorkerProbe()
+    worker_dataset = UnifiedWorkerProbe(profile)
     loader = torch.utils.data.DataLoader(worker_dataset, batch_size=2, num_workers=1,
                                         persistent_workers=True)
     try:

@@ -14,6 +14,11 @@ from numbers import Integral
 
 import numpy as np
 
+UNIFIED_V1 = "humanwam_unified_augmentation_v1"
+UNIFIED_V2 = "humanwam_unified_augmentation_v2"
+_CLEAN_IMAGE_PROBABILITIES = {UNIFIED_V1: 0.20, UNIFIED_V2: 0.05}
+_HB_PROFILES = {"unified": UNIFIED_V2, "unified_v2": UNIFIED_V2, "unified_v1": UNIFIED_V1}
+
 
 @dataclass(frozen=True)
 class SampleKey:
@@ -32,12 +37,22 @@ class SampleKey:
 class UnifiedAugmentation:
     """Replayable, opt-in HumanWAM visual and raw proprioception recipe."""
 
-    profile = "humanwam_unified_augmentation_v1"
+    profile = UNIFIED_V2
 
-    def __init__(self, seed=42):
+    def __init__(self, seed=42, *, profile=UNIFIED_V2):
         if isinstance(seed, bool) or not isinstance(seed, Integral) or seed < 0:
             raise ValueError("Augmentation seed must be a nonnegative integer")
+        if not isinstance(profile, str) or profile not in _CLEAN_IMAGE_PROBABILITIES:
+            raise ValueError(f"Unknown unified augmentation profile: {profile!r}")
         self.seed = int(seed)
+        self.profile = profile
+
+    @classmethod
+    def from_hb_profile(cls, profile, *, seed=42):
+        """Resolve the HB launcher alias to a specific shared recipe."""
+        if not isinstance(profile, str) or profile not in _HB_PROFILES:
+            raise ValueError(f"Unknown HB_AUG_PROFILE: {profile!r}; choose unified_v1 or unified_v2")
+        return cls(seed=seed, profile=_HB_PROFILES[profile])
 
     def _rng(self, sample, stream, index=0):
         if not isinstance(sample, SampleKey):
@@ -51,7 +66,7 @@ class UnifiedAugmentation:
         if isinstance(cameras, bool) or not isinstance(cameras, Integral) or cameras < 1:
             raise ValueError("cameras must be a positive integer")
         rng = self._rng(sample, 0)
-        if rng.random() < 0.20:
+        if rng.random() < _CLEAN_IMAGE_PROBABILITIES[self.profile]:
             return None
         strong = rng.choice(("affine", "overexposure", "noise", "jpeg")) if rng.random() < 0.15 else None
         parameters = {
