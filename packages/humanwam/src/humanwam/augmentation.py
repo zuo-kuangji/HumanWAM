@@ -19,7 +19,7 @@ UNIFIED_V2 = "humanwam_unified_augmentation_v2"
 UNIFIED_V3 = "humanwam_unified_augmentation_v3"
 _CLEAN_IMAGE_PROBABILITIES = {UNIFIED_V1: 0.20, UNIFIED_V2: 0.05, UNIFIED_V3: 0.05}
 _HB_PROFILES = {
-    "unified": UNIFIED_V3, "unified_v3": UNIFIED_V3, "unified_v2": UNIFIED_V2, "unified_v1": UNIFIED_V1,
+    "unified": UNIFIED_V2, "unified_v3": UNIFIED_V3, "unified_v2": UNIFIED_V2, "unified_v1": UNIFIED_V1,
 }
 _GROUP_OPERATIONS = {
     "color": ("exposure_ev", "contrast", "saturation", "hue", "gamma", "temperature"),
@@ -55,9 +55,9 @@ class SampleKey:
 class UnifiedAugmentation:
     """Replayable, opt-in HumanWAM visual and raw proprioception recipe."""
 
-    profile = UNIFIED_V3
+    profile = UNIFIED_V2
 
-    def __init__(self, seed=42, *, profile=UNIFIED_V3):
+    def __init__(self, seed=42, *, profile=UNIFIED_V2):
         if isinstance(seed, bool) or not isinstance(seed, Integral) or seed < 0:
             raise ValueError("Augmentation seed must be a nonnegative integer")
         if not isinstance(profile, str) or profile not in _CLEAN_IMAGE_PROBABILITIES:

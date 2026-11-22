@@ -25,9 +25,9 @@ unchanged. Structure mirrors src/psi/config/train/finetune_sonic_psi0_config.py;
       jointly to all cameras of the sample at the model input resolution (after the native
       resize + center crop), then the native Qwen3-VL input builder runs unchanged.
 
-HB_AUG_PROFILE=unified (or unified_v3) selects the current shared recipe;
-unified_v2 retains the preceding 5% clean-image recipe;
-unified_v1 retains the earlier 20% recipe. These replace HB v2 with the shared
+HB_AUG_PROFILE=unified (or unified_v2) selects shared v2 with 5% clean images.
+unified_v1 retains the earlier 20% recipe; unified_v3 is an explicit experimental
+alternative. These replace HB v2 with the shared
 HumanWAM recipe. It uses real LeRobot episode/frame IDs and the existing shared
 training epoch; the legacy random state delay is disabled in this profile.
 """

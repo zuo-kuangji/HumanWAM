@@ -46,8 +46,8 @@ def test_matched_plans_share_inputs_training_budget_and_seed_without_writes(inpu
     left = runs["hb_v2"]["ranks"][0]
     right = runs["unified"]["ranks"][0]
     assert left["env"]["HB_AUG_PROFILE"] == "hb_v2"
-    assert right["env"]["HB_AUG_PROFILE"] == "unified_v3"
-    assert runs["unified"]["augmentation_profile"] == "humanwam_unified_augmentation_v3"
+    assert right["env"]["HB_AUG_PROFILE"] == "unified_v2"
+    assert runs["unified"]["augmentation_profile"] == "humanwam_unified_augmentation_v2"
     assert runs["hb_v2"]["augmentation_profile"] == "hb-aug-v2-20261109"
     assert left["env"]["HB_INLOOP_EVERY"] == right["env"]["HB_INLOOP_EVERY"] == "0"
     assert all(left["env"][name] == right["env"][name] == "" for name in ("HB_MODEL_YAML", "HB_COMPOSE_ONLY", "HB_DATA_SAMPLE"))
@@ -84,6 +84,31 @@ def test_plan_requires_passed_batch_benchmark(inputs):
     inputs["chosen"].with_name("fastwam.ok").unlink()
     with pytest.raises(ValueError, match="benchmark"):
         MODULE.build_comparison_plan(**inputs)
+
+
+@pytest.mark.parametrize("selector", ["unified_v1", "unified_v2", "unified_v3"])
+def test_explicit_shared_version_preserves_output_names_and_records_the_resolved_version(inputs, selector):
+    plan = MODULE.build_comparison_plan(**inputs, unified_profile=selector)
+    assert set(plan["runs"]) == {"hb_v2", "unified"}
+    unified = plan["runs"]["unified"]
+    assert unified["output_dir"] == str(inputs["output_root"] / "unified")
+    assert unified["augmentation_profile"] == "humanwam_unified_augmentation_" + selector.split("_")[-1]
+    assert all(rank["env"]["HB_AUG_PROFILE"] == selector for rank in unified["ranks"])
+    assert plan["runs"]["hb_v2"]["augmentation_profile"] == "hb-aug-v2-20261109"
+    with pytest.raises(ValueError, match="explicitly select"):
+        MODULE.build_comparison_plan(**inputs, unified_profile="unified")
+
+
+def test_cli_v3_is_an_explicit_opt_in(inputs, capsys):
+    args = []
+    for key, value in inputs.items():
+        args += ["--" + key.replace("_", "-"), str(value)]
+    assert MODULE.main(args) == 0
+    default = json.loads(capsys.readouterr().out)
+    assert default["runs"]["unified"]["augmentation_profile"] == "humanwam_unified_augmentation_v2"
+    assert MODULE.main([*args, "--unified-profile", "unified_v3"]) == 0
+    explicit = json.loads(capsys.readouterr().out)
+    assert explicit["runs"]["unified"]["augmentation_profile"] == "humanwam_unified_augmentation_v3"
 
 
 def test_plan_keeps_virtualenv_python_symlink(inputs, tmp_path):

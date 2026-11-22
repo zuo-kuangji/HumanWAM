@@ -11,6 +11,11 @@ DISTRIBUTED_ENV = (
     "RANK", "WORLD_SIZE", "LOCAL_RANK", "GROUP_RANK", "ROLE_RANK", "LOCAL_WORLD_SIZE",
     "MASTER_ADDR", "MASTER_PORT", "NPROC_PER_NODE", "WORLD_SIZE_WITH_STANDBY", "TORCHELASTIC_RUN_ID",
 )
+UNIFIED_VERSIONS = {
+    "unified_v1": "humanwam_unified_augmentation_v1",
+    "unified_v2": "humanwam_unified_augmentation_v2",
+    "unified_v3": "humanwam_unified_augmentation_v3",
+}
 
 
 def _positive(value, name):
@@ -21,7 +26,7 @@ def _positive(value, name):
 
 def build_comparison_plan(*, python, fastwam_source, data_root, action_init, model_cache,
                           text_cache, chosen, output_root, master_addr, machines=4,
-                          port=31300, steps=4000, seed=42):
+                          port=31300, steps=4000, seed=42, unified_profile="unified_v2"):
     """Read the B6 prepared interface/benchmark and return explicit per-rank argv.
 
     This function neither creates run directories nor contacts a cluster. A
@@ -29,6 +34,8 @@ def build_comparison_plan(*, python, fastwam_source, data_root, action_init, mod
     """
     _positive(machines, "machines")
     _positive(steps, "steps")
+    if not isinstance(unified_profile, str) or unified_profile not in UNIFIED_VERSIONS:
+        raise ValueError("unified_profile must explicitly select unified_v1, unified_v2 or unified_v3")
     if type(seed) is not int or seed < 0:
         raise ValueError("seed must be a nonnegative integer")
     if type(port) is not int or not 1 <= port <= 65525:
@@ -83,8 +90,8 @@ def build_comparison_plan(*, python, fastwam_source, data_root, action_init, mod
     ]
     runs = {}
     for offset, profile in enumerate(outputs):
-        selector = "unified_v3" if profile == "unified" else "hb_v2"
-        version = "humanwam_unified_augmentation_v3" if profile == "unified" else "hb-aug-v2-20261109"
+        selector = unified_profile if profile == "unified" else "hb_v2"
+        version = UNIFIED_VERSIONS[unified_profile] if profile == "unified" else "hb-aug-v2-20261109"
         environment = {
             "FASTWAM_SRC": str(paths["fastwam_source"]), "HB_FW_PROFILE": "g1", "HB_FW_JOINTS": "29",
             "HB_FW_AUG": "1", "HB_AUG_PROFILE": selector, "HB_AUG_SEED": str(seed),
@@ -127,6 +134,8 @@ def main(argv=None):
     parser.add_argument("--port", type=int, default=31300)
     parser.add_argument("--steps", type=int, default=4000)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--unified-profile", choices=sorted(UNIFIED_VERSIONS), default="unified_v2",
+                        help="Shared comparison recipe; v3 requires explicit opt-in")
     args = parser.parse_args(argv)
     print(json.dumps(build_comparison_plan(**vars(args)), indent=2))
     return 0

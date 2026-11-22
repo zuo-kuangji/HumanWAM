@@ -54,7 +54,7 @@ def profile_startup(relative):
 
 
 @pytest.mark.parametrize("relative", ["hb_training/hb_groot/hb_launch.py", "hb_training/hb_psi0/hb_psi0_config.py"])
-@pytest.mark.parametrize("profile,resolved", [("unified", "v3"), ("unified_v3", "v3"), ("unified_v2", "v2"), ("unified_v1", "v1")])
+@pytest.mark.parametrize("profile,resolved", [("unified", "v2"), ("unified_v3", "v3"), ("unified_v2", "v2"), ("unified_v1", "v1")])
 def test_actual_profile_startup_honors_seed_and_rejects_unknown_profile(relative, profile, resolved, monkeypatch, capsys):
     monkeypatch.setenv("HB_AUG_PROFILE", profile)
     monkeypatch.setenv("HB_AUG_SEED", "123")
@@ -111,13 +111,16 @@ def test_v3_native_dropout_preserves_every_explicit_cli_form(explicit, capsys):
     assert not capsys.readouterr().out
 
 
-@pytest.mark.parametrize("cli,overrides,expected", [
-    ([], {}, 0.05),
-    (["--state-dropout-prob=0.3"], {}, 0.3),
-    ([], {"state_dropout_prob": 0.0}, 0.0),
-    (["--state_dropout_prob", "0.3"], {"state_dropout_prob": 0.12}, 0.12),
+@pytest.mark.parametrize("profile,cli,overrides,expected", [
+    ("unified", [], {}, 0.2),
+    ("unified_v2", [], {}, 0.2),
+    ("unified_v1", [], {}, 0.2),
+    ("unified_v3", [], {}, 0.05),
+    ("unified_v3", ["--state-dropout-prob=0.3"], {}, 0.3),
+    ("unified_v3", [], {"state_dropout_prob": 0.0}, 0.0),
+    ("unified_v3", ["--state_dropout_prob", "0.3"], {"state_dropout_prob": 0.12}, 0.12),
 ])
-def test_real_wrapper_entry_and_variant_forward_one_native_parameter(cli, overrides, expected, monkeypatch):
+def test_real_wrapper_entry_and_variant_forward_one_native_parameter(profile, cli, overrides, expected, monkeypatch):
     """Run the actual wrapper entry and native config forwarding statements."""
     native_launch = ROOT / "third_party/Isaac-GR00T/gr00t/experiment/launch_finetune.py"
     native_setup = ROOT / "third_party/Isaac-GR00T/gr00t/model/gr00t_n1d7/setup.py"
@@ -159,7 +162,7 @@ def test_real_wrapper_entry_and_variant_forward_one_native_parameter(cli, overri
     monkeypatch.setenv("HB_GROOT_MODEL_OVERRIDES", json.dumps(overrides))
     monkeypatch.setattr(sys, "argv", ["hb_launch.py", *cli])
     namespace = {"os": os, "sys": sys, "Path": Path, "runpy": SimpleNamespace(run_path=run_native),
-                 "_UNIFIED": True, "_shared_aug": SimpleNamespace(profile="humanwam_unified_augmentation_v3"),
+                 "_UNIFIED": True, "_shared_aug": UnifiedAugmentation.from_hb_profile(profile),
                  "_training_argv": training_argv(), "torch": torch}
     exec(compile(ast.Module(body=[entry], type_ignores=[]), "hb_launch.py", "exec"), namespace)
     assert forwarded and all(value == expected for value in forwarded)

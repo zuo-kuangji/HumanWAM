@@ -214,7 +214,7 @@ def test_native_resume_epoch_indices_survive_accelerate_rank_sharding(native):
 
 
 @pytest.mark.parametrize("selector,version", [
-    ("unified", "humanwam_unified_augmentation_v3"),
+    ("unified", "humanwam_unified_augmentation_v2"),
     ("unified_v3", "humanwam_unified_augmentation_v3"),
     ("unified_v2", "humanwam_unified_augmentation_v2"),
     ("unified_v1", "humanwam_unified_augmentation_v1"),
