@@ -1354,6 +1354,14 @@ def collect_fastwam_c6c(task):
 
 COLLECT.update(fastwam=collect_fastwam_c6c)
 
+# 2026-11-22 user: H2 aligned with every other task. GR00T a18cr2 / a17cr2 on the standard recipe (h32 dropped) and Psi-Zero
+# a14cr3 again without the proprio delay (task key a14cr3a, same data); new sub-dirs, nothing existing is overwritten.
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF, H2DATA, H2REF, H2ACTION):
+    if "a14cr3" in _d:
+        _d.setdefault("a14cr3a", _d["a14cr3"])
+SUBDIR.update({("groot2x32", "a18cr2"): "b512-2cam-cropped-v2", ("groot2x32", "a17cr2"): "b512-2cam-cropped-v2",
+               ("psi0", "a14cr3a"): "cropped-v3-b512-nodelay"})
+
 
 def main():
     lock = open(A / "daemon.lock", "w")
