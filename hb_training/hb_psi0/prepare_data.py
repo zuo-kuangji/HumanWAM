@@ -72,7 +72,12 @@ TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "a17": (P / "a17-unscrew-bottle-v1-407e6e2/data", None, "h2"),  # HF a17-unscrew-bottle-expert-v1 @407e6e2
     "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None, "h2"),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2)
     "a14v2": (P / "a14-unscrew-bulb-v2-8411a6d/data", None, "h2p"),  # HF a14-unscrew-bulb-expert-v2 @8411a6da (+ planner)
-    "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None, "h2p"),  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed v2, + planner; user 2026-11-20)
+    "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None, "h2p"),  # see next lines
+    "b7t": (P / "b7-black-clothes-hamper-trim-949da46/data", 100, "g1"),  # HF b7-black-clothes-hamper @949da46 trimmed, first 100 of 107 (user 2026-11-22)
+    "b7gt": (P / "b7-green-clothes-hamper-v2trim-22e3b83/data", None, "g1"),  # HF b7-green-clothes-hamper @22e3b83 trimmed v2, all 421 (user 2026-11-22)
+    "b5ss": (P / "b5-chair-push-standing-start-v1-913f5a1/data", None, "g1"),  # HF b5-chair-push-standing-start-expert-v1 @913f5a1 (user 2026-11-22)
+    "a18cr2": (P / "a18-pour-water-cropped-v2-44cdd57/data", None, "h2"),  # HF a18-pour-water-expert-cropped-v2 @44cdd57, head + chest (user 2026-11-22)
+    "a17cr2": (P / "a17-unscrew-bottle-cropped-v2-3520b70/data", None, "h2"),  # HF a17-unscrew-bottle-expert-cropped-v2 @3520b70, head + chest (user 2026-11-22)  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed v2, + planner; user 2026-11-20)
 }
 BODY = ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint",
         "left_ankle_roll_joint", "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",

@@ -170,6 +170,12 @@ cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/pre
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_cont_a17cr2.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_cont_a14cr3.sh
 # 2026-11-22: Delta Flow b8 re-run (stopped at item 113 for the FastWAM continuations; resumes from its newest saved state)
+# 2026-11-22 user: FastWAM C6 continuation (+4000 from 8000), then GR00T / Psi-Zero on the newest data missing on HF
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_fastwam/fastwam_cont4k_c6.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_groot/groot_pair_b7t_b7gt.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_groot/gp_mix_b5ss.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_pair_b7t_b7gt.sh
+cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_b512/psi0_pair_h2cr2.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_b8.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_a17cr2lg.sh
 cmd /mnt/nas/cross/Team/RobotAgent/Personal/baijiaqi/humanoid-benchmark-work/preflight-20261104T1648Z/policies-20261109/hb_deltaflow/deltaflow_basketv2.sh

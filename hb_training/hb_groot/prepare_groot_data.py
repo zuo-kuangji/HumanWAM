@@ -48,6 +48,9 @@ TASKS = {
     "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2, 3 cameras)
     "a14v2": (P / "a14-unscrew-bulb-v2-8411a6d/data", None),  # HF a14-unscrew-bulb-expert-v2 @8411a6da: + action.planner (H2 guide 2026-11-14)
     "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None),  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed from v2 @8411a6d; user 2026-11-20: newest A14)
+    "b7t": (P / "b7-black-clothes-hamper-trim-949da46/data", 100),  # HF b7-black-clothes-hamper @949da46 trimmed, first 100 of 107 as FastWAM / DF / pi0.5 (user 2026-11-22)
+    "b7gt": (P / "b7-green-clothes-hamper-v2trim-22e3b83/data", None),  # HF b7-green-clothes-hamper @22e3b83 trimmed v2, all 421 (user 2026-11-22)
+    "b5ss": (P / "b5-chair-push-standing-start-v1-913f5a1/data", None),  # HF b5-chair-push-standing-start-expert-v1 @913f5a1, all 100 (user 2026-11-22)
 }
 CONFIG = {"a18": "h2w3_body31_hand44_h16.py", "a17": "h2w3_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py",
           "a18c2": "h2_body31_hand44_h16.py", "a17c2": "h2_body31_hand44_h16.py",

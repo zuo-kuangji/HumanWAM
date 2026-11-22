@@ -1320,6 +1320,40 @@ def collect_fastwam(task):
 
 COLLECT.update(fastwam=collect_fastwam)
 
+# 2026-11-22 user: GR00T / Psi-Zero on the newest data still missing on HF (never over the existing b512/ dirs)
+SUBDIR.update({("groot2x32", "b7t"): "b512-trim", ("groot2x32", "b7gt"): "b512-trimv2", ("groot2x32", "b5ss"): "b512",
+               ("psi0", "b7t"): "b512-trim", ("psi0", "b7gt"): "b512-trimv2", ("psi0", "b5ss"): "b512",
+               ("psi0", "a18cr2"): "b512-2cam-cropped-v2", ("psi0", "a17cr2"): "b512-2cam-cropped-v2"})
+# 2026-11-22 user: FastWAM C6 continuation, 4000 more steps from step 8000 (C6 long-task 2x rule) -> fastwam/<c6>/b512-cont4k/
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    if "c6" in _d:
+        _d.setdefault("c6-cont4k", _d["c6"])
+SUBDIR[("fastwam", "c6-cont4k")] = "b512-cont4k"
+FW_TASKS = FW_TASKS + ("c6-cont4k",)
+_collect_fastwam_before_c6c = COLLECT["fastwam"]
+
+
+def collect_fastwam_c6c(task):
+    if task != "c6-cont4k":
+        return _collect_fastwam_before_c6c(task)
+    c = _collect_fastwam_v1(task)
+    if c is None:
+        return c
+    for e in c["eps"]:
+        e["step"] += 8000
+        e["name"] = f"step-{e['step']:06d}"
+    c["proto"].update(total_steps=12000, save_steps=[e["step"] for e in c["eps"]], continuation_steps=4000,
+                      continued_from=f"fastwam/{TASKDIR['c6']}/{SUBDIR.get(('fastwam', 'c6'), 'b512')}/step-008000",
+                      continuation="weights only (DiT + proprio encoder loaded before DeepSpeed init, "
+                                   "code/hb_fastwam_cont.py): fresh AdamW, warmup 5 % to peak lr 3e-5 (0.3 x the "
+                                   "original 1e-4), cosine to 1 % over 4000 steps (C6 long-task rule: 2 x the 2000-step "
+                                   "continuation of the other tasks); same data, normalization, augmentation and batch")
+    c["common"]["code/fastwam_cont4k.sh"] = G / "hb_fastwam" / "fastwam_cont4k.sh"
+    return c
+
+
+COLLECT.update(fastwam=collect_fastwam_c6c)
+
 
 def main():
     lock = open(A / "daemon.lock", "w")
