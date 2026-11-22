@@ -10,8 +10,9 @@ from humanwam.augmentation import UNIFIED_V1, UNIFIED_V2, UNIFIED_V3, SampleKey,
 def test_v2_only_changes_clean_rgb_gate_and_v1_remains_replayable():
     old = UnifiedAugmentation.from_hb_profile("unified_v1")
     new = UnifiedAugmentation.from_hb_profile("unified_v2")
+    alias = UnifiedAugmentation.from_hb_profile("unified")
     assert old.profile == UNIFIED_V1
-    assert new.profile == UNIFIED_V2
+    assert new.profile == alias.profile == UnifiedAugmentation().profile == UNIFIED_V2
     strong_kinds = ("affine", "overexposure", "noise", "jpeg")
     observed_strong = set()
     for frame in range(250):
@@ -20,6 +21,7 @@ def test_v2_only_changes_clean_rgb_gate_and_v1_remains_replayable():
         draw = draws.random()
         previous = old.sample_rgb(key, cameras=2)
         current = new.sample_rgb(key, cameras=2)
+        assert alias.sample_rgb(key, cameras=2) == current
         assert (previous is None) == (draw < 0.20)
         assert (current is None) == (draw < 0.05)
         if previous is not None:
@@ -37,9 +39,8 @@ def test_v2_only_changes_clean_rgb_gate_and_v1_remains_replayable():
 
 
 def test_v3_counts_effects_and_preserves_the_strong_budget():
-    aug = UnifiedAugmentation.from_hb_profile("unified")
-    assert aug.profile == UnifiedAugmentation().profile == UNIFIED_V3
-    assert UnifiedAugmentation.from_hb_profile("unified_v3").profile == UNIFIED_V3
+    aug = UnifiedAugmentation.from_hb_profile("unified_v3")
+    assert aug.profile == UNIFIED_V3
     counts = Counter()
     strong_counts = Counter()
     light_geometry = []
@@ -111,9 +112,10 @@ def _key_with(augmentation, predicate):
     pytest.fail("Expected shared augmentation sampling branch was not reached")
 
 
-def test_shared_scene_transform_and_observation_only_sensor_noise():
+@pytest.mark.parametrize("profile", [UNIFIED_V2, UNIFIED_V3])
+def test_shared_scene_transform_and_observation_only_sensor_noise(profile):
     torch = _rgb_runtime()
-    aug = UnifiedAugmentation(seed=42)
+    aug = UnifiedAugmentation(seed=42, profile=profile)
     key = _key_with(aug, lambda p: p is not None and all(c["noise"] for c in p["cameras"]))
     frame = torch.rand((2, 3, 32, 48), generator=torch.Generator().manual_seed(19))
     clip = frame[None].repeat(4, 1, 1, 1, 1)
@@ -151,7 +153,7 @@ def test_clean_image_branch_and_strong_affine_keep_frame_pairing():
 
 def test_v3_sensor_only_sample_preserves_exact_future_and_no_color_or_warp():
     torch = _rgb_runtime()
-    aug = UnifiedAugmentation()
+    aug = UnifiedAugmentation(profile=UNIFIED_V3)
     sample = _key_with(aug, lambda p: p is not None and tuple(p["operations"]) == ("sensor",))
     clip = torch.rand((2, 2, 3, 16, 16), dtype=torch.float64, generator=torch.Generator().manual_seed(22))
     result = aug.apply_rgb(clip, sample=sample, observation_mask=[True, False])

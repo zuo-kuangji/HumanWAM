@@ -6,9 +6,10 @@ Patches Gr00tN1d7Processor in training mode only:
 - proprio: the body-joint state groups (HB_BODY_STATE_KEYS) get the v2 bias + noise before normalization.
 Then runs the pinned upstream gr00t/experiment/launch_finetune.py unchanged.
 
-HB_AUG_PROFILE=unified (or unified_v3) selects the current shared recipe;
-unified_v2 retains the preceding 5% clean-image recipe;
-unified_v1 explicitly retains its earlier 20% recipe. It uses
+HB_AUG_PROFILE=unified (or unified_v2) selects shared v2 with 5% clean images.
+unified_v1 retains its earlier 20% recipe; unified_v3 is an explicit experimental
+alternative and alone defaults native state_dropout_prob to 0.05 when no
+explicit override is provided. Shared augmentation uses
 loader episode IDs and row-step anchors with epoch=0; native sharded scheduling
 does not provide the trainer's epoch at this processor boundary.
 """

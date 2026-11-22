@@ -2,16 +2,23 @@
 
 ## 跨模型统一配方
 
-新实验可以显式选择 [HumanWAM 统一配方 v3](../configs/wholebody/augmentation_unified_v3.yaml)。
+HB 的 `HB_AUG_PROFILE=unified` 使用 [HumanWAM 统一配方 v2](../configs/wholebody/augmentation_unified_v2.yaml)，
+也可以用 `HB_AUG_PROFILE=unified_v2 HB_AUG_SEED=42` 锁定版本。
 标准 ImageWAM motion76 和 joint47 可在生成训练配置时加
-`--augmentation-config configs/wholebody/augmentation_unified_v3.yaml`。
+`--augmentation-config configs/wholebody/augmentation_unified_v2.yaml` 使用同一配方。
 在模型环境中先安装 `python -m pip install -e packages/humanwam`，并使用该模型已有的 PyTorch 和 torchvision。
-统一配方的标识为 `humanwam_unified_augmentation_v3`，和标准 ImageWAM v3 是不同的 profile。
-已有 ImageWAM v3 默认配置和历史 HB v2 的入口按各自配方运行。
-历史 checkpoint 续训沿用保存的配方。统一配方的早期版本可显式选择
-[`augmentation_unified_v1.yaml`](../configs/wholebody/augmentation_unified_v1.yaml)、
-[`augmentation_unified_v2.yaml`](../configs/wholebody/augmentation_unified_v2.yaml)，
-或对应的 `HB_AUG_PROFILE=unified_v1`、`HB_AUG_PROFILE=unified_v2`。
+HB 未指定 profile 时使用历史 HB v2，ImageWAM 未指定配置时使用标准 ImageWAM v3。
+历史 checkpoint 续训沿用保存的配方。`HB_AUG_PROFILE=unified_v1` 或
+[`augmentation_unified_v1.yaml`](../configs/wholebody/augmentation_unified_v1.yaml) 可复现早期配方。
+
+统一配方 v2 保留 5% 原图。进入增强后，样本使用共享光色和按相机抽取的轻几何，
+局部光照和观测退化按各自概率抽取。其中 15% 的样本随机获得一个较强项。
+
+## 统一配方 v3
+
+用 `HB_AUG_PROFILE=unified_v3` 或
+[`augmentation_unified_v3.yaml`](../configs/wholebody/augmentation_unified_v3.yaml) 显式选择。
+配置标识为 `humanwam_unified_augmentation_v3`。
 
 | 部分 | 统一配方的试跑设置 |
 |---|---|
@@ -28,16 +35,15 @@
 原始状态中的手部与重力、数据集统计、动作标签及历史动作保持原样。模型自己的 state dropout 独立配置。
 随机增强只用于训练。
 
-HB FastWAM、GR00T、Psi-Zero、ACT、Pi0.5 和 DiT4DiT 使用
-`HB_AUG_PROFILE=unified_v3 HB_AUG_SEED=42` 选择试跑方案，`unified` 是当前版本的别名。
-GR00T 的 v3 微调入口默认使用 `state_dropout_prob=0.05`，原生处理器与动作头各自使用这个概率。
+HB FastWAM、GR00T、Psi-Zero、ACT、Pi0.5 和 DiT4DiT 的已支持入口均可显式选择这些版本。
+GR00T 的统一配方 v3 微调入口默认使用 `state_dropout_prob=0.05`，原生处理器与动作头各自使用这个概率。
 实验可传入显式概率覆盖默认值。
 GR00T 的后处理器拿到 episode 与行号，epoch 固定为 0，因此同一帧在不同 epoch 重放同一扰动。
 独立 ODE 训练消费预先缓存的特征，继续使用原特征提取流程。接入统一视觉增强需在特征提取前处理图像，
 并为新增强重新生成对应缓存。
 
 [B6 FastWAM 对照流程](../hb_training/fastwam_tools/benchmark_policy/README.md)
-使用相同数据、初始化和训练预算比较 HB v2 与 unified，再在原始场景及 A–E 泛化场景分别统计闭环成功率。
+使用相同数据、初始化和训练预算比较 HB v2 与统一配方 v2，再在原始场景及 A–E 泛化场景分别统计闭环成功率。
 
 ## ImageWAM v3 配方
 
