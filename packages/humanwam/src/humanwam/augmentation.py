@@ -16,8 +16,26 @@ import numpy as np
 
 UNIFIED_V1 = "humanwam_unified_augmentation_v1"
 UNIFIED_V2 = "humanwam_unified_augmentation_v2"
-_CLEAN_IMAGE_PROBABILITIES = {UNIFIED_V1: 0.20, UNIFIED_V2: 0.05}
-_HB_PROFILES = {"unified": UNIFIED_V2, "unified_v2": UNIFIED_V2, "unified_v1": UNIFIED_V1}
+UNIFIED_V3 = "humanwam_unified_augmentation_v3"
+_CLEAN_IMAGE_PROBABILITIES = {UNIFIED_V1: 0.20, UNIFIED_V2: 0.05, UNIFIED_V3: 0.05}
+_HB_PROFILES = {
+    "unified": UNIFIED_V3, "unified_v3": UNIFIED_V3, "unified_v2": UNIFIED_V2, "unified_v1": UNIFIED_V1,
+}
+_GROUP_OPERATIONS = {
+    "color": ("exposure_ev", "contrast", "saturation", "hue", "gamma", "temperature"),
+    "geometry": ("affine",),
+    "local": ("shadows", "white_balance"),
+    "sensor": ("noise", "jpeg", "blur", "motion_blur", "sharpen", "defocus"),
+}
+_STRONG_GROUP = {"affine": "geometry", "overexposure": "color", "noise": "sensor", "jpeg": "sensor"}
+_COUNT_PROBABILITIES = (20 / 110, 60 / 110, 30 / 110)
+# Only a sample with two or more groups can spend one slot on a strong effect.
+_STRONG_IF_MULTI = 0.15 / sum(_COUNT_PROBABILITIES[1:])
+
+
+def _signed_triangular(rng, minimum, mode, maximum):
+    sign = -1 if rng.random() < 0.5 else 1
+    return float(sign * rng.triangular(minimum, mode, maximum))
 
 
 @dataclass(frozen=True)
@@ -37,9 +55,9 @@ class SampleKey:
 class UnifiedAugmentation:
     """Replayable, opt-in HumanWAM visual and raw proprioception recipe."""
 
-    profile = UNIFIED_V2
+    profile = UNIFIED_V3
 
-    def __init__(self, seed=42, *, profile=UNIFIED_V2):
+    def __init__(self, seed=42, *, profile=UNIFIED_V3):
         if isinstance(seed, bool) or not isinstance(seed, Integral) or seed < 0:
             raise ValueError("Augmentation seed must be a nonnegative integer")
         if not isinstance(profile, str) or profile not in _CLEAN_IMAGE_PROBABILITIES:
@@ -51,7 +69,7 @@ class UnifiedAugmentation:
     def from_hb_profile(cls, profile, *, seed=42):
         """Resolve the HB launcher alias to a specific shared recipe."""
         if not isinstance(profile, str) or profile not in _HB_PROFILES:
-            raise ValueError(f"Unknown HB_AUG_PROFILE: {profile!r}; choose unified_v1 or unified_v2")
+            raise ValueError(f"Unknown HB_AUG_PROFILE: {profile!r}; choose unified_v1, unified_v2 or unified_v3")
         return cls(seed=seed, profile=_HB_PROFILES[profile])
 
     def _rng(self, sample, stream, index=0):
@@ -68,6 +86,8 @@ class UnifiedAugmentation:
         rng = self._rng(sample, 0)
         if rng.random() < _CLEAN_IMAGE_PROBABILITIES[self.profile]:
             return None
+        if self.profile == UNIFIED_V3:
+            return self._sample_grouped_rgb(sample, rng, cameras)
         strong = rng.choice(("affine", "overexposure", "noise", "jpeg")) if rng.random() < 0.15 else None
         parameters = {
             "strong": strong,
@@ -116,21 +136,87 @@ class UnifiedAugmentation:
             })
         return parameters
 
+    def _sample_grouped_rgb(self, sample, rng, cameras):
+        count = int(rng.choice((1, 2, 3), p=_COUNT_PROBABILITIES))
+        strong = str(rng.choice(tuple(_STRONG_GROUP))) if count > 1 and rng.random() < _STRONG_IF_MULTI else None
+        operations = {_STRONG_GROUP[strong]: strong} if strong is not None else {}
+        available = [group for group in _GROUP_OPERATIONS if group not in operations]
+        for group in rng.choice(available, size=count - len(operations), replace=False):
+            operations[str(group)] = str(rng.choice(_GROUP_OPERATIONS[group]))
+
+        color = operations.get("color")
+        color_ranges = {
+            "exposure_ev": (-0.22, 0.22), "temperature": (-0.066, 0.066),
+            "contrast": (0.88, 1.12), "saturation": (0.76, 1.24),
+            "hue": (-0.015, 0.015), "gamma": (0.89, 1.11), "overexposure": (1.25, 1.8),
+        }
+        parameters = {
+            "strong": strong, "operations": operations, "cameras": [],
+            "exposure_ev": 0.0, "temperature": 0.0, "contrast": 1.0, "saturation": 1.0,
+            "hue": 0.0, "gamma": 1.0, "overexposure_gain": 1.0,
+        }
+        if color is not None:
+            key = "overexposure_gain" if color == "overexposure" else color
+            parameters[key] = rng.uniform(*color_ranges[color])
+        local = operations.get("local")
+        sensor = operations.get("sensor")
+        for camera in range(cameras):
+            view = self._rng(sample, 1, camera)
+            angle, scale, translation = 0.0, 1.0, (0.0, 0.0)
+            if strong == "affine":
+                angle = float(view.uniform(-3.0, 3.0))
+                scale = float(view.uniform(0.96, 1.04))
+                translation = tuple(view.uniform(-0.04, 0.04, size=2))
+            elif "geometry" in operations:
+                angle = _signed_triangular(view, 0.5, 1.0, 1.5)
+                translation = (
+                    _signed_triangular(view, 0.005, 0.015, 0.025),
+                    _signed_triangular(view, 0.005, 0.0175, 0.03),
+                )
+            shadows = []
+            if local == "shadows":
+                for _ in range(int(view.integers(1, 3))):
+                    cx, cy = view.uniform(0.1, 0.9, size=2)
+                    shadows.append((cx, cy, view.uniform(0.15, 0.35), view.uniform(0.70, 1.30)))
+            gains = [1.0, 1.0, 1.0]
+            if local == "white_balance":
+                gains[int(view.integers(3))] = view.uniform(0.9, 1.1)
+            sensor_rng = self._rng(sample, 2, camera)
+            jpeg = (50, 81) if strong == "jpeg" else (70, 96)
+            parameters["cameras"].append({
+                "angle": angle, "scale": scale, "translation": translation, "shadows": shadows, "gains": gains,
+                "blur": sensor_rng.uniform(0.25, 0.65) if sensor == "blur" else 0.0,
+                "motion_blur": (sensor_rng.uniform(3, 7), sensor_rng.uniform(0, math.pi))
+                    if sensor == "motion_blur" else None,
+                "sharpen": sensor_rng.uniform(0.2, 0.6) if sensor == "sharpen" else 0.0,
+                "defocus": sensor_rng.uniform(1, 2) if sensor == "defocus" else 0.0,
+                "noise": (8 if strong == "noise" else 4) / 255 if sensor == "noise" else 0.0,
+                "jpeg": int(sensor_rng.integers(*jpeg)) if sensor == "jpeg" else None,
+            })
+        return parameters
+
     @staticmethod
     def _scene(images, scene, view):
         import torch
         import torch.nn.functional as F
         from torchvision.transforms import functional as TF
 
+        operations = scene.get("operations")
+        legacy = operations is None
+        color = None if legacy else operations.get("color")
         height, width = images.shape[-2:]
-        theta = math.radians(view["angle"])
-        cos, sin = math.cos(theta) / view["scale"], math.sin(theta) / view["scale"]
-        tx, ty = view["translation"]
-        affine = images.new_tensor([
-            [cos, -sin * height / width, 2 * tx], [sin * width / height, cos, 2 * ty],
-        ])
-        grid = F.affine_grid(affine[None].expand(len(images), -1, -1), images.shape, align_corners=False)
-        images = F.grid_sample(images, grid, mode="bilinear", padding_mode="border", align_corners=False)
+        if legacy or "geometry" in operations:
+            theta = math.radians(view["angle"] if legacy else -view["angle"])
+            cos, sin = math.cos(theta) / view["scale"], math.sin(theta) / view["scale"]
+            xy, yx = -sin * height / width, sin * width / height
+            tx, ty = view["translation"]
+            if not legacy:
+                # V3 parameters describe visible movement. Grid sampling needs
+                # its inverse, including the translation in rotated coordinates.
+                tx, ty = -(cos * tx + xy * ty), -(yx * tx + cos * ty)
+            affine = images.new_tensor([[cos, xy, 2 * tx], [yx, cos, 2 * ty]])
+            grid = F.affine_grid(affine[None].expand(len(images), -1, -1), images.shape, align_corners=False)
+            images = F.grid_sample(images, grid, mode="bilinear", padding_mode="border", align_corners=False)
         if view["shadows"]:
             y = torch.linspace(0, 1, height, dtype=images.dtype)[:, None]
             x = torch.linspace(0, 1, width, dtype=images.dtype)[None, :]
@@ -138,13 +224,21 @@ class UnifiedAugmentation:
             for cx, cy, size, gain in view["shadows"]:
                 light += (gain - 1) * torch.exp(-((x - cx).square() + (y - cy).square()) / (2 * size**2))
             images = (images * light.clamp_min(0)).clamp(0, 1)
-        temp = scene["temperature"]
-        gains = images.new_tensor(view["gains"]) * images.new_tensor([1 + temp, 1, 1 - temp])
-        images = (images * gains[None, :, None, None] * (2 ** scene["exposure_ev"])).clamp(0, 1)
-        images = ((images - 0.5) * scene["contrast"] + 0.5).clamp(0, 1)
-        images = TF.adjust_saturation(images, scene["saturation"])
-        images = TF.adjust_hue(images, scene["hue"]).clamp(0, 1).pow(scene["gamma"])
-        return (images * scene["overexposure_gain"]).clamp(0, 1)
+        if legacy or color in ("exposure_ev", "temperature") or operations.get("local") == "white_balance":
+            temp = scene["temperature"]
+            gains = images.new_tensor(view["gains"]) * images.new_tensor([1 + temp, 1, 1 - temp])
+            images = (images * gains[None, :, None, None] * (2 ** scene["exposure_ev"])).clamp(0, 1)
+        if legacy or color == "contrast":
+            images = ((images - 0.5) * scene["contrast"] + 0.5).clamp(0, 1)
+        if legacy or color == "saturation":
+            images = TF.adjust_saturation(images, scene["saturation"])
+        if legacy or color == "hue":
+            images = TF.adjust_hue(images, scene["hue"]).clamp(0, 1)
+        if legacy or color == "gamma":
+            images = images.pow(scene["gamma"])
+        if legacy or color == "overexposure":
+            images = (images * scene["overexposure_gain"]).clamp(0, 1)
+        return images
 
     @staticmethod
     def _filter(images, kernel):
@@ -218,11 +312,15 @@ class UnifiedAugmentation:
         scene = self.sample_rgb(sample, cameras=clip.shape[1])
         if scene is None:
             return clip.clone()
+        operations = scene.get("operations")
+        sensor_only = operations is not None and operations.keys() == {"sensor"}
+        use_sensor = bool(mask.any()) and (operations is None or "sensor" in operations)
         views = []
         for camera, parameters in enumerate(scene["cameras"]):
-            images = self._scene(clip[:, camera].float(), scene, parameters)
-            if bool(mask.any()):
-                images[mask] = self._sensor(images[mask], parameters, sample, camera)
+            view = clip[:, camera]
+            images = view.clone() if sensor_only else self._scene(view.float(), scene, parameters)
+            if use_sensor:
+                images[mask] = self._sensor(images[mask].float(), parameters, sample, camera).to(images.dtype)
             views.append(images)
         return torch.stack(views, dim=1).to(clip.dtype)
 

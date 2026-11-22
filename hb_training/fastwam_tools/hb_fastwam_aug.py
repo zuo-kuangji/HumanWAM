@@ -6,8 +6,8 @@
   hands and gravity untouched; supervision labels untouched. Normalization statistics are computed on the raw data.
 FastWAM's own image augmentation is only a resize (no colour jitter / crop), so nothing native is stacked.
 Installed in the main process before the dataloaders fork; HB_FW_JOINTS sets the number of perturbed joints.
-HB_AUG_PROFILE=unified (or unified_v2) explicitly selects the shared v2 recipe (5% clean RGB).
-unified_v1 preserves the earlier 20% clean recipe. Its identity is the real
+HB_AUG_PROFILE=unified (or unified_v3) explicitly selects the shared v3 recipe.
+unified_v1 and unified_v2 preserve the earlier recipes. Its identity is the real
 episode/frame plus the sampler's resumed epoch, carried with each index through worker prefetch.
 The legacy default remains hb_v2."""
 import importlib
@@ -48,8 +48,8 @@ def _identity(data, SampleKey):
 
 def install(profile=None, seed=None):
     profile = profile or os.environ.get("HB_AUG_PROFILE", "hb_v2")
-    if profile not in {"hb_v2", "unified", "unified_v1", "unified_v2"}:
-        raise ValueError("HB_AUG_PROFILE must be hb_v2, unified, unified_v1 or unified_v2")
+    if profile not in {"hb_v2", "unified", "unified_v1", "unified_v2", "unified_v3"}:
+        raise ValueError("HB_AUG_PROFILE must be hb_v2, unified, unified_v1, unified_v2 or unified_v3")
     from fastwam.datasets.lerobot.base_lerobot_dataset import BaseLerobotDataset
     from fastwam.datasets.lerobot.processors.fastwam_processor import FastWAMProcessor
 

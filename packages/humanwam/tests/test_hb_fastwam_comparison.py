@@ -46,8 +46,8 @@ def test_matched_plans_share_inputs_training_budget_and_seed_without_writes(inpu
     left = runs["hb_v2"]["ranks"][0]
     right = runs["unified"]["ranks"][0]
     assert left["env"]["HB_AUG_PROFILE"] == "hb_v2"
-    assert right["env"]["HB_AUG_PROFILE"] == "unified_v2"
-    assert runs["unified"]["augmentation_profile"] == "humanwam_unified_augmentation_v2"
+    assert right["env"]["HB_AUG_PROFILE"] == "unified_v3"
+    assert runs["unified"]["augmentation_profile"] == "humanwam_unified_augmentation_v3"
     assert runs["hb_v2"]["augmentation_profile"] == "hb-aug-v2-20261109"
     assert left["env"]["HB_INLOOP_EVERY"] == right["env"]["HB_INLOOP_EVERY"] == "0"
     assert all(left["env"][name] == right["env"][name] == "" for name in ("HB_MODEL_YAML", "HB_COMPOSE_ONLY", "HB_DATA_SAMPLE"))

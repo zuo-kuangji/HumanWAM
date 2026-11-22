@@ -6,8 +6,8 @@ side, min/max statistics, absolute labels, action scheduler shift 1.0, original 
 Arguments: key=value Hydra overrides (JSON values parsed). Env: FASTWAM_SRC, DIFFSYNTH_MODEL_BASE_PATH, HB_AUG_DIR.
 HB_MODEL_YAML=<path> writes the resolved model config; HB_COMPOSE_ONLY=1 prints the config; HB_DATA_SAMPLE=1 reads one
 augmented training sample on CPU; HB_FW_AUG=0 disables the augmentation (benchmark only).
-HB_AUG_PROFILE=unified or unified_v2 opts into the shared 5%-clean HumanWAM implementation
-(default hb_v2); unified_v1 preserves the earlier 20%-clean implementation.
+HB_AUG_PROFILE=unified or unified_v3 opts into the shared HumanWAM v3 implementation
+(default hb_v2); unified_v1 and unified_v2 preserve the earlier implementations.
 HB_AUG_SEED=42 seeds its stable dataset episode/frame/epoch identity. CLI equivalents are
 hb_aug_profile=unified hb_aug_seed=42; they are consumed here, not passed to native Hydra."""
 import json
@@ -65,8 +65,8 @@ def parse(argv):
         except ValueError:
             value = v
         if k == "hb_aug_profile":
-            if not isinstance(value, str) or value not in {"hb_v2", "unified", "unified_v1", "unified_v2"}:
-                raise ValueError("hb_aug_profile must be hb_v2, unified, unified_v1 or unified_v2")
+            if not isinstance(value, str) or value not in {"hb_v2", "unified", "unified_v1", "unified_v2", "unified_v3"}:
+                raise ValueError("hb_aug_profile must be hb_v2, unified, unified_v1, unified_v2 or unified_v3")
             os.environ["HB_AUG_PROFILE"] = value
         elif k == "hb_aug_seed":
             if type(value) is not int or value < 0:

@@ -83,8 +83,8 @@ def build_comparison_plan(*, python, fastwam_source, data_root, action_init, mod
     ]
     runs = {}
     for offset, profile in enumerate(outputs):
-        selector = "unified_v2" if profile == "unified" else "hb_v2"
-        version = "humanwam_unified_augmentation_v2" if profile == "unified" else "hb-aug-v2-20261109"
+        selector = "unified_v3" if profile == "unified" else "hb_v2"
+        version = "humanwam_unified_augmentation_v3" if profile == "unified" else "hb-aug-v2-20261109"
         environment = {
             "FASTWAM_SRC": str(paths["fastwam_source"]), "HB_FW_PROFILE": "g1", "HB_FW_JOINTS": "29",
             "HB_FW_AUG": "1", "HB_AUG_PROFILE": selector, "HB_AUG_SEED": str(seed),

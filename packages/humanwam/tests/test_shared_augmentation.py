@@ -1,17 +1,17 @@
 import math
+from collections import Counter
 
 import numpy as np
 import pytest
 
-from humanwam.augmentation import UNIFIED_V1, UNIFIED_V2, SampleKey, UnifiedAugmentation
+from humanwam.augmentation import UNIFIED_V1, UNIFIED_V2, UNIFIED_V3, SampleKey, UnifiedAugmentation
 
 
 def test_v2_only_changes_clean_rgb_gate_and_v1_remains_replayable():
     old = UnifiedAugmentation.from_hb_profile("unified_v1")
     new = UnifiedAugmentation.from_hb_profile("unified_v2")
     assert old.profile == UNIFIED_V1
-    assert new.profile == UnifiedAugmentation().profile == UNIFIED_V2
-    assert new.profile == UnifiedAugmentation.from_hb_profile("unified").profile
+    assert new.profile == UNIFIED_V2
     strong_kinds = ("affine", "overexposure", "noise", "jpeg")
     observed_strong = set()
     for frame in range(250):
@@ -34,6 +34,50 @@ def test_v2_only_changes_clean_rgb_gate_and_v1_remains_replayable():
         new.apply_state(state, body_dims=29, sample=key),
         old.apply_state(state, body_dims=29, sample=key),
     )
+
+
+def test_v3_counts_effects_and_preserves_the_strong_budget():
+    aug = UnifiedAugmentation.from_hb_profile("unified")
+    assert aug.profile == UnifiedAugmentation().profile == UNIFIED_V3
+    assert UnifiedAugmentation.from_hb_profile("unified_v3").profile == UNIFIED_V3
+    counts = Counter()
+    strong_counts = Counter()
+    light_geometry = []
+    strong_groups = {"affine": "geometry", "overexposure": "color", "noise": "sensor", "jpeg": "sensor"}
+    for frame in range(4000):
+        params = aug.sample_rgb(SampleKey(7, frame, 3), cameras=2)
+        if params is None:
+            counts[0] += 1
+            continue
+        operations = params["operations"]
+        counts[len(operations)] += 1
+        strong = params["strong"]
+        if strong is not None:
+            assert len(operations) >= 2
+            assert operations[strong_groups[strong]] == strong
+            strong_counts[strong] += 1
+        for camera in params["cameras"]:
+            active_sensor = {
+                key for key in ("noise", "jpeg", "blur", "motion_blur", "sharpen", "defocus") if camera[key]
+            }
+            assert active_sensor == ({operations["sensor"]} if "sensor" in operations else set())
+            if "geometry" not in operations:
+                assert (camera["angle"], camera["translation"], camera["scale"]) == (0, (0, 0), 1)
+            elif strong != "affine":
+                x, y = camera["translation"]
+                assert 0.005 <= abs(x) <= 0.025
+                assert 0.005 <= abs(y) <= 0.03
+                assert 0.5 <= abs(camera["angle"]) <= 1.5
+                assert camera["scale"] == 1
+                light_geometry.append((x, y, camera["angle"]))
+    assert counts[0] / 4000 == pytest.approx(0.05, abs=0.015)
+    for count, weight in enumerate((20, 60, 30), start=1):
+        assert counts[count] / (4000 - counts[0]) == pytest.approx(weight / 110, abs=0.025)
+    assert set(strong_counts) == set(strong_groups)
+    assert sum(strong_counts.values()) / (4000 - counts[0]) == pytest.approx(0.15, abs=0.02)
+    geometry = np.array(light_geometry)
+    assert (geometry > 0).mean(axis=0) == pytest.approx([0.5] * 3, abs=0.035)
+    assert np.abs(geometry).mean(axis=0) == pytest.approx([0.015, 0.0175, 1], rel=0.03)
 
 
 def test_raw_body_disturbance_keeps_other_channels_and_replays():
@@ -103,3 +147,24 @@ def test_clean_image_branch_and_strong_affine_keep_frame_pairing():
     assert not torch.equal(moving[0, 0], moving[0, 1])
     with pytest.raises(ValueError, match="observation_mask"):
         aug.apply_rgb(clip, sample=affine, observation_mask=[1, 0])
+
+
+def test_v3_sensor_only_sample_preserves_exact_future_and_no_color_or_warp():
+    torch = _rgb_runtime()
+    aug = UnifiedAugmentation()
+    sample = _key_with(aug, lambda p: p is not None and tuple(p["operations"]) == ("sensor",))
+    clip = torch.rand((2, 2, 3, 16, 16), dtype=torch.float64, generator=torch.Generator().manual_seed(22))
+    result = aug.apply_rgb(clip, sample=sample, observation_mask=[True, False])
+    assert result.dtype == clip.dtype
+    torch.testing.assert_close(result[1], clip[1], rtol=0, atol=0)
+    assert not torch.equal(result[0], clip[0])
+
+
+def test_v3_affine_follows_preview_translation_convention():
+    torch = _rgb_runtime()
+    frame = torch.zeros((1, 3, 40, 40))
+    frame[:, :, 15, 15] = 1
+    scene = {"operations": {"geometry": "affine"}}
+    view = {"angle": 0, "scale": 1, "translation": (+0.025, -0.025), "shadows": []}
+    moved = UnifiedAugmentation._scene(frame, scene, view)
+    assert moved[0, 0].argmax().item() == 14 * 40 + 16

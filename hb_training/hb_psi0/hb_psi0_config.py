@@ -25,8 +25,9 @@ unchanged. Structure mirrors src/psi/config/train/finetune_sonic_psi0_config.py;
       jointly to all cameras of the sample at the model input resolution (after the native
       resize + center crop), then the native Qwen3-VL input builder runs unchanged.
 
-HB_AUG_PROFILE=unified (or unified_v2) selects the shared 5% recipe;
-unified_v1 retains the earlier 20% recipe. Both replace HB v2 with the shared
+HB_AUG_PROFILE=unified (or unified_v3) selects the current shared recipe;
+unified_v2 retains the preceding 5% clean-image recipe;
+unified_v1 retains the earlier 20% recipe. These replace HB v2 with the shared
 HumanWAM recipe. It uses real LeRobot episode/frame IDs and the existing shared
 training epoch; the legacy random state delay is disabled in this profile.
 """
@@ -68,8 +69,8 @@ _RNG: dict[str, Any] = {"pid": None, "rng": None, "count": 0}
 _EPOCH = multiprocessing.RawValue("q", 0)
 BIAS_DEG, NOISE_DEG = 2.0, 0.25  # = hb_aug_v2.perturb_joints constants
 _PROFILE = os.environ.get("HB_AUG_PROFILE", "hb_v2")
-if _PROFILE not in {"hb_v2", "unified", "unified_v1", "unified_v2"}:
-    raise ValueError(f"Unknown HB_AUG_PROFILE: {_PROFILE!r}; choose hb_v2, unified, unified_v1 or unified_v2")
+if _PROFILE not in {"hb_v2", "unified", "unified_v1", "unified_v2", "unified_v3"}:
+    raise ValueError(f"Unknown HB_AUG_PROFILE: {_PROFILE!r}; choose hb_v2, unified, unified_v1, unified_v2 or unified_v3")
 _UNIFIED = _PROFILE != "hb_v2"
 if _UNIFIED:
     from humanwam.augmentation import SampleKey, UnifiedAugmentation
