@@ -69,6 +69,9 @@ TASKS = {
     # 2026-11-15 night: H2 cropped v2 (GR00T h32 relay item 71); head+chest only -> build_cache --cams head,chest
     "a18cr2": (P / "a18-pour-water-cropped-v2-44cdd57/data", None, "h2"),  # HF a18-pour-water-expert-cropped-v2 @44cdd571
     "a17cr2": (P / "a17-unscrew-bottle-cropped-v2-3520b70/data", None, "h2"),  # HF a17-unscrew-bottle-expert-cropped-v2 @3520b70f
+    # 2026-11-22 user: every training must run the in-training MSE -> register every dataset before it is trained on
+    "b7gt": (P / "b7-green-clothes-hamper-v2trim-22e3b83/data", None, "g1"),  # HF b7-green-clothes-hamper @22e3b83 trimmed v2, 421 ep
+    "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None, "h2p"),  # HF a14-screw-bulb @79fe08a cropped-v3, head + chest, action82
 }
 
 
