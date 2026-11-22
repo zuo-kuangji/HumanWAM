@@ -1,0 +1,7 @@
+# Opt in with --augmentation-config configs/wholebody/augmentation_unified_v3.yaml.
+# The shared engine owns the versioned v3 recipe; earlier unified profiles retain
+# their original behavior and hashes. This data profile adds no model state dropout.
+# ImageWAM's default remains augmentation_v3.yaml. Requires the humanwam package.
+schema: humanwam_unified_augmentation_v3
+enabled: true
+seed: 42

@@ -97,10 +97,10 @@ def native(monkeypatch):
 
 def test_unified_uses_actual_episode_frame_for_both_modalities_and_leaves_targets(native):
     patch, Processor, Dataset, _ = native
-    patch.install("unified", seed=42)
+    patch.install("unified_v3", seed=42)
     dataset = Dataset(Processor())
     item = dataset[(0, 3)]  # Actual native sample is2, not requested0.
-    expected = UnifiedAugmentation(seed=42)
+    expected = UnifiedAugmentation.from_hb_profile("unified_v3", seed=42)
     sample = SampleKey(7, 13, 3)
     np.testing.assert_array_equal(item["proprio"], expected.apply_state(np.zeros((17, 44), np.float32), body_dims=29, sample=sample))
     pixels = torch.linspace(0.1, 0.9, 2 * 17 * 3 * 32 * 32).reshape(2, 17, 3, 32, 32)
@@ -116,7 +116,7 @@ def test_unified_uses_actual_episode_frame_for_both_modalities_and_leaves_target
 
 def test_eval_and_stats_do_not_augment(native):
     patch, Processor, Dataset, _ = native
-    patch.install("unified", seed=42)
+    patch.install("unified_v3", seed=42)
     processor = Processor()
     stats = {"state": {"default": torch.zeros(17, 44)}, "action": torch.zeros(16, 76)}
     processor.action_state_transform(stats)
@@ -132,7 +132,7 @@ def test_eval_and_stats_do_not_augment(native):
 def test_prefetched_persistent_workers_replay_ids_and_resume_epoch(native):
     patch, Processor, Dataset, Sampler = native
     torch.set_num_threads(1)
-    patch.install("unified", seed=42)
+    patch.install("unified_v3", seed=42)
     dataset = Dataset(Processor())
     sampler = Sampler(dataset)
     sampler.epoch_offset = 4  # Native resumed epoch offset.
@@ -141,7 +141,7 @@ def test_prefetched_persistent_workers_replay_ids_and_resume_epoch(native):
     first = list(loader)
     sampler.epoch = 1
     second = list(loader)
-    engine = UnifiedAugmentation(seed=42)
+    engine = UnifiedAugmentation.from_hb_profile("unified_v3", seed=42)
     for epoch, batches in ((4, first), (5, second)):
         for item in batches:
             actual = int(item["idx"][0])
@@ -167,7 +167,7 @@ def test_legacy_remains_default_and_profile_switch_needs_a_new_process(native, m
 
 def test_missing_or_invalid_sample_identity_fails_without_random_retry(native):
     patch, Processor, _, _ = native
-    patch.install("unified", seed=42)
+    patch.install("unified_v3", seed=42)
     processor = Processor()
     with pytest.raises(ValueError, match="episode_index"):
         processor.preprocess({"state": {"default": torch.zeros(17, 44)}})
@@ -192,13 +192,13 @@ def test_native_resume_epoch_indices_survive_accelerate_rank_sharding(native):
     from accelerate.data_loader import BatchSamplerShard
 
     patch, Processor, Dataset, Sampler = native
-    patch.install("unified", seed=42)
+    patch.install("unified_v3", seed=42)
     dataset = Dataset(Processor())
     sampler = Sampler(dataset)
     sampler.epoch_offset = 4
     sampler.num_processes = 2
     sampler.set_resume_batch_offset(1)
-    engine = UnifiedAugmentation(seed=42)
+    engine = UnifiedAugmentation.from_hb_profile("unified_v3", seed=42)
     count = 0
     for rank in range(2):
         batches = torch.utils.data.BatchSampler(sampler, batch_size=1, drop_last=False)
@@ -214,7 +214,8 @@ def test_native_resume_epoch_indices_survive_accelerate_rank_sharding(native):
 
 
 @pytest.mark.parametrize("selector,version", [
-    ("unified", "humanwam_unified_augmentation_v2"),
+    ("unified", "humanwam_unified_augmentation_v3"),
+    ("unified_v3", "humanwam_unified_augmentation_v3"),
     ("unified_v2", "humanwam_unified_augmentation_v2"),
     ("unified_v1", "humanwam_unified_augmentation_v1"),
 ])
@@ -232,7 +233,7 @@ def test_versioned_profiles_report_effective_version_and_use_the_selected_engine
     torch.testing.assert_close(item["pixel_values"], expected.permute(1, 0, 2, 3, 4), rtol=0, atol=0)
 
 
-@pytest.mark.parametrize("selector", ["unified", "unified_v1", "unified_v2"])
+@pytest.mark.parametrize("selector", ["unified", "unified_v1", "unified_v2", "unified_v3"])
 def test_training_cli_preserves_explicit_version_and_returns_effective_version(monkeypatch, tmp_path, selector):
     monkeypatch.setenv("FASTWAM_SRC", str(tmp_path))
     monkeypatch.setenv("HB_FW_AUG", "1")

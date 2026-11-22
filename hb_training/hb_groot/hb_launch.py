@@ -6,7 +6,8 @@ Patches Gr00tN1d7Processor in training mode only:
 - proprio: the body-joint state groups (HB_BODY_STATE_KEYS) get the v2 bias + noise before normalization.
 Then runs the pinned upstream gr00t/experiment/launch_finetune.py unchanged.
 
-HB_AUG_PROFILE=unified (or unified_v2) selects the shared 5% recipe;
+HB_AUG_PROFILE=unified (or unified_v3) selects the current shared recipe;
+unified_v2 retains the preceding 5% clean-image recipe;
 unified_v1 explicitly retains its earlier 20% recipe. It uses
 loader episode IDs and row-step anchors with epoch=0; native sharded scheduling
 does not provide the trainer's epoch at this processor boundary.
@@ -31,8 +32,8 @@ BODY_KEYS = [k for k in os.environ.get("HB_BODY_STATE_KEYS", "left_leg,right_leg
 LOG = os.environ.get("HB_AUG_LOG")
 _state = {"rng": None, "count": 0}
 _PROFILE = os.environ.get("HB_AUG_PROFILE", "hb_v2")
-if _PROFILE not in {"hb_v2", "unified", "unified_v1", "unified_v2"}:
-    raise ValueError(f"Unknown HB_AUG_PROFILE: {_PROFILE!r}; choose hb_v2, unified, unified_v1 or unified_v2")
+if _PROFILE not in {"hb_v2", "unified", "unified_v1", "unified_v2", "unified_v3"}:
+    raise ValueError(f"Unknown HB_AUG_PROFILE: {_PROFILE!r}; choose hb_v2, unified, unified_v1, unified_v2 or unified_v3")
 _UNIFIED = _PROFILE != "hb_v2"
 if _UNIFIED:
     from humanwam.augmentation import SampleKey, UnifiedAugmentation
@@ -71,6 +72,23 @@ def _rng():
     if _state["rng"] is None:
         _state["rng"] = np.random.default_rng([os.getpid(), int.from_bytes(os.urandom(8), "little")])
     return _state["rng"]
+
+
+def _training_argv(arguments, *, profile):
+    """Set the v3 native parameter through the normal fine-tuning CLI.
+
+    The upstream launcher forwards this one configuration value to both its
+    processor and action head. Explicit CLI values win here; hb_launch_v's
+    existing model overrides run after CLI parsing and can replace this default.
+    """
+    result = list(arguments)
+    if profile != "humanwam_unified_augmentation_v3":
+        return result
+    explicit = {"--state_dropout_prob", "--state-dropout-prob"}
+    if any(argument.split("=", 1)[0] in explicit for argument in result):
+        return result
+    print("HB unified v3: CLI default state_dropout_prob=0.05; variant model overrides may replace it", flush=True)
+    return result + ["--state_dropout_prob", "0.05"]
 
 
 _orig_get, _orig_apply, _orig_call = Proc._get_vlm_inputs, Proc._apply_vlm_processing, Proc.__call__
@@ -168,7 +186,10 @@ if os.environ.get("HB_PATCH_ONLY") != "1":
 
 if os.environ.get("HB_PATCH_ONLY") != "1":
     entry = Path(os.environ["GROOT_SRC"]) / "gr00t/experiment/launch_finetune.py"
-    sys.argv = [str(entry)] + sys.argv[1:]
+    arguments = sys.argv[1:]
+    if _UNIFIED:
+        arguments = _training_argv(arguments, profile=_shared_aug.profile)
+    sys.argv = [str(entry)] + arguments
     try:
         runpy.run_path(str(entry), run_name="__main__")
     finally:  # batch probe: report this rank's peak reserved memory (groot_chain.py compares it with MAX_FRAC)

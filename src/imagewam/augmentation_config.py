@@ -11,7 +11,8 @@ PREVIOUS_SCHEMA = "wholebody_training_augmentation_v2"
 LEGACY_SCHEMA = "wholebody_training_augmentation_v1"
 UNIFIED_SCHEMA = "humanwam_unified_augmentation_v1"
 UNIFIED_V2_SCHEMA = "humanwam_unified_augmentation_v2"
-UNIFIED_SCHEMAS = (UNIFIED_SCHEMA, UNIFIED_V2_SCHEMA)
+UNIFIED_V3_SCHEMA = "humanwam_unified_augmentation_v3"
+UNIFIED_SCHEMAS = (UNIFIED_SCHEMA, UNIFIED_V2_SCHEMA, UNIFIED_V3_SCHEMA)
 
 _VISUAL_V1 = {
     "enabled": True,

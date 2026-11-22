@@ -8,6 +8,7 @@ import ast
 import copy
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -53,7 +54,7 @@ def profile_startup(relative):
 
 
 @pytest.mark.parametrize("relative", ["hb_training/hb_groot/hb_launch.py", "hb_training/hb_psi0/hb_psi0_config.py"])
-@pytest.mark.parametrize("profile,resolved", [("unified", "v2"), ("unified_v2", "v2"), ("unified_v1", "v1")])
+@pytest.mark.parametrize("profile,resolved", [("unified", "v3"), ("unified_v3", "v3"), ("unified_v2", "v2"), ("unified_v1", "v1")])
 def test_actual_profile_startup_honors_seed_and_rejects_unknown_profile(relative, profile, resolved, monkeypatch, capsys):
     monkeypatch.setenv("HB_AUG_PROFILE", profile)
     monkeypatch.setenv("HB_AUG_SEED", "123")
@@ -81,6 +82,87 @@ def test_actual_profile_startup_honors_seed_and_rejects_unknown_profile(relative
             monkeypatch.setenv("HB_AUG_PROFILE", legacy)
         selected = profile_startup(relative)
         assert selected["_UNIFIED"] is False and "_shared_aug" not in selected
+
+
+def training_argv():
+    namespace = {}
+    exec(compile(source_nodes("hb_training/hb_groot/hb_launch.py", {"_training_argv"}), "hb_launch.py", "exec"), namespace)
+    return namespace["_training_argv"]
+
+
+def test_v3_native_dropout_cli_default_preserves_existing_arguments(capsys):
+    before = ["--dataset_path", "/data/task", "--max_steps=4000"]
+    output = training_argv()(before, profile="humanwam_unified_augmentation_v3")
+    assert output == before + ["--state_dropout_prob", "0.05"]
+    assert before == ["--dataset_path", "/data/task", "--max_steps=4000"]
+    log = capsys.readouterr().out
+    assert "CLI default state_dropout_prob=0.05" in log and "overrides may replace" in log
+    for profile in ("hb_v2", "humanwam_unified_augmentation_v1", "humanwam_unified_augmentation_v2"):
+        assert training_argv()(before, profile=profile) == before
+
+
+@pytest.mark.parametrize("explicit", [
+    ["--state_dropout_prob", "0"], ["--state-dropout-prob", "0.3"],
+    ["--state_dropout_prob=0.12"], ["--state-dropout-prob=0.4"],
+])
+def test_v3_native_dropout_preserves_every_explicit_cli_form(explicit, capsys):
+    before = ["--max_steps=4000", *explicit]
+    assert training_argv()(before, profile="humanwam_unified_augmentation_v3") == before
+    assert not capsys.readouterr().out
+
+
+@pytest.mark.parametrize("cli,overrides,expected", [
+    ([], {}, 0.05),
+    (["--state-dropout-prob=0.3"], {}, 0.3),
+    ([], {"state_dropout_prob": 0.0}, 0.0),
+    (["--state_dropout_prob", "0.3"], {"state_dropout_prob": 0.12}, 0.12),
+])
+def test_real_wrapper_entry_and_variant_forward_one_native_parameter(cli, overrides, expected, monkeypatch):
+    """Run the actual wrapper entry and native config forwarding statements."""
+    native_launch = ROOT / "third_party/Isaac-GR00T/gr00t/experiment/launch_finetune.py"
+    native_setup = ROOT / "third_party/Isaac-GR00T/gr00t/model/gr00t_n1d7/setup.py"
+    if not native_launch.is_file() or not native_setup.is_file():
+        pytest.skip("Pinned GR00T source absent")
+    tree = ast.parse((ROOT / "hb_training/hb_groot/hb_launch.py").read_text())
+    entry = next(node for node in reversed(tree.body) if isinstance(node, ast.If))
+    forwarded = []
+
+    def run_native(path, run_name):
+        assert str(path) == str(native_launch)
+        assert run_name == "__main__"
+        probability = 0.2  # Pinned native FinetuneConfig default.
+        arguments = sys.argv[1:]
+        for index, argument in enumerate(arguments):
+            flag, separator, value = argument.partition("=")
+            if flag in {"--state_dropout_prob", "--state-dropout-prob"}:
+                probability = float(value if separator else arguments[index + 1])
+        config = SimpleNamespace(model=SimpleNamespace(state_dropout_prob=-1))
+        ft_config = SimpleNamespace(state_dropout_prob=probability)
+        official = ast.parse(native_launch.read_text())
+        assignment = next(node for node in ast.walk(official) if isinstance(node, ast.Assign)
+                          and any(ast.unparse(target) == "config.model.state_dropout_prob" for target in node.targets))
+        exec(compile(ast.Module(body=[assignment], type_ignores=[]), str(native_launch), "exec"),
+             {"config": config, "ft_config": ft_config})
+        # Apply the real variant run/_set functions after official CLI parsing.
+        variant = {"OV": overrides, "_run": lambda value: value, "say": lambda *args: None}
+        exec(compile(source_nodes("hb_training/hb_groot/hb_launch_v.py", {"_set", "run"}), "hb_launch_v.py", "exec"), variant)
+        config = variant["run"](config)
+        pipeline = SimpleNamespace(config=config, model_config=config.model)
+        setup_tree = ast.parse(native_setup.read_text())
+        keywords = [node for node in ast.walk(setup_tree) if isinstance(node, ast.keyword) and node.arg == "state_dropout_prob"]
+        assert len(keywords) >= 3  # Model loading plus both processor construction paths.
+        forwarded.extend(eval(compile(ast.Expression(body=node.value), str(native_setup), "eval"), {"self": pipeline}) for node in keywords)
+
+    monkeypatch.delenv("HB_PATCH_ONLY", raising=False)
+    monkeypatch.delenv("HB_PEAK_FILE", raising=False)
+    monkeypatch.setenv("GROOT_SRC", str(native_launch.parents[2]))
+    monkeypatch.setenv("HB_GROOT_MODEL_OVERRIDES", json.dumps(overrides))
+    monkeypatch.setattr(sys, "argv", ["hb_launch.py", *cli])
+    namespace = {"os": os, "sys": sys, "Path": Path, "runpy": SimpleNamespace(run_path=run_native),
+                 "_UNIFIED": True, "_shared_aug": SimpleNamespace(profile="humanwam_unified_augmentation_v3"),
+                 "_training_argv": training_argv(), "torch": torch}
+    exec(compile(ast.Module(body=[entry], type_ignores=[]), "hb_launch.py", "exec"), namespace)
+    assert forwarded and all(value == expected for value in forwarded)
 
 
 def groot_patch(unified=True):
