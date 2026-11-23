@@ -89,7 +89,8 @@ def stage():
             folder = f.rpartition("/")[0]
             sd = seed_of(repo, folder, by_dir.get(folder, set()))
             new = dict(proto)
-            new.update(R.fields(repo, proto, seed_found=sd, backfill=f"{TODAY} (fields added after publication; nothing else changed)"))
+            rf = [get(repo, f"{folder}/config.json")] if R.is_hb_baselines(proto) and "config.json" in by_dir.get(folder, set()) else ()
+            new.update(R.fields(repo, proto, seed_found=sd, run_files=rf, backfill=f"{TODAY} (fields added after publication; nothing else changed)"))
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_text(json.dumps(new, indent=2, ensure_ascii=False, default=str) + "\n")
             s["staged"] += 1

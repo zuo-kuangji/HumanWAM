@@ -1394,7 +1394,7 @@ def _hb_repro_fields(model, proto, c, e):
         srcs = [Path(v) for v in list((e.get("files") or {}).values()) + list((c.get("common") or {}).values())]
         if e.get("tree") is not None:
             srcs.append(Path(e["tree"]))
-        return _HBR.fields(REPO_OF.get(model, model), proto, run_logs=_HBR.find_logs(srcs))
+        return _HBR.fields(REPO_OF.get(model, model), proto, run_logs=_HBR.find_logs(srcs), run_files=srcs)
     except Exception as ex:  # noqa: BLE001
         log("repro fields failed", model, repr(ex)[:300])
         return {}

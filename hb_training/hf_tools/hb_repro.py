@@ -3,26 +3,36 @@
 Used by hb_autoupload.py (new uploads) and hb_repro_backfill.py (already published folders). Adds a top-level "seed"
 and a "reproducibility" block: seed source, augmentation random stream, proprio-bias / in-loop seeds, layout,
 environment versions, hardware, upstream code, protocol document + commit. Never changes an existing field.
+
+2026-11-24: the seed is read from the run files whenever they are available (training_args.bin, argv.txt /
+train_args.txt, training_config.yaml, config.json), so "training_seed_verified_from_run_files" is true for new uploads
+too; folders in the collaborator's hb_baselines format (ACT b512*, FM-DiT, DP) get their own block (seed 0 from
+config.json training.seed) instead of the Psi0 LeRobot ACT description.
 """
+import json
+import os
 import re
 import subprocess
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 P = HERE.parent                                   # .../preflight-20261104T1648Z
+G = P / "policies-20261109"
 BAI = P / "HumanWAM-bai"
 PROTOCOL_URL = "https://github.com/zuo-kuangji/HumanWAM/blob/bai/hb_training/REPRODUCIBILITY.md"
 SEEDED_FROM = "2026-11-23 21:05 CST (13:05 UTC)"
 HARDWARE = "Alibaba PAI DLC, 4 nodes x 8 NVIDIA A800-SXM4-80GB, driver 570.133.20, CUDA 12.8"
 INLOOP_SEED = 1234
+DETERMINISM = ("statistical reproducibility: same data commit, config, seed and layout give the same curves within "
+               "run-to-run noise; GPU kernels (bf16, NCCL reductions) are not bitwise deterministic")
 
 # HF repo -> (training seed, where it comes from, env name, upstream code, augmentation stream seeded in every run)
 MODELS = {
     "groot": (42, "upstream Isaac-GR00T default (gr00t/configs/data/data_config.py seed=42 -> set_seed; HF TrainingArguments.seed=42)",
               "groot-py312", "NVIDIA Isaac-GR00T @ 7aa0bca", False),
     "psi0": (292285, "upstream Psi0 official finetune scripts (--seed=292285)", "psi0", "Psi0 @ cda3fdf", False),
-    "act": (292285, "LeRobot ACT of the Psi0 repository, same launch arguments as Psi-Zero (--seed=292285)", "psi0",
-            "Psi0 @ cda3fdf", False),
+    "act": (292285, "LeRobot ACT inside the Psi0 repository (hb_act, HF folders <task>/epoch-NNN), same launch arguments "
+                    "as Psi-Zero (--seed=292285)", "psi0", "Psi0 @ cda3fdf", False),
     "fastwam": (42, "upstream FastWAM configs/train.yaml (seed: 42)", "fastwam",
                 "github.com/yuantianyuan01/FastWAM @ 7faa71108368fbb3b6885649f112af607427a2d4", False),
     "pi05": (42, "openpi TrainConfig.seed=42", "openpi", "openpi @ 215abfb", True),
@@ -34,6 +44,7 @@ SEEDED_TEXT = {
     "dit4dit": "seeded: HB_AUG_SEED=42, data order permutation from (seed, pass)",
     "deltaflow": "seeded: image_policy seed 20261110, proprio_policy seed 20261106, mixed with rank / worker",
 }
+HB_BASELINES_SEED = 0   # collaborator's hb_baselines stack (ACT b512*, FM-DiT, DP): config.json training.seed
 
 
 def _env(name):
@@ -85,8 +96,98 @@ def seed_in_logs(logs, cap=8 << 20):
     return None
 
 
-def fields(repo, proto, *, run_logs=(), seed_found=None, backfill=None):
+def _groot_args_seed(path):
+    """GR00T training_args.bin is a pickled TrainingArguments: load it with the GR00T env (the daemon runs psi0)."""
+    py = G / "envs" / "groot-py312" / "bin" / "python"
+    env = dict(os.environ, LD_LIBRARY_PATH=str(G / "envs" / "groot-py312" / "lib" / "hbstub"),
+               PYTHONPATH=str(G / "HumanWAM" / "third_party" / "Isaac-GR00T"))
+    out = subprocess.run([str(py), "-c", "import sys, torch; print('SEED', torch.load(sys.argv[1], weights_only=False).seed)",
+                          str(path)], capture_output=True, text=True, timeout=300, env=env)
+    m = re.search(r"^SEED (\d+)$", out.stdout, re.M)
+    return int(m.group(1)) if m else None
+
+
+def seed_from_files(paths):
+    """Training seed recorded by the run itself, or None."""
+    paths = [Path(p) for p in paths]
+    order = ("argv.txt", "train_args.txt", "training_config.yaml", "config.yaml", "config.json", "training_args.bin")
+    for name in order:
+        for p in paths:
+            if p.name != name or not p.is_file():
+                continue
+            try:
+                if name in ("argv.txt", "train_args.txt"):
+                    m = re.search(r"--seed[= ](\d+)", p.read_text(errors="ignore"))
+                elif name in ("training_config.yaml", "config.yaml"):
+                    m = re.search(r"^seed:\s*(\d+)\s*$", p.read_text(errors="ignore"), re.M)
+                elif name == "config.json":
+                    t = (json.loads(p.read_text()).get("training") or {}).get("seed")
+                    if isinstance(t, int):
+                        return t
+                    m = None
+                else:
+                    s = _groot_args_seed(p)
+                    if s is not None:
+                        return s
+                    m = None
+                if m:
+                    return int(m.group(1))
+            except Exception:  # noqa: BLE001
+                continue
+    return None
+
+
+def is_hb_baselines(proto):
+    return str(proto.get("format", "")).startswith("hb_baselines")
+
+
+def _hb_baselines(proto, seed_found, run_config, backfill):
+    cfg = run_config or {}
+    tr = cfg.get("training") or {}
+    aug = tr.get("augmentation") or {}
+    used = seed_found if seed_found is not None else tr.get("seed", HB_BASELINES_SEED)
+    cc = cfg.get("code_commit")
+    r = {
+        "protocol": PROTOCOL_URL,
+        "protocol_commit": _commit(),
+        "training_seed": used,
+        "training_seed_source": "config.json training.seed of this folder (collaborator's hb_baselines stack for the "
+                                "ACT b512*, FM-DiT and DP baselines; every published hb_baselines folder records seed 0)",
+        "training_seed_verified_from_run_files": seed_found is not None,
+        "augmentation_random_stream": (f"augmentation spec v2 ({aug.get('version', 'hb-aug-v2')}, implementation "
+                                       f"{aug.get('implementation', 'evaluation/augmentation/hb_aug_v2.py')} of hb_baselines); "
+                                       "how this stack seeds its per-sample random stream is not audited by this protocol"),
+        "layout": {k: tr[k] for k in ("batch_size", "steps") if k in tr} or None,
+        "environment": "not recorded in this folder (trained on the collaborator's machines with hb_baselines)",
+        "hardware": "not recorded in this folder",
+        "upstream_code": f"hb_baselines @ {cc}" if cc else "hb_baselines (code_commit not recorded in this folder's config.json)",
+        "adapter_code": "config.json in this folder records the model, data contract, dataset episodes, training and "
+                        "augmentation settings",
+        "determinism": DETERMINISM,
+        "exceptions": "see the exception registry, REPRODUCIBILITY.md section 7 (hb_baselines seed 0)",
+    }
+    if backfill:
+        r["backfilled"] = backfill
+    return {"seed": used, "reproducibility": r}
+
+
+def fields(repo, proto, *, run_logs=(), seed_found=None, backfill=None, run_files=(), run_config=None):
     """Return {"seed": ..., "reproducibility": {...}} for model repo `repo` (groot, psi0, fastwam, ...)."""
+    if seed_found is None and run_files:
+        try:
+            seed_found = seed_from_files(run_files)
+        except Exception:  # noqa: BLE001
+            seed_found = None
+    if is_hb_baselines(proto):
+        if run_config is None:
+            for p in map(Path, run_files or ()):
+                if p.name == "config.json" and p.is_file():
+                    try:
+                        run_config = json.loads(p.read_text())
+                        break
+                    except Exception:  # noqa: BLE001
+                        pass
+        return _hb_baselines(proto, seed_found, run_config, backfill)
     if repo not in MODELS:
         return {}
     seed, src, env, upstream, always_seeded = MODELS[repo]
@@ -115,8 +216,7 @@ def fields(repo, proto, *, run_logs=(), seed_found=None, backfill=None):
         "hardware": HARDWARE,
         "upstream_code": upstream,
         "adapter_code": "code/ in this folder (snapshot of the HumanWAM hb_training adapters used for this run)",
-        "determinism": ("statistical reproducibility: same data commit, config, seed and layout give the same curves within "
-                        "run-to-run noise; GPU kernels (bf16, NCCL reductions) are not bitwise deterministic"),
+        "determinism": DETERMINISM,
         "exceptions": "see the exception registry, REPRODUCIBILITY.md section 7",
     }
     if repo in ("psi0", "act"):
