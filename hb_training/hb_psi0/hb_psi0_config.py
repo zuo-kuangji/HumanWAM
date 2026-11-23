@@ -78,12 +78,25 @@ def traj_bias(seed: int, epoch: int, episode_index: int, dims: int) -> np.ndarra
     return r.uniform(-math.radians(BIAS_DEG), math.radians(BIAS_DEG), size=dims)
 
 
+def _worker_id():
+    info = torch.utils.data.get_worker_info()
+    return 0 if info is None else info.id + 1
+
+
 def hb_rng() -> np.random.Generator:
     """Per-process generator (re-seeded after fork from pid + urandom). Psi0's worker_init_fn seeds
     np.random from a generator that is identical on every rank, so we do not reuse np.random."""
     pid = os.getpid()
     if _RNG["pid"] != pid:
-        _RNG["rng"] = np.random.default_rng([pid, int.from_bytes(os.urandom(8), "little")])
+    # 2026-11-23 user (hb_training/REPRODUCIBILITY.md section 3): with HB_AUG_SEED set -- the training entry sets it
+    # for every run it starts -- the augmentation stream is derived from (training seed, torch.initial_seed() of this
+    # process / DataLoader worker, global rank, worker id), so a rerun with the same seed and layout draws the same
+    # augmentations. Processes started before this change have no HB_AUG_SEED and keep the old pid/urandom stream.
+        if os.environ.get("HB_AUG_SEED") is not None:
+            _RNG["rng"] = np.random.default_rng([int(os.environ["HB_AUG_SEED"]), torch.initial_seed() % (2 ** 63),
+                                  int(os.environ.get("RANK", "0")), _worker_id()])
+        else:
+            _RNG["rng"] = np.random.default_rng([pid, int.from_bytes(os.urandom(8), "little")])
         _RNG["pid"], _RNG["count"] = pid, 0
     return _RNG["rng"]
 

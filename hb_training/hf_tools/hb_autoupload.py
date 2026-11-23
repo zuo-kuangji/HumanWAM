@@ -488,6 +488,7 @@ def stage(model, task, c):
         if missing:
             proto["note"] = (f"epoch {missing} checkpoint not available: the trainer kept only the last 2 checkpoints "
                              "and saved twice at the end of training, which rotated the epoch-10 save out.")
+        proto.update(_hb_repro_fields(model, proto, c, e))
         proto["files"] = {str(p.relative_to(ed)): p.stat().st_size for p in sorted(ed.rglob("*")) if p.is_file()}
         (ed / "protocol.json").write_text(json.dumps(proto, indent=2, ensure_ascii=False, default=str) + "\n")
     return dst
@@ -1380,6 +1381,23 @@ HFDATA["basketv2p"] = ("a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40 (
                        "trained from the base model on v2 only, no v1 stage)")
 SUBDIR.update({("groot2x32", "basketv2p"): "b512-trimv2-pure", ("psi0", "basketv2p"): "b512-trimv2-pure"})
 
+
+
+
+# 2026-11-23 user: every protocol.json carries the seed and the reproducibility block (hb_repro.py,
+# hb_training/REPRODUCIBILITY.md section 8). Never blocks an upload.
+import hb_repro as _HBR  # noqa: E402
+
+
+def _hb_repro_fields(model, proto, c, e):
+    try:
+        srcs = [Path(v) for v in list((e.get("files") or {}).values()) + list((c.get("common") or {}).values())]
+        if e.get("tree") is not None:
+            srcs.append(Path(e["tree"]))
+        return _HBR.fields(REPO_OF.get(model, model), proto, run_logs=_HBR.find_logs(srcs))
+    except Exception as ex:  # noqa: BLE001
+        log("repro fields failed", model, repr(ex)[:300])
+        return {}
 
 
 def main():
