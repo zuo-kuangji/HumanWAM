@@ -29,6 +29,7 @@ TASKS = {
     "a3v3": (P / "a3-fridge-open-v3-24882d5/data", None),  # HF a3-fridge-open-expert-v3 @24882d5, all 125 episodes, measured hands (user 2026-11-15)
     "a7v3": (P / "a7-cabinet-close-v3-c2e15b0/data", None),  # HF a7-cabinet-close-expert-v3 @c2e15b0, all 100 episodes, measured hands (user 2026-11-15)
     "b6v6": (P / "b6-pedal-bin-v6-ad2f5bf/data", None),  # HF b6-pedal-bin @ad2f5bf0 (v6 at the repo root), all 542 episodes (user 2026-11-15)
+    "b6v6p": (P / "b6-pedal-bin-v6-ad2f5bf/data", None),  # 2026-11-23 user: pure v6 from the base model, all 542 (exception to the first-500 rule)
     "b5": (P / "b5-chair-push-v1-b85b7e9/data", None),  # HF b5-chair-push-expert-v1 @b85b7e9, all 100 episodes (user 2026-11-15)
     "a3v4": (P / "a3-fridge-open-v4-6393d4a/data", None),  # HF a3-fridge-open-expert-v4 @6393d4a, all 125 episodes (user 2026-11-15: v4 replaces v3)
     "a7v4": (P / "a7-cabinet-close-v4-90cc2b5/data", None),  # HF a7-cabinet-close-expert-v4 @90cc2b5, all 100 episodes (user 2026-11-15: v4 replaces v3)

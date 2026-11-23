@@ -1363,6 +1363,15 @@ SUBDIR.update({("groot2x32", "a18cr2"): "b512-2cam-cropped-v2", ("groot2x32", "a
                ("psi0", "a14cr3a"): "cropped-v3-b512-nodelay"})
 
 
+# 2026-11-23 user: GR00T / Psi-Zero pure B6 v6 (all 542, from base, no v5 stage) -> new sub-dirs b512-v6-pure/
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    if "b6v6" in _d:
+        _d.setdefault("b6v6p", _d["b6v6"])
+HFDATA["b6v6p"] = ("b6-pedal-bin @ad2f5bf0 (v6 at the repo root, all 542 episodes; trained from the base model on v6 only, "
+                   "no v5 stage; user exception to the B6 v6 first-500 rule - FastWAM b6v6 used episodes 0-499)")
+SUBDIR.update({("groot2x32", "b6v6p"): "b512-v6-pure", ("psi0", "b6v6p"): "b512-v6-pure"})
+
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
