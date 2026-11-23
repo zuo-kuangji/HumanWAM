@@ -123,9 +123,15 @@ models:
     lr_schedule: cosine
     save_steps: [6000, 8000]
   act:
-    seed: 292285                 # hb_act/hb_act_args.py (Psi0 repo's LeRobot ACT)
+    seed: 292285                 # hb_act/hb_act_args.py (Psi0 repo's LeRobot ACT; HF act/<task>/epoch-NNN)
     global_batch: 256
     max_steps: 4000
+  hb_baselines:                  # collaborator's stack: HF act/<task>/b512*, fm-dit, dp (protocol format hb_baselines/1)
+    models: [act, fm_dit, dp]
+    seed: 0                      # config.json training.seed of every published folder (verified 2026-11-24)
+    seed_source: "hb_baselines config.json training.seed"
+    recipe_record: "config.json in each HF folder (training, augmentation, dataset episodes, code_commit)"
+    act: {global_batch: 512, max_steps: 4000, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6, warmup_steps: 200, lr_schedule: cosine, ema: 0.9999, amp: true}
 
 tasks:                            # newest data per task (HF org humanoid-benchmark, private datasets)
   a3v4:     {robot: g1, data_commit: 6393d4a}
@@ -158,5 +164,6 @@ exceptions:                       # every item must also appear in the paper app
   - {model: fastwam, task: b5ss, what: "not trained", decision: user}
   - {model: act, task: "b7 black trimmed (collaborator baseline)", what: "256 x 8000 steps", decision: "collaborator run"}
   - {model: "psi0, act", task: all, what: "seed 292285 (upstream Psi0) while the other models use 42", decision: "pending user decision on a single global seed"}
+  - {model: "hb_baselines (act b512*, fm_dit, dp)", task: all, what: "seed 0 (collaborator stack, config.json training.seed)", decision: "recorded 2026-11-24; pending the same user decision"}
   - {model: "groot, psi0, fastwam", task: all, what: "runs started before 2026-11-23 13:05 UTC: visual-augmentation RNG drawn from pid/urandom/time, not from the seed -> not bit-reproducible", decision: "user 2026-11-23: fixed for later runs; old results kept, appendix"}
   - {model: "groot, psi0, fastwam", task: "runs before 2026-11-15 (e.g. groot c6, psi0 c6) and unregistered task keys (groot a14cr3, fastwam b7gt + b7gt-cont2k, fastwam a14cr3; psi0 a14cr3 has 1 point)", what: "no in-training MSE curve", decision: "post-hoc open-loop MSE only; not allowed for new runs (user 2026-11-22)"}

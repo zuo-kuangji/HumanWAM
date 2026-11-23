@@ -65,7 +65,8 @@
 | GR00T N1.7 | **42** | 上游 `gr00t/configs/data/data_config.py: seed = 42` → `experiment.py: set_seed(config.data.seed)`；HF `TrainingArguments.seed = 42`、`data_seed = None`。所有 `groot-runs-2x32/*` 和 `groot-runs-ft512/*` 的 `training_args.bin` 都是 42。 | 数据采样：`trainer.py` 每步 `reset_seed(seed + global_step)`，是确定的。增强随机流：见第 3 节，11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定。 |
 | FastWAM | **42** | 上游 `FastWAM/configs/train.yaml: seed: 42`；`fastwam/runs/*/out/config.yaml` 都是 42，续训也是 42。 | 推理适配器 `ad_fastwam.py`：10 步去噪，seed 42。增强随机流：11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定（第 3 节）。 |
 | Psi-Zero | **292285** | 上游 Psi0 官方 finetune 脚本（`scripts/train/psi0/*.sh` 都写 `--seed=292285`）→ `hb_psi0/hb_args.py`。 | 本体常偏：`hb-bias-seed=292285`，用 `default_rng([seed, epoch, episode])`，是确定的。视觉增强随机流：11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定。上游 `set_seed` 启用了 `use_deterministic_algorithms(True, warn_only=True)` 和 `cudnn.benchmark=False`。 |
-| ACT | **292285** | `hb_act/hb_act_args.py`，复用 Psi0 仓库的 LeRobot ACT 和同一套参数。 | 同 Psi-Zero。 |
+| ACT（Psi0 版：Psi0 仓库内的 LeRobot ACT，HF `act/<task>/epoch-NNN`） | **292285** | `hb_act/hb_act_args.py`，复用 Psi0 仓库的 LeRobot ACT 和同一套参数。 | 同 Psi-Zero。 |
+| ACT（hb_baselines 版，HF `act/<task>/b512*`）、FM-DiT、DP | **0** | 合作者的 hb_baselines 代码；种子记在每个 HF 目录 `config.json` 的 `training.seed`。2026-11-24 逐个核对：act 的 12 个、fm-dit 全部 68 个、dp 1 个目录都是 0。 | 增强按规范 v2（`config.json` 的 `training.augmentation`，实现 `evaluation/augmentation/hb_aug_v2.py`）；它的逐样本随机流怎样取种子未经本规范审计。代码版本记在 `config.json` 的 `code_commit`（部分目录缺）。 |
 | π0.5 | **42** | openpi `TrainConfig.seed = 42`；`hb_pi05/hb_g1_data.py` 的 `HB_AUG_SEED` 默认 42。 | 常偏：`default_rng([seed, epoch, episode])`，确定。增强流：`torch.initial_seed()` 加全局 rank，在世界规模和 worker 数相同时是确定的。 |
 | DiT4DiT | **42** | `hb_dit4dit/hb_d4d_config.py: "seed": 42`；`HB_AUG_SEED` 默认 42。 | 数据顺序：`default_rng([seed, pass])` 打乱，可以精确续训。常偏确定。 |
 | Delta Flow | **42** | `deltaflow-runs/<task>/run/production.yaml: seed: 42`。 | 增强种子：image_policy `20261110`、proprio_policy `20261106`；`split-manifest.json` 种子 42。 |
@@ -95,6 +96,7 @@
 4. **`protocol.json` 的种子与复现字段（2026-11-23 起自动写入，已发布的已补写）**
    - 自动上传调用 `hf-sidecar-tools-20261110/hb_repro.py`（仓库同步在 `hb_training/hf_tools/`），给每个 `protocol.json` 加顶层 `seed` 和 `reproducibility` 块：训练种子及来源、增强随机流是否由种子决定（看运行日志里的 `HB_AUG_SEED=` 行）、训练中 MSE 种子、布局、环境版本、硬件、上游代码、规范链接和 commit。
    - 已发布的目录用 `hb_repro_backfill.py` 补写：只加字段，不改其他内容；种子尽量从该目录的运行文件读出并标明是否核实；`legacy/` 不动。
+   - 2026-11-24 更正：act 仓库里 12 个 hb_baselines 目录（`b512*`），第一次补写误按 Psi0 版 ACT 填了种子来源、环境、硬件和上游代码，已用 `hb_repro_fix_hbbaselines.py` 按各目录 `config.json` 改正（种子 0）。之后的自动上传也从运行文件读种子（`training_args.bin`、`argv.txt` / `train_args.txt`、`training_config.yaml`、`config.json`），`training_seed_verified_from_run_files` 为 true。
 
 ---
 
@@ -153,7 +155,9 @@
 | π0.5 | 256 | 4000 | 2000 / 4000 | openpi @ `215abfb`；动作块 16，图像 224 | **未接入，开训前必须接好** |
 | DiT4DiT | 64 | 8000 | 6000 / 8000 | DiT4DiT @ `66a6f3a`；lr：backbone_interface 1e-5 / action_model 1e-4 / base 3e-5，`cosine_with_min_lr`（最小 5e-7），AdamW (0.9, 0.95)，warmup 5%；关节角做 sin/cos（G1 73 维 / H2 153 维） | **未接入，开训前必须接好** |
 | Delta Flow | 256（每卡 8 × 32） | 8000（C6 为 16000） | 6000 / 8000 | lr 见 `production.yaml`，warmup 5%，cosine；增强种子 20261110 / 20261106 | 已接入 |
-| ACT | 256 | 4000 | 2000 / 4000 | Psi0 自带的 LeRobot ACT，复用 Psi-Zero 的数据视图和增强 v2 | 由合作者负责，接入情况开训前核对 |
+| ACT（hb_baselines 版，现行） | 512（A10 v3 为 256） | 4000（A10 v3 为 8000） | 按目录 | 合作者的 hb_baselines：种子 0，lr 1e-4，AdamW (0.95, 0.999)，wd 1e-6，warmup 200 步 + cosine，backbone lr × 0.1，EMA 0.9999，AMP；完整配置在每个 HF 目录的 `config.json` | 无（`config.json` 里有训练后的 `offline_eval`） |
+| ACT（Psi0 版，早期 `epoch-010/020`） | 256 | 20 轮 | 第 10 / 20 轮 | Psi0 自带的 LeRobot ACT，复用 Psi-Zero 的数据视图和增强 v2；种子 292285 | 无 |
+| FM-DiT、DP | 512（FM-DiT 续训目录为 64） | 4000 | 按目录 | 合作者的 hb_baselines，种子 0，配置在每个 HF 目录的 `config.json`；HF 仓库 `fm-dit`、`dp` 归合作者，没有补写 `protocol.json` 的复现字段 | 由合作者负责 |
 
 ---
 
@@ -210,7 +214,7 @@
 | Delta Flow B6 v6 | 从 v5 `step_010200` 只加载权重续训，不是从 base 训 | 11-15 计划 |
 | FastWAM B5 standing start | 不训 | 用户 |
 | 多个早期运行 | **没有训练中 MSE**：2026-11-15 训练中评估机制上线前训的（如 GR00T C6、Psi-Zero C6），以及任务键当时没登记、评估自动关闭的（GR00T A14 cr3、FastWAM B7 绿衣服 4000 步及续训、FastWAM A14 cr3 4000 步，Psi-Zero A14 cr3 只有 1 个点） | 只有事后补测的开环 MSE；11-22 起不再允许，新训练必须伴随训练测 |
-| 种子 | Psi-Zero / ACT 是 292285，其余模型是 42（各用上游官方值） | 待用户决定是否统一 |
+| 种子 | Psi-Zero 和 Psi0 版 ACT 是 292285；合作者 hb_baselines 的 ACT（b512 目录）、FM-DiT、DP 是 0；其余模型是 42（各用上游或所用代码的默认值） | 待用户决定是否统一；决定前各自不改 |
 | 增强随机流 | 2026-11-23 21:05 之前启动的 GR00T、Psi-Zero、FastWAM 训练：由 pid、urandom、时间产生，不可逐位复现（第 3 节） | 11-23 已修，之后启动的训练由种子决定；旧结果保留，附录注明 |
 
 新例外追加到本表，同时写进该运行的 `protocol.json` 的 `exceptions` 字段。
