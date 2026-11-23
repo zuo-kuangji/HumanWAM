@@ -18,6 +18,7 @@ TASKS = {
     "b6": (P / "b6-v5t7-ready-start-60ep-20261109/data/deliveries/g1/b6-v5t7-ready-start-20261109", 100),
     "basket": (P / "basket-current-dynamics-100-v21-b0ff522/data", None),  # HF basket-transfer-expert-v1 @current-dynamics-100-v21 b0ff522 (old ed77719 retired)
     "basketv2": (P / "basket-trimv2-c4df4d4/data", None),  # HF a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40 (user 2026-11-14)
+    "basketv2p": (P / "basket-trimv2-c4df4d4/data", None),  # 2026-11-23 user: basket v2 (A20 final data) from the base model, 4000 steps (no v1 stage)
     "trolley": (P / "trolley-push-expert-v1-20261110/data/trolley_push", 100),  # HF trolley-push-expert-v1 @ef9024a: fixed first 100 of 103
     "b7": (P / "b7-black-clothes-hamper-v1-1bb002a/data", 100),  # HF b7-black-clothes-hamper-expert-v1 @1bb002a, first 100 of 107
     "a6": (P / "a6-door-pull-v1-cf3ee9b/data/door_pull", None),  # HF door-pull-expert-v1 @cf3ee9b (A6)

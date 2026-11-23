@@ -1372,6 +1372,16 @@ HFDATA["b6v6p"] = ("b6-pedal-bin @ad2f5bf0 (v6 at the repo root, all 542 episode
 SUBDIR.update({("groot2x32", "b6v6p"): "b512-v6-pure", ("psi0", "b6v6p"): "b512-v6-pure"})
 
 
+# 2026-11-23 user: GR00T / Psi-Zero basket v2 (A20 final data) from base, 4000 steps -> new sub-dirs b512-trimv2-pure/
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    if "basketv2" in _d:
+        _d.setdefault("basketv2p", _d["basketv2"])
+HFDATA["basketv2p"] = ("a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40 (A20 final data, all 100 episodes; "
+                       "trained from the base model on v2 only, no v1 stage)")
+SUBDIR.update({("groot2x32", "basketv2p"): "b512-trimv2-pure", ("psi0", "basketv2p"): "b512-trimv2-pure"})
+
+
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
