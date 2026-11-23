@@ -224,6 +224,20 @@ def check_fastwam(run, proto):
     return steps, m
 
 
+def check_aug_seed(run, seed):
+    """2026-11-23: GR00T / Psi-Zero / FastWAM entries print HB_AUG_SEED=<seed> (seeded augmentation stream)."""
+    for f in sorted((run / "logs").glob("*.log"))[:8]:
+        try:
+            m = re.search(rb"HB_AUG_SEED=(\d+)", open(f, "rb").read(8 << 20))
+        except OSError:
+            continue
+        if m:
+            expect("augmentation stream seed (HB_AUG_SEED)", int(m.group(1)), seed)
+            return
+    say("WARN", "augmentation stream seed", "no HB_AUG_SEED line",
+        "seeded stream (runs started before 2026-11-23 13:05 UTC are not seeded: registered exception)")
+
+
 def main():
     if len(sys.argv) != 3 or sys.argv[1] not in ("groot", "psi0", "fastwam"):
         sys.exit(__doc__)
@@ -232,6 +246,7 @@ def main():
     print(f"== {model} {run}  (protocol {proto['version']})")
     steps, m = {"groot": check_groot, "psi0": check_psi0, "fastwam": check_fastwam}[model](run, proto)
     check_inloop(run, steps, proto["interface"]["inloop_mse"]["every"])
+    check_aug_seed(run, m["seed"])
     n_fail, n_warn = RESULTS.count("FAIL"), RESULTS.count("WARN")
     print(f"== {'OK' if not n_fail else 'NOT ALIGNED'}: {RESULTS.count('PASS')} pass, {n_fail} fail, {n_warn} warn"
           + ("  -> fix it, or register the deviation as an exception (REPRODUCIBILITY.md section 7)" if n_fail else ""))

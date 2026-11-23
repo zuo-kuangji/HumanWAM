@@ -21,6 +21,8 @@ interface:                       # identical for every model
     visual: "15 effects, one effect per sample boosted to 1.5x; model-native image augmentation off"
     proprio: "per-joint bias U(+-2 deg) + N(0, 0.25 deg) clipped at 3 sigma (hb_aug_v2.perturb_joints); no delay, no history drop"
     eval: "all random perturbation off"
+    rng: "numpy Generator from (HB_AUG_SEED = training seed, torch.initial_seed() of the process / DataLoader worker, global rank, worker id); FastWAM adds sample index + per-process call counter"
+    rng_since: "2026-11-23 13:05 UTC for GR00T, Psi-Zero, FastWAM (training log prints HB_AUG_SEED=<seed>); pi0.5, DiT4DiT, Delta Flow were always seeded"
   gradient_accumulation_steps: 1
   inloop_mse: {every: 250, batch: 8, seed: 1234, split: "heldout if the task has never-trained episodes else train10"}
   continuation: {init: weights_only, peak_lr_factor: 0.3, warmup_ratio: 0.05, schedule: cosine, steps: 2000, steps_long_task: 4000}
@@ -156,5 +158,5 @@ exceptions:                       # every item must also appear in the paper app
   - {model: fastwam, task: b5ss, what: "not trained", decision: user}
   - {model: act, task: "b7 black trimmed (collaborator baseline)", what: "256 x 8000 steps", decision: "collaborator run"}
   - {model: "psi0, act", task: all, what: "seed 292285 (upstream Psi0) while the other models use 42", decision: "pending user decision on a single global seed"}
-  - {model: "groot, psi0, fastwam", task: all, what: "visual-augmentation RNG drawn from pid/urandom/time, not from the seed -> not bit-reproducible", decision: "fix pending user approval"}
+  - {model: "groot, psi0, fastwam", task: all, what: "runs started before 2026-11-23 13:05 UTC: visual-augmentation RNG drawn from pid/urandom/time, not from the seed -> not bit-reproducible", decision: "user 2026-11-23: fixed for later runs; old results kept, appendix"}
   - {model: "groot, psi0, fastwam", task: "runs before 2026-11-15 (e.g. groot c6, psi0 c6) and unregistered task keys (groot a14cr3, fastwam b7gt + b7gt-cont2k, fastwam a14cr3; psi0 a14cr3 has 1 point)", what: "no in-training MSE curve", decision: "post-hoc open-loop MSE only; not allowed for new runs (user 2026-11-22)"}

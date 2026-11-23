@@ -62,9 +62,9 @@
 
 | 模型 | 训练种子 | 来源 / 设置位置 | 其他随机源 |
 |---|---|---|---|
-| GR00T N1.7 | **42** | 上游 `gr00t/configs/data/data_config.py: seed = 42` → `experiment.py: set_seed(config.data.seed)`；HF `TrainingArguments.seed = 42`、`data_seed = None`。所有 `groot-runs-2x32/*` 和 `groot-runs-ft512/*` 的 `training_args.bin` 都是 42。 | 数据采样：`trainer.py` 每步 `reset_seed(seed + global_step)`，是确定的。增强随机流：见第 3 节，**目前不确定**。 |
-| FastWAM | **42** | 上游 `FastWAM/configs/train.yaml: seed: 42`；`fastwam/runs/*/out/config.yaml` 都是 42，续训也是 42。 | 推理适配器 `ad_fastwam.py`：10 步去噪，seed 42。增强随机流：**目前不确定**（第 3 节）。 |
-| Psi-Zero | **292285** | 上游 Psi0 官方 finetune 脚本（`scripts/train/psi0/*.sh` 都写 `--seed=292285`）→ `hb_psi0/hb_args.py`。 | 本体常偏：`hb-bias-seed=292285`，用 `default_rng([seed, epoch, episode])`，是确定的。视觉增强随机流：**目前不确定**。上游 `set_seed` 启用了 `use_deterministic_algorithms(True, warn_only=True)` 和 `cudnn.benchmark=False`。 |
+| GR00T N1.7 | **42** | 上游 `gr00t/configs/data/data_config.py: seed = 42` → `experiment.py: set_seed(config.data.seed)`；HF `TrainingArguments.seed = 42`、`data_seed = None`。所有 `groot-runs-2x32/*` 和 `groot-runs-ft512/*` 的 `training_args.bin` 都是 42。 | 数据采样：`trainer.py` 每步 `reset_seed(seed + global_step)`，是确定的。增强随机流：见第 3 节，11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定。 |
+| FastWAM | **42** | 上游 `FastWAM/configs/train.yaml: seed: 42`；`fastwam/runs/*/out/config.yaml` 都是 42，续训也是 42。 | 推理适配器 `ad_fastwam.py`：10 步去噪，seed 42。增强随机流：11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定（第 3 节）。 |
+| Psi-Zero | **292285** | 上游 Psi0 官方 finetune 脚本（`scripts/train/psi0/*.sh` 都写 `--seed=292285`）→ `hb_psi0/hb_args.py`。 | 本体常偏：`hb-bias-seed=292285`，用 `default_rng([seed, epoch, episode])`，是确定的。视觉增强随机流：11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定。上游 `set_seed` 启用了 `use_deterministic_algorithms(True, warn_only=True)` 和 `cudnn.benchmark=False`。 |
 | ACT | **292285** | `hb_act/hb_act_args.py`，复用 Psi0 仓库的 LeRobot ACT 和同一套参数。 | 同 Psi-Zero。 |
 | π0.5 | **42** | openpi `TrainConfig.seed = 42`；`hb_pi05/hb_g1_data.py` 的 `HB_AUG_SEED` 默认 42。 | 常偏：`default_rng([seed, epoch, episode])`，确定。增强流：`torch.initial_seed()` 加全局 rank，在世界规模和 worker 数相同时是确定的。 |
 | DiT4DiT | **42** | `hb_dit4dit/hb_d4d_config.py: "seed": 42`；`HB_AUG_SEED` 默认 42。 | 数据顺序：`default_rng([seed, pass])` 打乱，可以精确续训。常偏确定。 |
@@ -78,12 +78,13 @@
 
 ## 3. 已知的不可复现来源（必须知道，部分待修）
 
-1. **GR00T、Psi-Zero、FastWAM 的视觉增强随机流没有由种子决定（待修，修之前需用户批准）**
+1. **GR00T、Psi-Zero、FastWAM 的视觉增强随机流（2026-11-23 21:05 北京时间起已修复）**
    - `hb_groot/hb_launch.py`：`default_rng([pid, urandom])`
    - `hb_psi0/hb_psi0_config.py: hb_rng()`：pid + urandom
    - `fastwam/tools/hb_fastwam_aug.py`：pid、样本下标、`time_ns`
-   - 后果：同种子重训时，「每个样本选哪项增强、扰动多大」每次都不同。分布完全相同，结果只在统计上等价，逐位不同。GR00T 和 FastWAM 的关节常偏也由这个流产生。
-   - 修法：改成从 `(训练种子, global rank, worker id, epoch, 样本下标)` 派生，参照 π0.5、DiT4DiT、Delta Flow 的做法。修好后，修改前训的模型在附录注明「增强随机流不可逐位复现」。
+   - 修复前的后果：同种子重训时，「每个样本选哪项增强、扰动多大」每次都不同。分布完全相同，结果只在统计上等价，逐位不同。GR00T 和 FastWAM 的关节常偏也由这个流产生。
+   - 已修（用户 11-23 批准）：训练入口 `hb_groot/hb_launch.py`、`hb_psi0/hb_train.py`、`fastwam_tools/hb_fastwam_train.py` 把 `HB_AUG_SEED` 设为训练种子，并在日志打印 `HB_AUG_SEED=<seed>`；增强随机流改由 `(HB_AUG_SEED, 进程或 DataLoader worker 的 torch.initial_seed(), global rank, worker id)` 派生，FastWAM 另加样本下标和进程内计数。CPU 实测三个模型同种子两次运行逐位一致，不同 worker 的流不同。
+   - 只对 11-23 21:05（13:05 UTC）之后启动的训练生效，分布不变。之前训的模型（包括已发布的全部 GR00T、Psi-Zero、FastWAM）在 `protocol.json` 的 `reproducibility.augmentation_random_stream` 里标为 not seeded，附录注明。
 2. **GPU 计算不是逐位确定的**
    - 除 Psi0 的 `warn_only` 外，没有开 `cudnn.deterministic` / `use_deterministic_algorithms`。
    - bf16、NCCL 归约顺序、原子操作都会引入逐位差异。
@@ -91,10 +92,9 @@
 3. **布局影响随机流和数据分片**
    - 每卡 batch、节点数、GPU 数、`num_workers` 都会改变采样顺序和增强流。
    - 复现时必须用 protocol 里记录的布局（例如 GR00T 2 节点 × 8 × 32，`num_workers` 8）。不得为了省卡改布局，除非全局 batch 不变，并在 protocol 里写明。
-4. **已发布的 `protocol.json` 没有 `seed` 字段**
-   - 种子目前只记在 `training_args.bin`、`train_args.txt`、`training_config.yaml` 里。
-   - 以后上传必须在 protocol 里显式写 `seed`、`aug_seed`、代码 commit 和环境版本（第 8 节）。
-   - 已发布目录是否补写由用户决定：补写会改动已发布文件。
+4. **`protocol.json` 的种子与复现字段（2026-11-23 起自动写入，已发布的已补写）**
+   - 自动上传调用 `hf-sidecar-tools-20261110/hb_repro.py`（仓库同步在 `hb_training/hf_tools/`），给每个 `protocol.json` 加顶层 `seed` 和 `reproducibility` 块：训练种子及来源、增强随机流是否由种子决定（看运行日志里的 `HB_AUG_SEED=` 行）、训练中 MSE 种子、布局、环境版本、硬件、上游代码、规范链接和 commit。
+   - 已发布的目录用 `hb_repro_backfill.py` 补写：只加字段，不改其他内容；种子尽量从该目录的运行文件读出并标明是否核实；`legacy/` 不动。
 
 ---
 
@@ -211,7 +211,7 @@
 | FastWAM B5 standing start | 不训 | 用户 |
 | 多个早期运行 | **没有训练中 MSE**：2026-11-15 训练中评估机制上线前训的（如 GR00T C6、Psi-Zero C6），以及任务键当时没登记、评估自动关闭的（GR00T A14 cr3、FastWAM B7 绿衣服 4000 步及续训、FastWAM A14 cr3 4000 步，Psi-Zero A14 cr3 只有 1 个点） | 只有事后补测的开环 MSE；11-22 起不再允许，新训练必须伴随训练测 |
 | 种子 | Psi-Zero / ACT 是 292285，其余模型是 42（各用上游官方值） | 待用户决定是否统一 |
-| 增强随机流 | GR00T、Psi-Zero、FastWAM 由 pid、urandom、时间产生，不可逐位复现（第 3 节） | 待修 |
+| 增强随机流 | 2026-11-23 21:05 之前启动的 GR00T、Psi-Zero、FastWAM 训练：由 pid、urandom、时间产生，不可逐位复现（第 3 节） | 11-23 已修，之后启动的训练由种子决定；旧结果保留，附录注明 |
 
 新例外追加到本表，同时写进该运行的 `protocol.json` 的 `exceptions` 字段。
 
@@ -229,19 +229,14 @@
   - 所用适配代码快照 `code/`
   - 推理说明
   - 续训状态（优化器等）**不上传**
-- **今后 `protocol.json` 还必须加上**（第 3 节第 4 条）
-  - `seed`、`aug_seed`、`bias_seed`
-  - 本仓库 commit
-  - Python/torch/CUDA 版本
-  - 节点 × GPU × 每卡 batch 布局
-  - `exceptions`
+- **`seed` 和 `reproducibility` 块**：由 `hb_repro.py` 自动写入（第 3 节第 4 条）。新模型接入自动上传前，先在 `hb_repro.MODELS` 里登记它的种子、环境和上游代码。
 
 ---
 
 ## 9. 开训前检查清单（每次都做）
 
 1. **数据**：HF repo@commit、条数规则、fps、相机、state 和 action 维度都与第 5 节一致。新数据先逐项核对。
-2. **实际取一个 batch**：确认原始本体是 44 / 78 维、不含速度；编码后的维度符合模型原生配方；增强日志里出现 `HB_AUG` / `HB_FW_AUG`，并带 `boost=`。
+2. **实际取一个 batch**：确认原始本体是 44 / 78 维、不含速度；编码后的维度符合模型原生配方；增强日志里出现 `HB_AUG` / `HB_FW_AUG`，并带 `boost=`；GR00T、Psi-Zero、FastWAM 的日志里还要有 `HB_AUG_SEED=<训练种子>`。
 3. **配方**：种子、全局 batch、梯度累积 = 1、步数、学习率曲线、存档点都与第 2、4 节和 `protocol.yaml` 一致。Psi-Zero 要确认 `HB_DELAY_PROB` 未设置。
 4. **训练中 MSE**：`hb_eval_common.TASKS` 已登记、`train10` 缓存已建好；开训后日志有 `HB_INLOOP` 且是启用状态。
 5. **上传**：新子目录已在自动上传里登记，不与已有目录重名。
