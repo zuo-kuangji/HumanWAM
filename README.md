@@ -5,6 +5,7 @@ HumanWAM maintains six policy families through nine registered entries: GR00T N1
 motion-token and joint-reference training modes with distinct action and checkpoint schemas.
 
 - [G1 training modes and reproducible commands](docs/TRAINING_MODES.md)
+- [Humanoid Benchmark training protocol and reproducibility rules (seeds, batch, steps, data versions)](hb_training/REPRODUCIBILITY.md)
 - [G1 deployment: model services, HTTP clients and SONIC v1.1](docs/G1_DEPLOYMENT.md)
 - [Training augmentation v3: paired RGB noise, JPEG, jitter and state conditioning](docs/DATA_AUGMENTATION.md)
 - [Augmentation v3 verification: 588 CPU checks](docs/policies/AUGMENTATION_V3_VALIDATION_20261110.md)

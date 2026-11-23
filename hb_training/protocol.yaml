@@ -1,0 +1,160 @@
+# Humanoid Benchmark canonical training protocol (machine-readable companion of REPRODUCIBILITY.md).
+# Verified 2026-11-23 against the artifacts of the runs actually trained (training_args.bin / train_args.txt /
+# out/config.yaml / published protocol.json). check_protocol.py reads this file. Change a value only together with
+# REPRODUCIBILITY.md and only on an explicit user decision; record deviations under `exceptions`.
+version: 2026-11-23
+
+interface:                       # identical for every model
+  proprio:
+    g1: {dim: 44, layout: "29 body joint angles + measured hands 6+6 + projected gravity 3", velocity: false}
+    h2: {dim: 78, layout: "75 joints (body 31 incl. head, Sharpa hands 22+22) + projected gravity 3", velocity: false}
+  action:
+    g1: {dim: 76, layout: "motion token 64 + same-frame measured hands 12"}
+    h2: {dim: 75}
+    h2p: {dim: 82, layout: "body 31 + hands 44 + SONIC planner 7 (A14)"}
+  cameras: {g1: [ego_view, chest], h2: [head, chest]}
+  fps: 30
+  augmentation:
+    spec: "Humanoid Benchmark online augmentation spec v2 (2026-11-09), see project CLAUDE.md / docs/augmentation_v2.md"
+    implementation: hb_groot/hb_aug_v2.py
+    implementation_sha256_prefix: 9f7713cea4f846ef
+    visual: "15 effects, one effect per sample boosted to 1.5x; model-native image augmentation off"
+    proprio: "per-joint bias U(+-2 deg) + N(0, 0.25 deg) clipped at 3 sigma (hb_aug_v2.perturb_joints); no delay, no history drop"
+    eval: "all random perturbation off"
+  gradient_accumulation_steps: 1
+  inloop_mse: {every: 250, batch: 8, seed: 1234, split: "heldout if the task has never-trained episodes else train10"}
+  continuation: {init: weights_only, peak_lr_factor: 0.3, warmup_ratio: 0.05, schedule: cosine, steps: 2000, steps_long_task: 4000}
+  long_task_step_factor: {c6: 2}          # A14 is NOT doubled
+
+models:
+  groot:
+    seed: 42                     # upstream gr00t/configs/data/data_config.py; HF TrainingArguments.seed
+    seed_source: "upstream Isaac-GR00T default"
+    global_batch: 512
+    layout: {nodes: 2, gpus_per_node: 8, per_gpu_batch: 32}
+    layout_h2p: {nodes: 4, gpus_per_node: 8, per_gpu_batch: 16}
+    max_steps: 4000
+    max_steps_c6: 8000
+    learning_rate: 1.0e-4
+    warmup_ratio: 0.05
+    lr_schedule: cosine
+    weight_decay: 1.0e-5
+    save_steps: [2000, 2500, 3000, 3500, 4000]
+    trainable: "full fine-tune: tune_llm, tune_visual, projector, diffusion action head, VLLN"
+    action_horizon: 16
+    dataloader_num_workers: 8
+    upstream: {repo: third_party/Isaac-GR00T, commit: 7aa0bca}
+    env: {name: groot-py312, python: 3.12.12, torch: 2.9.0+cu128}
+    launchers: {g1: hb_groot/groot_pair2x32.sh, h2: hb_groot/groot_pair2x32_h2.sh, h2p: hb_groot/groot_quad16_h2p.sh}
+  psi0:
+    seed: 292285                 # upstream Psi0 finetune scripts (scripts/train/psi0/*.sh --seed=292285)
+    seed_source: "upstream Psi0 official finetune scripts"
+    bias_seed: 292285
+    global_batch: 512
+    layout: {nodes: 2, gpus_per_node: 8, per_gpu_batch: 32}
+    layout_h2p: {nodes: 4, gpus_per_node: 8, per_gpu_batch: 16}
+    max_steps: 4000
+    max_steps_c6: 4000           # exception: not doubled (user 2026-11-13)
+    learning_rate: 1.0e-4
+    param_group_lr: {lang_backbone: 1.0e-6, vision_tower: 1.0e-5, mm_projector: 1.0e-4}
+    warmup_ratio: 0.025
+    lr_schedule: cosine
+    weight_decay: 1.0e-6
+    betas: [0.95, 0.999]
+    max_grad_norm: 1.0
+    mixed_precision: bf16
+    save_every: 2000
+    hb_delay_prob: 0.0
+    action_horizon: 30
+    num_workers: 8
+    upstream: {repo: third_party/Psi0, commit: cda3fdf}
+    env: {name: psi0, python: 3.11.18, torch: 2.7.0+cu126}
+    launchers: {all: hb_b512/psi0_multi.sh}
+  fastwam:
+    seed: 42                     # upstream FastWAM configs/train.yaml
+    seed_source: "upstream FastWAM default"
+    global_batch: 512
+    layout: {nodes: 4, gpus_per_node: 8, per_gpu_batch: 16}
+    max_steps: 4000
+    max_steps_c6: 8000
+    continuation_steps: 2000     # total 6000; C6 4000 more (total 12000)
+    learning_rate: 1.0e-4
+    continuation_learning_rate: 3.0e-5
+    lr_schedule: cosine
+    weight_decay: 0.01
+    max_grad_norm: 1.0
+    mixed_precision: bf16
+    save_every: 2000
+    continuation_save_every: 1000
+    action_horizon: 16
+    video: "17-frame clips, two cameras side by side 224x448"
+    num_workers: 8
+    upstream: {repo: "github.com/yuantianyuan01/FastWAM", commit: 7faa71108368fbb3b6885649f112af607427a2d4}
+    env: {name: fastwam, python: 3.11.18, torch: 2.7.1+cu128}
+    launchers: {train: hb_fastwam/fastwam_task.sh, cont: hb_fastwam/fastwam_cont.sh, cont_c6: hb_fastwam/fastwam_cont4k.sh}
+  pi05:
+    seed: 42                     # openpi TrainConfig.seed; HB_AUG_SEED default 42
+    global_batch: 256
+    max_steps: 4000
+    save_steps: [2000, 4000]
+    action_horizon: 16
+    inloop_mse: false            # MUST be wired before the next pi0.5 training
+    upstream: {repo: third_party/openpi, commit: 215abfb}
+  dit4dit:
+    seed: 42                     # hb_dit4dit/hb_d4d_config.py; HB_AUG_SEED default 42
+    global_batch: 64
+    max_steps: 8000
+    save_steps: [6000, 8000]
+    learning_rate: {backbone_interface: 1.0e-5, action_model: 1.0e-4, base: 3.0e-5, min_lr: 5.0e-7, schedule: cosine_with_min_lr}
+    warmup_ratio: 0.05
+    proprio_encoding: "sin/cos of joint angles (G1 73 / H2 153), native recipe"
+    inloop_mse: false            # MUST be wired before the next DiT4DiT training
+    upstream: {repo: third_party/DiT4DiT, commit: 66a6f3a}
+  deltaflow:
+    seed: 42                     # deltaflow-runs/<task>/run/production.yaml
+    aug_seeds: {image: 20261110, proprio: 20261106}
+    global_batch: 256
+    layout: {gpus: 32, per_gpu_batch: 8}
+    max_steps: 8000
+    max_steps_c6: 16000
+    warmup_ratio: 0.05
+    lr_schedule: cosine
+    save_steps: [6000, 8000]
+  act:
+    seed: 292285                 # hb_act/hb_act_args.py (Psi0 repo's LeRobot ACT)
+    global_batch: 256
+    max_steps: 4000
+
+tasks:                            # newest data per task (HF org humanoid-benchmark, private datasets)
+  a3v4:     {robot: g1, data_commit: 6393d4a}
+  a7v4:     {robot: g1, data_commit: 90cc2b5}
+  a10v3:    {robot: g1, data_commit: 6e410c5}
+  basketv2: {robot: g1, hf: a20-basket-transfer-pre-reach-trim-expert-v2, data_commit: c4df4d4, episodes: 100}
+  b1:       {robot: g1, hf: b1-riceball-microwave-expert-v1, data_commit: 36da298, episodes: 115}
+  b5:       {robot: g1, hf: b5-chair-push-expert-v1, data_commit: b85b7e9, episodes: 100}
+  b5ss:     {robot: g1, hf: A22-chair-push-standing-start-expert-v1-formerly-b5, data_commit: 913f5a1, episodes: 100}
+  b6v6:     {robot: g1, hf: b6-pedal-bin, data_commit: ad2f5bf0, episodes: 500, episodes_note: "first 500 of 542; GR00T/Psi-Zero pure-v6 (b6v6p) use all 542"}
+  b7t:      {robot: g1, hf: b7-black-clothes-hamper, data_commit: 949da46, episodes: 100, episodes_note: "first 100 of 107"}
+  b7gt:     {robot: g1, hf: b7-green-clothes-hamper, data_commit: 22e3b83, episodes: 421}
+  b8:       {robot: g1, hf: b8-table-wipe-expert-v1, data_commit: 3b2e618}
+  c6:       {robot: g1, hf: c6-bathroom-door-fetch-expert-v1, data_commit: 3afba69, long_task: true}
+  a14cr3:   {robot: h2p, hf: a14-screw-bulb, data_commit: 79fe08a, action_dim: 82}
+  a17cr2:   {robot: h2, hf: a17-unscrew-bottle, data_commit: 3520b70f, episodes: 100}
+  a18cr2:   {robot: h2, hf: a18-pour-water, data_commit: 44cdd571, episodes: 100}
+
+exceptions:                       # every item must also appear in the paper appendix
+  - {model: groot, task: c6, what: "4 nodes x 8 x grad-accum 2 (2026-11-13 recipe), 8000 steps", decision: "user 2026-11-14: not retrained"}
+  - {model: groot, task: "basket v1, b7 v1, b7green v1", what: "4 x 8 x grad-accum 2 (groot-runs-ft512)", decision: "superseded by newer data versions"}
+  - {model: "groot, psi0", task: basketv2, what: "published versions are 2000-step continuations from v1", decision: "user 2026-11-23: pure v2 retrain basketv2p -> b512-trimv2-pure"}
+  - {model: psi0, task: c6, what: "4000 steps, not doubled", decision: "user 2026-11-13"}
+  - {model: psi0, task: "a14cr3 (cropped-v3-b512), older a17/a18", what: "proprio delay 0.15", decision: "user 2026-11-22: removed; retrained a14cr3a / b512-2cam-cropped-v2"}
+  - {model: "pi05, psi0, act", task: "runs before 2026-11-12", what: "15 % proprio delay + 15 % history drop", decision: "kept, appendix"}
+  - {model: "fastwam, deltaflow", task: b6v6, what: "first 500 episodes", decision: "user 2026-11-18"}
+  - {model: "groot, psi0", task: b6v6p, what: "all 542 episodes", decision: "user 2026-11-23"}
+  - {model: deltaflow, task: a17cr2lg, what: "legacy a18 e40 recipe (old aug, no proprio aug)", decision: "user 2026-11-22: Delta Flow later"}
+  - {model: deltaflow, task: b6v6, what: "weights-only continuation from v5 step_010200, lr 3e-5", decision: "2026-11-15 plan"}
+  - {model: fastwam, task: b5ss, what: "not trained", decision: user}
+  - {model: act, task: "b7 black trimmed (collaborator baseline)", what: "256 x 8000 steps", decision: "collaborator run"}
+  - {model: "psi0, act", task: all, what: "seed 292285 (upstream Psi0) while the other models use 42", decision: "pending user decision on a single global seed"}
+  - {model: "groot, psi0, fastwam", task: all, what: "visual-augmentation RNG drawn from pid/urandom/time, not from the seed -> not bit-reproducible", decision: "fix pending user approval"}
+  - {model: "groot, psi0, fastwam", task: "runs before 2026-11-15 (e.g. groot c6, psi0 c6) and unregistered task keys (groot a14cr3, fastwam b7gt + b7gt-cont2k, fastwam a14cr3; psi0 a14cr3 has 1 point)", what: "no in-training MSE curve", decision: "post-hoc open-loop MSE only; not allowed for new runs (user 2026-11-22)"}

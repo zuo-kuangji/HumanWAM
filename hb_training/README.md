@@ -1,5 +1,7 @@
 # hb_training：Humanoid Benchmark 多模型训练适配
 
+> **当前训练规范以 [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) + [`protocol.yaml`](protocol.yaml) 为准（2026-11-23 起）。**开训前逐项对照，训完运行 [`check_protocol.py`](check_protocol.py)。下文「训练设置」是 2026-11-10 的历史记录，其中 20 epoch、batch 696、按显存取最大 batch 等均已废止。
+
 本目录存放 Humanoid Benchmark 任务在阿里云 PAI DLC（4 节点 × 8 张 A800）上训练用的适配代码。内容同步自训练节点上的 `$G = …/preflight-20261104T1648Z/policies-20261109`，同步时间 2026-11-10。
 
 ## 模型与上游代码
@@ -26,7 +28,7 @@
 
 每个任务都是 100 条。
 
-## 训练设置
+## 训练设置（2026-11-10 历史记录，已被 REPRODUCIBILITY.md 取代）
 
 - **π0.5、Psi-Zero、DiT4DiT、GR00T**：
   - 训 20 个 epoch，第 10、20 个 epoch 各存一次 checkpoint；
