@@ -147,22 +147,27 @@ def _hb_baselines(proto, seed_found, run_config, backfill):
     cfg = run_config or {}
     tr = cfg.get("training") or {}
     aug = tr.get("augmentation") or {}
-    used = seed_found if seed_found is not None else tr.get("seed", HB_BASELINES_SEED)
+    policy = (cfg.get("policy") or {}).get("policy") or proto.get("policy") or "?"
+    flash = policy == "flash"
+    used = seed_found if seed_found is not None else tr.get("seed", 42 if flash else HB_BASELINES_SEED)
     cc = cfg.get("code_commit")
     r = {
         "protocol": PROTOCOL_URL,
         "protocol_commit": _commit(),
         "training_seed": used,
-        "training_seed_source": "config.json training.seed of this folder (collaborator's hb_baselines stack for the "
-                                "ACT b512*, FM-DiT and DP baselines; every published hb_baselines folder records seed 0)",
+        "training_seed_source": (f"config.json training.seed of this folder (hb_baselines code, policy {policy}; "
+                                 + ("42 = upstream NTUMARS/FLASH-Policy default_train.yaml training_params.seed)" if flash else
+                                    "the ACT b512*, FM-DiT and DP baselines all record seed 0)")),
         "training_seed_verified_from_run_files": seed_found is not None,
-        "augmentation_random_stream": (f"augmentation spec v2 ({aug.get('version', 'hb-aug-v2')}, implementation "
-                                       f"{aug.get('implementation', 'evaluation/augmentation/hb_aug_v2.py')} of hb_baselines); "
-                                       "how this stack seeds its per-sample random stream is not audited by this protocol"),
+        "augmentation_random_stream": (("seeded: per DataLoader worker numpy default_rng([HB_AUG_SEED=42, torch.initial_seed(), "
+                                        "worker id]) (protocol.yaml models.flash)") if flash else
+                                       (f"augmentation spec v2 ({aug.get('version', 'hb-aug-v2')}, implementation "
+                                        f"{aug.get('implementation', 'evaluation/augmentation/hb_aug_v2.py')} of hb_baselines); "
+                                        "how this stack seeds its per-sample random stream is not audited by this protocol")),
         "layout": {k: tr[k] for k in ("batch_size", "steps") if k in tr} or None,
         "environment": ("code/hb_baselines_v1/baselines/requirements.txt of this repository (= Humanoid_benchmark "
                         "evaluation/baselines/requirements.txt: Python 3.12, torch 2.9.0+cu128, CUDA 12.8 wheels)"),
-        "hardware": "not recorded in this folder",
+        "hardware": "Volcengine team_10, 1 x RTX 4090D (protocol.yaml models.flash)" if flash else "not recorded in this folder",
         "upstream_code": (f"{HB_BASELINES_REPO} @ {cc} (evaluation/baselines/train.py, evaluation/augmentation/hb_aug_v2.py)"
                           if cc else f"{HB_BASELINES_REPO} evaluation/baselines (code_commit not recorded in this folder's config.json)"),
         "adapter_code": "config.json in this folder records the model, data contract, dataset episodes, training and "
@@ -170,6 +175,10 @@ def _hb_baselines(proto, seed_found, run_config, backfill):
         "determinism": DETERMINISM,
         "exceptions": "see the exception registry, REPRODUCIBILITY.md section 7 (hb_baselines seed 0)",
     }
+    if flash:
+        r["inloop_mse_seed"] = INLOOP_SEED
+        r["upstream_method"] = "github.com/NTUMARS/FLASH-Policy @ f47e490 (Apache-2.0)"
+        r["exceptions"] = "see the exception registry, REPRODUCIBILITY.md section 7; FLASH recipe: section 4.6"
     if backfill:
         r["backfilled"] = backfill
     return {"seed": used, "reproducibility": r}
