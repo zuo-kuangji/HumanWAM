@@ -134,7 +134,32 @@ models:
     recipe_record: "config.json in each HF folder (training, augmentation, dataset episodes, code_commit)"
     code: {repo: "github.com/zuo-kuangji/Humanoid_benchmark", entry: "evaluation/baselines/train.py --policy act|fm_dit|dp --contract <contract>", augmentation: evaluation/augmentation/hb_aug_v2.py, env: "evaluation/baselines/requirements.txt (python 3.12, torch 2.9.0+cu128)", commits_published: [4385573e, 028df1bb]}
     only_act_code: true          # 2026-11-24 user: the only ACT used in this project
-    inloop_mse: false            # MUST be wired (or an exception approved) before the next ACT training in this project
+    inloop_mse: available        # evaluation/baselines/inloop.py --inloop-task (Humanoid_benchmark bai 9cca6255); wire it for the next ACT training
+  flash:                         # user's own method (NeurIPS 2026), joined 2026-11-24, B6 first; registered from the FLASH session's measurements
+    seed: 42                     # upstream FLASH-Policy roboverse_learn/il/configs/train_config/default_train.yaml training_params.seed
+    seed_source: "upstream NTUMARS/FLASH-Policy default_train.yaml training_params.seed"
+    aug_rng: "per DataLoader worker numpy default_rng([HB_AUG_SEED=42, torch.initial_seed(), worker id]); log prints HB_AUG_SEED=42"
+    upstream: {repo: "github.com/NTUMARS/FLASH-Policy", commit: f47e490, license: Apache-2.0}
+    code: {repo: "github.com/zuo-kuangji/Humanoid_benchmark", branch: bai, commit: 9cca6255, entry: "evaluation/baselines/train.py --policy flash --contract g1_sonic_dfx6", model: evaluation/baselines/flash.py, parity: "check_flash_parity.py: 12 checks, max abs diff 0"}
+    env: {name: hb-baselines, python: "3.12.1", torch: "2.9.0+cu128", torchvision: "0.24.0"}
+    hardware: "Volcengine team_10, 1 x RTX 4090D (not A800)"
+    global_batch: 512
+    layout: {nodes: 1, gpus_per_node: 1, per_gpu_batch: 512}
+    gradient_accumulation_steps: 1
+    num_workers: 40
+    prefetch_factor: 2
+    max_steps: 16000             # user 2026-11-24
+    save_steps: [2000, 4000, 6000, 8000, 10000, 12000, 14000, 16000]
+    optimizer: {name: AdamW, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6}
+    lr_schedule: {warmup_steps: 500, warmup: linear, schedule: "diffusers cosine", final_lr: 0.0}
+    ema: {impl: "Diffusion Policy EMAModel", power: 0.75, max_decay: 0.9999, saved_weights: ema}
+    precision: "bf16 autocast; polynomial fitting in fp32"
+    model: {dit: {width: 512, layers: 4, heads: 8, dropout: 0.0, time_embed: 256}, vision: "ResNet18 per camera, from scratch, GroupNorm, same lr", basis: {family: Legendre, degree: 6, fit_pad: 1, poly_prefix: 1, poly_suffix: 1, boundary: C1}, history_noise_std: 0.5, history_reg_lambda: 0.1, consistency_weight: 1.0, inference: "1-step Euler"}
+    interface_adaptation: "user 2026-11-24, model-internal, not an exception: history = interface past_actions, 8 points every 2 frames up to t-1 (67 ms at 30 Hz; paper 60 ms), first row repeated before the episode start, frame 0 starts from zero coefficients; current-frame images only (ego_view + chest 168x224) + state44, no 8-frame observation history; polynomial evaluated per 30 Hz frame, 16 rows, no velocity feed-forward"
+    data: {b6v6: "HF b6-pedal-bin @ad2f5bf0, first 500 episodes (0-499), 305,667 frames"}
+    inloop_mse: "evaluation/baselines/inloop.py -> eval-action-mse hb_inloop_core (copy of HumanWAM bai ff5bf95): every 250 steps, train10, batch 8, seed 1234, EMA weights; <run>/logs/inloop-mse.jsonl"
+    run_dir: "team_10 /root/hb_flash/runs/b6v6-b512-s16000"
+    hf_upload: "to be decided by the user after training"
     act: {global_batch: 512, max_steps: 4000, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6, warmup_steps: 200, lr_schedule: cosine, ema: 0.9999, amp: true}
 
 tasks:                            # newest data per task (HF org humanoid-benchmark, private datasets)

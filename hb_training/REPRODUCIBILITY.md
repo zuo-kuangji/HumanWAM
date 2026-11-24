@@ -70,6 +70,7 @@
 | π0.5 | **42** | openpi `TrainConfig.seed = 42`；`hb_pi05/hb_g1_data.py` 的 `HB_AUG_SEED` 默认 42。 | 常偏：`default_rng([seed, epoch, episode])`，确定。增强流：`torch.initial_seed()` 加全局 rank，在世界规模和 worker 数相同时是确定的。 |
 | DiT4DiT | **42** | `hb_dit4dit/hb_d4d_config.py: "seed": 42`；`HB_AUG_SEED` 默认 42。 | 数据顺序：`default_rng([seed, pass])` 打乱，可以精确续训。常偏确定。 |
 | Delta Flow | **42** | `deltaflow-runs/<task>/run/production.yaml: seed: 42`。 | 增强种子：image_policy `20261110`、proprio_policy `20261106`；`split-manifest.json` 种子 42。 |
+| FLASH | **42** | 上游 NTUMARS/FLASH-Policy @ `f47e490` 的 `roboverse_learn/il/configs/train_config/default_train.yaml`：`training_params.seed`；本项目的移植在 hb_baselines（Humanoid_benchmark bai `9cca6255`），见 4.6。 | 增强随机流：每个 DataLoader worker 用 `default_rng([HB_AUG_SEED=42, torch.initial_seed(), worker id])`，日志打印 `HB_AUG_SEED=42`。 |
 | 训练中 MSE | **1234** | `hb_groot/hb_inloop_eval.py` 和 `eval-action-mse/hb_inloop_core.py`：`SEED + 1000*rank + batch_idx`。 | 评估完恢复训练的 RNG 状态，不影响训练随机流。 |
 
 > 各模型种子不同，是因为它们各自沿用上游官方值，这和「模型内部按官方配方」的原则一致。种子不改变 benchmark 接口，不影响公平性。
@@ -163,8 +164,28 @@
 
 - 本项目以后所有 ACT 训练（新任务、补训、重训、续训）一律用合作者的 hb_baselines 代码：GitHub `zuo-kuangji/Humanoid_benchmark` 的 `evaluation/baselines/train.py --policy act --contract <contract>`，增强 `evaluation/augmentation/hb_aug_v2.py`，环境 `evaluation/baselines/requirements.txt`（Python 3.12、torch 2.9.0+cu128）。已发布的 ACT 用过的 commit 是 `4385573e`（B6）和 `028df1bb`（A10 v3、A20 basket v2）。
 - 配置以 HF `humanoid-benchmark/act` 现有 `b512*` 目录的 `config.json` 为准：种子 0，全局 batch 512，4000 步，lr 1e-4，AdamW (0.95, 0.999)，wd 1e-6，warmup 200 步 + cosine，backbone lr × 0.1，EMA 0.9999，AMP，增强 v2，图像 168 × 224。上传沿用 `hb_baselines/1` 格式和仓库里的 `code/hb_baselines_v1/` 加载器。
-- 训练中 MSE：hb_baselines 目前只有训练后的 `offline_eval`。按第 6 节，下次在本项目训 ACT 前要先接入训练中 MSE，或经用户批准登记为例外。
+- 训练中 MSE：已发布的 ACT 只有训练后的 `offline_eval`。Humanoid_benchmark bai `9cca6255` 起 hb_baselines 有训练中 MSE 接口 `evaluation/baselines/inloop.py`（加 `--inloop-task`，FLASH 已在用，FM-DiT、DP、ACT 都能用）。下次训 ACT 用它按第 6 节接上。
 - 本仓库的 `hb_training/hb_act/`（Psi0 仓库内的 LeRobot ACT）**已退役**：入口 `hb_act_train.py` 默认直接退出，只有复现旧的 `act/<task>/epoch-NNN` 发布时才可设 `HB_ALLOW_RETIRED_ACT=1` 运行。说明见 `hb_training/hb_act/RETIRED.md`。
+
+### 4.6 FLASH（2026-11-24 用户接入，用户自己的方法，NeurIPS 2026；先做 B6）
+
+以下由 FLASH 会话 11-24 实测后登记。
+
+- **代码**：上游 NTUMARS/FLASH-Policy @ `f47e490`（Apache-2.0）。移植到合作者的 hb_baselines：GitHub `zuo-kuangji/Humanoid_benchmark` bai `9cca6255`，入口 `evaluation/baselines/train.py --policy flash --contract g1_sonic_dfx6`，模型 `evaluation/baselines/flash.py`。与上游对拍（`check_flash_parity.py`）：多项式矩阵、KKT 边界约束、Tikhonov 历史拟合、DiT、编码器、输出点，12 项最大差均为 0。
+- **环境**：hb-baselines，Python 3.12.1、torch 2.9.0+cu128、torchvision 0.24.0。
+- **种子**：训练 42（上游 `default_train.yaml` 的 `training_params.seed`）；增强随机流由 `HB_AUG_SEED=42` 决定（第 2 节）；训练中 MSE 1234。
+- **布局**：1 节点 × 1 卡 × 每卡 512 = 全局 512，不累积；`num_workers` 40，prefetch 2。硬件是火山 team_10 的 RTX 4090D，不是 A800。以后 FLASH 所有任务沿用此布局。
+- **步数与存档**（用户 11-24 定）：16000 步，每 2000 步存一次（2000、4000、…、16000，共 8 个）。
+- **优化**（按上游）：AdamW，lr 1e-4，betas (0.95, 0.999)，wd 1e-6；500 步线性预热后 diffusers cosine，到第 16000 步降到 0；EMA 用上游 Diffusion Policy 的 EMAModel（power 0.75，max 0.9999），保存 EMA 权重；bf16 autocast，多项式拟合用 fp32。
+- **模型**（按上游 `flash.yaml`）：DiT 512 × 4 层 × 8 头，dropout 0，time embed 256；每路相机一个 ResNet18，从头训，GroupNorm，与其余部分同一学习率；Legendre 6 阶，fit_pad 1、poly_prefix 1、poly_suffix 1，C1 边界约束；history_noise_std 0.5、history_reg_lambda 0.1、consistency_weight 1.0；推理 1 步 Euler。
+- **接口适配**（用户 11-24 定，属模型内部，不算例外）：
+  - 历史 = 接口的 past_actions（每帧发出的 token 和当帧实测手部开合），8 个点、间隔 2 帧（30 Hz 下 67 ms，论文是 60 ms），截止到 t-1；episode 开始前重复第一行；第 0 帧没有历史行，flow 从零系数起步。
+  - 只用当前帧图像（ego_view + chest，168 × 224）和 state44，不用原版的 8 帧观测历史。
+  - 输出：多项式在 30 Hz 每帧求值，共 16 行；不用速度前馈。
+  - 增强 v2（原生随机裁剪本来不生效）；本体 29 关节常偏加噪声；44 维、无速度；预检已通过。
+- **数据**：B6 用 b6v6，HF `b6-pedal-bin` @`ad2f5bf0` 前 500 条（ep 0–499，305,667 帧），与 FastWAM、Delta Flow 相同。
+- **训练中 MSE**：`evaluation/baselines/inloop.py` 调用 eval-action-mse 的 `hb_inloop_core`（HumanWAM bai `ff5bf95` 的拷贝），协议不变：每 250 步、b6v6 train10、每批 8 个查询、种子 1234、评 EMA 权重；结果写 `<run>/logs/inloop-mse.jsonl`，日志有 `HB_INLOOP installed/ready`。team_10 上的缓存用同一个 `build_cache.py`（torchcodec 0.8.0）重建，基线 train_mean 0.9049、hold_last_action 0.3427 与 NAS 一致，9 个缓存 episode 的 state/action 逐位核对过。
+- **运行与上传**：运行目录 team_10 `/root/hb_flash/runs/b6v6-b512-s16000`；HF 上传位置待用户定。上传的 `protocol.json` 要带 `seed` 和 `reproducibility`（`hb_repro.fields` 能按 `hb_baselines/1` 格式和 policy `flash` 生成），有例外再加 `exceptions`。
 
 ---
 
