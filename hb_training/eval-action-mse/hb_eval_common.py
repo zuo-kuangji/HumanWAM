@@ -72,6 +72,11 @@ TASKS = {
     "a17cr2": (P / "a17-unscrew-bottle-cropped-v2-3520b70/data", None, "h2"),  # HF a17-unscrew-bottle-expert-cropped-v2 @3520b70f
     # 2026-11-22 user: every training must run the in-training MSE -> register every dataset before it is trained on
     "b7gt": (P / "b7-green-clothes-hamper-v2trim-22e3b83/data", None, "g1"),  # HF b7-green-clothes-hamper @22e3b83 trimmed v2, 421 ep
+    # 2026-11-24 (owner): B7 with the 10 standing frames before dock dropped (every episode starts at dock;
+    # debug/tasks/b7/tools/trim/b7_drop_lead.py, bai faddba64): black HF @619f3427 (107 ep, train = first 100,
+    # heldout 100-106), green HF @4d2c613c (421 ep)
+    "b7td": (P / "b7-black-clothes-hamper-leaddrop-619f342/data", 100, "g1"),
+    "b7gtd": (P / "b7-green-clothes-hamper-v2leaddrop-4d2c613/data", None, "g1"),
     "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None, "h2p"),  # HF a14-screw-bulb @79fe08a cropped-v3, head + chest, action82
 }
 
