@@ -20,8 +20,9 @@ Non-negotiable rules. Each one exists so that other researchers can reproduce ou
   - Only an explicit user decision may change anything.
   - Record every deviation in REPRODUCIBILITY.md section 7, in `protocol.yaml` `exceptions`, in the run directory and in the uploaded `protocol.json`.
 - **Never change a model's training seed.**
-  - GR00T 42, FastWAM 42, π0.5 42, DiT4DiT 42, Delta Flow 42, Psi-Zero 292285, ACT 292285 (each is its upstream's official value).
+  - GR00T 42, FastWAM 42, π0.5 42, DiT4DiT 42, Delta Flow 42, Psi-Zero 292285 (each is its upstream's official value); ACT, FM-DiT and DP (the collaborator's hb_baselines code) 0.
   - A new model uses its upstream's official seed, or 42 when upstream has none.
+- **ACT trains only with the hb_baselines code** of `github.com/zuo-kuangji/Humanoid_benchmark` (`evaluation/baselines/train.py --policy act`; REPRODUCIBILITY.md section 4.5). `hb_training/hb_act/` in this repository is retired (user, 2026-11-24): its entry exits unless `HB_ALLOW_RETIRED_ACT=1` is set to reproduce the old `epoch-NNN` releases.
 - **Register in-training MSE before the run starts**: `eval-action-mse/hb_eval_common.py` `TASKS` plus the `train10` cache. Do not substitute post-hoc MSE runs.
 - **Upload to a new HF sub-directory.** Never overwrite a published directory, never upload resume state, and include the full config, normalization stats, logs, in-loop MSE and the code snapshot.
 - **Keep the node / GPU / per-GPU-batch layout and `num_workers` recorded in the protocol.** They change data sharding and random streams.

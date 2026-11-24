@@ -65,8 +65,8 @@
 | GR00T N1.7 | **42** | 上游 `gr00t/configs/data/data_config.py: seed = 42` → `experiment.py: set_seed(config.data.seed)`；HF `TrainingArguments.seed = 42`、`data_seed = None`。所有 `groot-runs-2x32/*` 和 `groot-runs-ft512/*` 的 `training_args.bin` 都是 42。 | 数据采样：`trainer.py` 每步 `reset_seed(seed + global_step)`，是确定的。增强随机流：见第 3 节，11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定。 |
 | FastWAM | **42** | 上游 `FastWAM/configs/train.yaml: seed: 42`；`fastwam/runs/*/out/config.yaml` 都是 42，续训也是 42。 | 推理适配器 `ad_fastwam.py`：10 步去噪，seed 42。增强随机流：11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定（第 3 节）。 |
 | Psi-Zero | **292285** | 上游 Psi0 官方 finetune 脚本（`scripts/train/psi0/*.sh` 都写 `--seed=292285`）→ `hb_psi0/hb_args.py`。 | 本体常偏：`hb-bias-seed=292285`，用 `default_rng([seed, epoch, episode])`，是确定的。视觉增强随机流：11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定。上游 `set_seed` 启用了 `use_deterministic_algorithms(True, warn_only=True)` 和 `cudnn.benchmark=False`。 |
-| ACT（Psi0 版：Psi0 仓库内的 LeRobot ACT，HF `act/<task>/epoch-NNN`） | **292285** | `hb_act/hb_act_args.py`，复用 Psi0 仓库的 LeRobot ACT 和同一套参数。 | 同 Psi-Zero。 |
-| ACT（hb_baselines 版，HF `act/<task>/b512*`）、FM-DiT、DP | **0** | 合作者的 hb_baselines 代码；种子记在每个 HF 目录 `config.json` 的 `training.seed`。2026-11-24 逐个核对：act 的 12 个、fm-dit 全部 68 个、dp 1 个目录都是 0。 | 增强按规范 v2（`config.json` 的 `training.augmentation`，实现 `evaluation/augmentation/hb_aug_v2.py`）；它的逐样本随机流怎样取种子未经本规范审计。代码版本记在 `config.json` 的 `code_commit`（部分目录缺）。 |
+| ACT（Psi0 版，**2026-11-24 已退役**：Psi0 仓库内的 LeRobot ACT，只对应 HF 旧目录 `act/<task>/epoch-NNN`） | **292285** | `hb_act/hb_act_args.py`，复用 Psi0 仓库的 LeRobot ACT 和同一套参数。 | 同 Psi-Zero。 |
+| ACT（hb_baselines 版，**现行且唯一**，HF `act/<task>/b512*`）、FM-DiT、DP | **0** | 合作者的 hb_baselines 代码；种子记在每个 HF 目录 `config.json` 的 `training.seed`。2026-11-24 逐个核对：act 的 12 个、fm-dit 全部 68 个、dp 1 个目录都是 0。 | 增强按规范 v2（`config.json` 的 `training.augmentation`，实现 `evaluation/augmentation/hb_aug_v2.py`）；它的逐样本随机流怎样取种子未经本规范审计。代码版本记在 `config.json` 的 `code_commit`（部分目录缺）。 |
 | π0.5 | **42** | openpi `TrainConfig.seed = 42`；`hb_pi05/hb_g1_data.py` 的 `HB_AUG_SEED` 默认 42。 | 常偏：`default_rng([seed, epoch, episode])`，确定。增强流：`torch.initial_seed()` 加全局 rank，在世界规模和 worker 数相同时是确定的。 |
 | DiT4DiT | **42** | `hb_dit4dit/hb_d4d_config.py: "seed": 42`；`HB_AUG_SEED` 默认 42。 | 数据顺序：`default_rng([seed, pass])` 打乱，可以精确续训。常偏确定。 |
 | Delta Flow | **42** | `deltaflow-runs/<task>/run/production.yaml: seed: 42`。 | 增强种子：image_policy `20261110`、proprio_policy `20261106`；`split-manifest.json` 种子 42。 |
@@ -155,9 +155,16 @@
 | π0.5 | 256 | 4000 | 2000 / 4000 | openpi @ `215abfb`；动作块 16，图像 224 | **未接入，开训前必须接好** |
 | DiT4DiT | 64 | 8000 | 6000 / 8000 | DiT4DiT @ `66a6f3a`；lr：backbone_interface 1e-5 / action_model 1e-4 / base 3e-5，`cosine_with_min_lr`（最小 5e-7），AdamW (0.9, 0.95)，warmup 5%；关节角做 sin/cos（G1 73 维 / H2 153 维） | **未接入，开训前必须接好** |
 | Delta Flow | 256（每卡 8 × 32） | 8000（C6 为 16000） | 6000 / 8000 | lr 见 `production.yaml`，warmup 5%，cosine；增强种子 20261110 / 20261106 | 已接入 |
-| ACT（hb_baselines 版，现行） | 512（A10 v3 为 256） | 4000（A10 v3 为 8000） | 按目录 | 合作者的 hb_baselines：种子 0，lr 1e-4，AdamW (0.95, 0.999)，wd 1e-6，warmup 200 步 + cosine，backbone lr × 0.1，EMA 0.9999，AMP；完整配置在每个 HF 目录的 `config.json` | 无（`config.json` 里有训练后的 `offline_eval`） |
-| ACT（Psi0 版，早期 `epoch-010/020`） | 256 | 20 轮 | 第 10 / 20 轮 | Psi0 自带的 LeRobot ACT，复用 Psi-Zero 的数据视图和增强 v2；种子 292285 | 无 |
+| ACT（hb_baselines 版，现行且唯一，见 4.5） | 512（A10 v3 为 256） | 4000（A10 v3 为 8000） | 按目录 | 合作者的 hb_baselines：种子 0，lr 1e-4，AdamW (0.95, 0.999)，wd 1e-6，warmup 200 步 + cosine，backbone lr × 0.1，EMA 0.9999，AMP；完整配置在每个 HF 目录的 `config.json` | 无（`config.json` 里有训练后的 `offline_eval`） |
+| ACT（Psi0 版，早期 `epoch-010/020`，**2026-11-24 退役**） | 256 | 20 轮 | 第 10 / 20 轮 | Psi0 自带的 LeRobot ACT（`hb_training/hb_act/`），复用 Psi-Zero 的数据视图和增强 v2；种子 292285。不再用于任何训练 | 无 |
 | FM-DiT、DP | 512（FM-DiT 续训目录为 64） | 4000 | 按目录 | 合作者的 hb_baselines，种子 0，配置在每个 HF 目录的 `config.json`；HF 仓库 `fm-dit`、`dp` 归合作者，没有补写 `protocol.json` 的复现字段 | 由合作者负责 |
+
+### 4.5 ACT 只用 hb_baselines（2026-11-24 用户）
+
+- 本项目以后所有 ACT 训练（新任务、补训、重训、续训）一律用合作者的 hb_baselines 代码：GitHub `zuo-kuangji/Humanoid_benchmark` 的 `evaluation/baselines/train.py --policy act --contract <contract>`，增强 `evaluation/augmentation/hb_aug_v2.py`，环境 `evaluation/baselines/requirements.txt`（Python 3.12、torch 2.9.0+cu128）。已发布的 ACT 用过的 commit 是 `4385573e`（B6）和 `028df1bb`（A10 v3、A20 basket v2）。
+- 配置以 HF `humanoid-benchmark/act` 现有 `b512*` 目录的 `config.json` 为准：种子 0，全局 batch 512，4000 步，lr 1e-4，AdamW (0.95, 0.999)，wd 1e-6，warmup 200 步 + cosine，backbone lr × 0.1，EMA 0.9999，AMP，增强 v2，图像 168 × 224。上传沿用 `hb_baselines/1` 格式和仓库里的 `code/hb_baselines_v1/` 加载器。
+- 训练中 MSE：hb_baselines 目前只有训练后的 `offline_eval`。按第 6 节，下次在本项目训 ACT 前要先接入训练中 MSE，或经用户批准登记为例外。
+- 本仓库的 `hb_training/hb_act/`（Psi0 仓库内的 LeRobot ACT）**已退役**：入口 `hb_act_train.py` 默认直接退出，只有复现旧的 `act/<task>/epoch-NNN` 发布时才可设 `HB_ALLOW_RETIRED_ACT=1` 运行。说明见 `hb_training/hb_act/RETIRED.md`。
 
 ---
 
