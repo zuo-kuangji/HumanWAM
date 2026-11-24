@@ -31,8 +31,9 @@ MODELS = {
     "groot": (42, "upstream Isaac-GR00T default (gr00t/configs/data/data_config.py seed=42 -> set_seed; HF TrainingArguments.seed=42)",
               "groot-py312", "NVIDIA Isaac-GR00T @ 7aa0bca", False),
     "psi0": (292285, "upstream Psi0 official finetune scripts (--seed=292285)", "psi0", "Psi0 @ cda3fdf", False),
-    "act": (292285, "LeRobot ACT inside the Psi0 repository (hb_act, HF folders <task>/epoch-NNN), same launch arguments "
-                    "as Psi-Zero (--seed=292285)", "psi0", "Psi0 @ cda3fdf", False),
+    "act": (292285, "LeRobot ACT inside the Psi0 repository (hb_act, HF folders <task>/epoch-NNN; retired 2026-11-24, "
+                    "every later ACT uses hb_baselines), same launch arguments as Psi-Zero (--seed=292285)", "psi0",
+            "Psi0 @ cda3fdf", False),
     "fastwam": (42, "upstream FastWAM configs/train.yaml (seed: 42)", "fastwam",
                 "github.com/yuantianyuan01/FastWAM @ 7faa71108368fbb3b6885649f112af607427a2d4", False),
     "pi05": (42, "openpi TrainConfig.seed=42", "openpi", "openpi @ 215abfb", True),
@@ -45,6 +46,7 @@ SEEDED_TEXT = {
     "deltaflow": "seeded: image_policy seed 20261110, proprio_policy seed 20261106, mixed with rank / worker",
 }
 HB_BASELINES_SEED = 0   # collaborator's hb_baselines stack (ACT b512*, FM-DiT, DP): config.json training.seed
+HB_BASELINES_REPO = "github.com/zuo-kuangji/Humanoid_benchmark"   # the only ACT code from 2026-11-24 (user)
 
 
 def _env(name):
@@ -158,9 +160,11 @@ def _hb_baselines(proto, seed_found, run_config, backfill):
                                        f"{aug.get('implementation', 'evaluation/augmentation/hb_aug_v2.py')} of hb_baselines); "
                                        "how this stack seeds its per-sample random stream is not audited by this protocol"),
         "layout": {k: tr[k] for k in ("batch_size", "steps") if k in tr} or None,
-        "environment": "not recorded in this folder (trained on the collaborator's machines with hb_baselines)",
+        "environment": ("code/hb_baselines_v1/baselines/requirements.txt of this repository (= Humanoid_benchmark "
+                        "evaluation/baselines/requirements.txt: Python 3.12, torch 2.9.0+cu128, CUDA 12.8 wheels)"),
         "hardware": "not recorded in this folder",
-        "upstream_code": f"hb_baselines @ {cc}" if cc else "hb_baselines (code_commit not recorded in this folder's config.json)",
+        "upstream_code": (f"{HB_BASELINES_REPO} @ {cc} (evaluation/baselines/train.py, evaluation/augmentation/hb_aug_v2.py)"
+                          if cc else f"{HB_BASELINES_REPO} evaluation/baselines (code_commit not recorded in this folder's config.json)"),
         "adapter_code": "config.json in this folder records the model, data contract, dataset episodes, training and "
                         "augmentation settings",
         "determinism": DETERMINISM,

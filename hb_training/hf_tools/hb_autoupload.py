@@ -1400,6 +1400,20 @@ def _hb_repro_fields(model, proto, c, e):
         return {}
 
 
+# 2026-11-24 user: A9 pedal bin lid open (HF a9-pedal-open-expert-v1 @8d432063, 100 ep, G1): GR00T, Psi-Zero, FastWAM 4000 + 2000
+TASKDIR["a9"] = "a9-pedal-open"
+DESC["a9"] = "Walk to the pedal bin and step on its pedal with the left foot to open the lid"
+TASKNAME["a9"] = "A9 pedal bin lid open (G1)"
+HFDATA["a9"] = "a9-pedal-open-expert-v1 @8d432063 (all 100 episodes)"
+ROBOT["a9"] = "Unitree G1"
+EPISODES_OF["a9"] = 100
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("a9-cont2k", _d["a9"])
+SUBDIR.update({("groot2x32", "a9"): "b512", ("psi0", "a9"): "b512", ("fastwam", "a9"): "b512", ("fastwam", "a9-cont2k"): "b512-cont2k"})
+FW_TASKS = FW_TASKS + ("a9", "a9-cont2k")
+
+
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

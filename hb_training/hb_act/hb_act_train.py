@@ -1,6 +1,12 @@
 """torchrun entry: register hb_act_config, apply hb_act_patches, run the pinned upstream Psi0 scripts/train.py.
 Env: PSI_SRC = Psi0 checkout; HB_PROBE_OUT = dir -> probe mode (rank<R>.json with peak memory + step time).
 """
+import os as _hb_os, sys as _hb_sys  # noqa: E401
+if _hb_os.environ.get("HB_ALLOW_RETIRED_ACT") != "1":  # retired by the user on 2026-11-24
+    _hb_sys.exit("hb_act is retired (user, 2026-11-24). Train ACT with the hb_baselines code of "
+                 "github.com/zuo-kuangji/Humanoid_benchmark: evaluation/baselines/train.py --policy act "
+                 "(hb_training/REPRODUCIBILITY.md section 4.5). Set HB_ALLOW_RETIRED_ACT=1 only to reproduce "
+                 "the old act/<task>/epoch-NNN releases.")
 import json
 import os
 import runpy

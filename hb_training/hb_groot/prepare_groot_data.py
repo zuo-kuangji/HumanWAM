@@ -53,6 +53,7 @@ TASKS = {
     "b7t": (P / "b7-black-clothes-hamper-trim-949da46/data", 100),  # HF b7-black-clothes-hamper @949da46 trimmed, first 100 of 107 as FastWAM / DF / pi0.5 (user 2026-11-22)
     "b7gt": (P / "b7-green-clothes-hamper-v2trim-22e3b83/data", None),  # HF b7-green-clothes-hamper @22e3b83 trimmed v2, all 421 (user 2026-11-22)
     "b5ss": (P / "b5-chair-push-standing-start-v1-913f5a1/data", None),  # HF b5-chair-push-standing-start-expert-v1 @913f5a1, all 100 (user 2026-11-22)
+    "a9": (P / "a9-pedal-open-8d43206/data", None),  # 2026-11-24 user: A9 pedal bin lid open (HF a9-pedal-open-expert-v1 @8d432063, all 100 ep, G1, 30 Hz)
 }
 CONFIG = {"a18": "h2w3_body31_hand44_h16.py", "a17": "h2w3_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py",
           "a18c2": "h2_body31_hand44_h16.py", "a17c2": "h2_body31_hand44_h16.py",
