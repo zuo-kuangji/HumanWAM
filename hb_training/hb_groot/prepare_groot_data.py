@@ -52,6 +52,8 @@ TASKS = {
     "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None),  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed from v2 @8411a6d; user 2026-11-20: newest A14)
     "b7t": (P / "b7-black-clothes-hamper-trim-949da46/data", 100),  # HF b7-black-clothes-hamper @949da46 trimmed, first 100 of 107 as FastWAM / DF / pi0.5 (user 2026-11-22)
     "b7gt": (P / "b7-green-clothes-hamper-v2trim-22e3b83/data", None),  # HF b7-green-clothes-hamper @22e3b83 trimmed v2, all 421 (user 2026-11-22)
+    "b7td": (P / "b7-black-clothes-hamper-leaddrop-619f342/data", 100),  # 2026-11-24 user: B7 black, lead-in still frames dropped (HF @619f3427, 107 ep), first 100 as before
+    "b7gtd": (P / "b7-green-clothes-hamper-v2leaddrop-4d2c613/data", None),  # 2026-11-24 user: B7 green v2, lead-in still frames dropped (HF @4d2c613c, all 421)
     "b5ss": (P / "b5-chair-push-standing-start-v1-913f5a1/data", None),  # HF b5-chair-push-standing-start-expert-v1 @913f5a1, all 100 (user 2026-11-22)
     "a9": (P / "a9-pedal-open-8d43206/data", None),  # 2026-11-24 user: A9 pedal bin lid open (HF a9-pedal-open-expert-v1 @8d432063, all 100 ep, G1, 30 Hz)
 }

@@ -1414,6 +1414,24 @@ FW_TASKS = FW_TASKS + ("a9", "a9-cont2k")
 
 
 
+# 2026-11-24 user: B7 retrain on the lead-in-dropped data (10 still frames before the start removed): GR00T, Psi-Zero,
+# FastWAM 4000 + 2000 -> new sub-dirs b512-leaddrop/ (old b7t / b7gt dirs stay untouched)
+for _new, _old in (("b7td", "b7t"), ("b7gtd", "b7gt")):
+    for _d in (TASKDIR, DESC, TASKNAME, ROBOT):
+        if _old in _d:
+            _d.setdefault(_new, _d[_old])
+HFDATA["b7td"] = "b7-black-clothes-hamper @619f3427 (lead-in still frames dropped; first 100 of 107 episodes, 100-106 held out)"
+HFDATA["b7gtd"] = "b7-green-clothes-hamper @4d2c613c (v2 at the repo root, lead-in still frames dropped; all 421 episodes)"
+EPISODES_OF.update(b7td=100, b7gtd=421)
+for _b in ("b7td", "b7gtd"):
+    for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+        _d.setdefault(_b + "-cont2k", _d[_b])
+    SUBDIR.update({("groot2x32", _b): "b512-leaddrop", ("psi0", _b): "b512-leaddrop", ("fastwam", _b): "b512-leaddrop",
+                   ("fastwam", _b + "-cont2k"): "b512-leaddrop-cont2k"})
+FW_TASKS = FW_TASKS + ("b7td", "b7gtd", "b7td-cont2k", "b7gtd-cont2k")
+
+
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
