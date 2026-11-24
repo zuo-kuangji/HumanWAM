@@ -46,7 +46,7 @@
 | 本体增强 | `hb_aug_v2.perturb_joints`：29 个身体关节逐关节常偏 U(±2°)，再加 N(0, 0.25°) 噪声，裁剪在 ±3σ。**不做本体延迟，不做历史丢帧**（2026-11-12 起，所有模型对齐 GR00T A20 配方）。监督动作和实测手部标签保留原值。 |
 | 评估 / rollout | 关闭所有随机扰动，保留相同的输入排列和归一化。 |
 | 梯度累积 | 永远为 1。显存不够时加节点、降每卡 batch。 |
-| 条数 | 按数据集实际条数全用。例外见第 5 节：B6 v5t7 用前 100 条；B6 v6 用前 500 条，但 GR00T/Psi-Zero 的纯 v6 版用 542 条；B7 黑衣服剪裁版用前 100/107 条。 |
+| 条数 | 按数据集实际条数全用。B6 v6 用全部 542 条（2026-11-24 用户，取代 11-18 的「只取前 500 条」）。例外见第 5 节：B6 v5t7 用前 100 条；B7 黑衣服剪裁版用前 100/107 条；11-24 以前用 B6 v6 前 500 条训完的 FastWAM、Delta Flow、FLASH 见第 7 节。 |
 | 训练中 MSE | 每个模型的每次训练都必须伴随训练测，每 250 步一次（第 6 节）。开训前必须在 `eval-action-mse/hb_eval_common.py` 的 `TASKS` 登记数据源，并建好 `build_cache.py <task> train10` 缓存。 |
 | 上传 | 每次训练写进 HF 的新子目录，绝不覆盖。目录内容见第 8 节。 |
 
@@ -175,7 +175,7 @@
 - **代码**：上游 NTUMARS/FLASH-Policy @ `f47e490`（Apache-2.0）。移植到合作者的 hb_baselines：GitHub `zuo-kuangji/Humanoid_benchmark` bai `9cca6255`，入口 `evaluation/baselines/train.py --policy flash --contract g1_sonic_dfx6`，模型 `evaluation/baselines/flash.py`。与上游对拍（`check_flash_parity.py`）：多项式矩阵、KKT 边界约束、Tikhonov 历史拟合、DiT、编码器、输出点，12 项最大差均为 0。
 - **环境**：hb-baselines，Python 3.12.1、torch 2.9.0+cu128、torchvision 0.24.0。
 - **种子**：训练 42（上游 `default_train.yaml` 的 `training_params.seed`）；增强随机流由 `HB_AUG_SEED=42` 决定（第 2 节）；训练中 MSE 1234。
-- **布局**：1 节点 × 1 卡 × 每卡 512 = 全局 512，不累积；`num_workers` 40，prefetch 2。硬件是火山 team_10 的 RTX 4090D，不是 A800。以后 FLASH 所有任务沿用此布局。
+- **布局**：1 节点 × 1 卡 × 每卡 512 = 全局 512，不累积；`num_workers` 40，prefetch 2。B6 那次正式训练的硬件是阿里云 PAI DSW 的 1 × RTX 4090 46 GB（5 号卡、64–79 号核），不是 A800；火山 team_10（RTX 4090D）上的同配置训练停在第 4000 步，只作备份。以后 FLASH 所有任务沿用此布局。
 - **步数与存档**（用户 11-24 定）：16000 步，每 2000 步存一次（2000、4000、…、16000，共 8 个）。
 - **优化**（按上游）：AdamW，lr 1e-4，betas (0.95, 0.999)，wd 1e-6；500 步线性预热后 diffusers cosine，到第 16000 步降到 0；EMA 用上游 Diffusion Policy 的 EMAModel（power 0.75，max 0.9999），保存 EMA 权重；bf16 autocast，多项式拟合用 fp32。
 - **模型**（按上游 `flash.yaml`）：DiT 512 × 4 层 × 8 头，dropout 0，time embed 256；每路相机一个 ResNet18，从头训，GroupNorm，与其余部分同一学习率；Legendre 6 阶，fit_pad 1、poly_prefix 1、poly_suffix 1，C1 边界约束；history_noise_std 0.5、history_reg_lambda 0.1、consistency_weight 1.0；推理 1 步 Euler。
@@ -184,9 +184,9 @@
   - 只用当前帧图像（ego_view + chest，168 × 224）和 state44，不用原版的 8 帧观测历史。
   - 输出：多项式在 30 Hz 每帧求值，共 16 行；不用速度前馈。
   - 增强 v2（原生随机裁剪本来不生效）；本体 29 关节常偏加噪声；44 维、无速度；预检已通过。
-- **数据**：B6 用 b6v6，HF `b6-pedal-bin` @`ad2f5bf0` 前 500 条（ep 0–499，305,667 帧），与 FastWAM、Delta Flow 相同。
+- **数据**：B6 这次用 b6v6，HF `b6-pedal-bin` @`ad2f5bf0` 前 500 条（ep 0–499，305,667 帧），按当时 11-18 的规定，与 FastWAM、Delta Flow 相同。11-24 起 B6 v6 改用全部 542 条，这次训练登记在第 7 节。
 - **训练中 MSE**：`evaluation/baselines/inloop.py` 调用 eval-action-mse 的 `hb_inloop_core`（HumanWAM bai `ff5bf95` 的拷贝），协议不变：每 250 步、b6v6 train10、每批 8 个查询、种子 1234、评 EMA 权重；结果写 `<run>/logs/inloop-mse.jsonl`，日志有 `HB_INLOOP installed/ready`。team_10 上的缓存用同一个 `build_cache.py`（torchcodec 0.8.0）重建，基线 train_mean 0.9049、hold_last_action 0.3427 与 NAS 一致，9 个缓存 episode 的 state/action 逐位核对过。
-- **运行与上传**：运行目录 team_10 `/root/hb_flash/runs/b6v6-b512-s16000`；HF 上传位置待用户定。上传的 `protocol.json` 要带 `seed` 和 `reproducibility`（`hb_repro.fields` 能按 `hb_baselines/1` 格式和 policy `flash` 生成），有例外再加 `exceptions`。
+- **运行与上传**：运行目录 NAS `preflight-20261104T1648Z/flash-runs/b6v6-b512-s16000`（team_10 的部分训练备份在同级 `team10-partial-20261124/`）；HF 上传位置待用户定。上传的 `protocol.json` 要带 `seed` 和 `reproducibility`（`hb_repro.fields` 能按 `hb_baselines/1` 格式和 policy `flash` 生成），有例外再加 `exceptions`。
 
 ---
 
@@ -203,7 +203,7 @@
 | b1 | B1 饭团进微波炉（`b1-riceball-microwave-expert-v1`） | @`36da298` | 115 | G1 |
 | b5 | B5 推椅子（`b5-chair-push-expert-v1`） | @`b85b7e9` | 100 | G1 |
 | b5ss | B5 standing start，现名 A22（`A22-chair-push-standing-start-expert-v1-formerly-b5`） | @`913f5a1` | 100 | G1 |
-| b6v6 | B6 丢垃圾 v6（`b6-pedal-bin` 根目录） | @`ad2f5bf0` | 前 500 条（0–499）；GR00T/Psi-Zero 纯 v6 用 542 条 | G1 |
+| b6v6 | B6 丢垃圾 v6（`b6-pedal-bin` 根目录） | @`ad2f5bf0` | 全部 542 条（11-24 用户起）；11-24 以前 FastWAM、Delta Flow、FLASH 训完的版本用前 500 条（0–499） | G1 |
 | b7t | B7 黑衣服，剪裁版（`b7-black-clothes-hamper`） | @`949da46` | 前 100 / 107 | G1 |
 | b7gt | B7 绿衣服，剪裁 v2（`b7-green-clothes-hamper` 根目录） | @`22e3b83` | 421 | G1 |
 | b8 | B8 擦桌子（`b8-table-wipe-expert-v1`） | @`3b2e618` | 全部 | G1 |
@@ -239,7 +239,7 @@
 | Psi-Zero A10 v3（`a10-trolley-push-v3`）、B1（`b1-riceball-microwave`）、B8（`b8-table-wipe`）、C6（`c6-bathroom-door-fetch`） | 节点布局 **4 节点** × 8 卡 × 每卡 16（全局 512、不累积、4000 步），不符合标准 2 节点 × 8 × 32（A14 的 4 × 8 × 16 是另行规定的布局，不在此列） | 11-24 用户：登记为例外，不重训 |
 | Psi-Zero A14 cr3（`cropped-v3-b512`）、旧 A17/A18 | 带本体延迟 0.15（原 H2 指南例外） | 11-22 取消；重训为 `a14cr3a`（`cropped-v3-b512-nodelay`）和 `b512-2cam-cropped-v2` |
 | π0.5、Psi-Zero、ACT 在 11-12 前训的 | 15% 本体延迟 + 15% 历史丢帧 | 结果保留，附录说明；受影响任务按对齐配置重训 |
-| B6 v6 条数 | FastWAM、Delta Flow、FLASH 用前 500 条；GR00T / Psi-Zero 纯 v6（`b512-v6-pure`）和 ACT 纯 v6（hb_baselines，`act/b6-pedal-bin/b512-v6-pure`）用全部 542 条；早期的 v6 续训版也是 542 条 | 11-18、11-23 用户；ACT 是 11-24 用户（问过 v6 542 条后让训） |
+| B6 v6 条数 | 11-24 起规定值是全部 542 条。已训完的 FastWAM、Delta Flow、FLASH（`b6v6-b512-s16000`）用的是前 500 条（当时 11-18 的规定），结果保留，作为例外登记。GR00T / Psi-Zero 纯 v6（`b512-v6-pure`）、ACT 纯 v6（hb_baselines，`act/b6-pedal-bin/b512-v6-pure`）和早期的 v6 续训版都是 542 条，现在符合规范 | 11-18 用户定前 500 条；11-24 用户改为以后都取全部 542 条 |
 | ACT 纯 v6（hb_baselines，`b512-v6-pure`） | hb_baselines 的 ACT/FM-DiT/DP 数据集每个样本的增强抽取用 pid、urandom 产生（只有 FLASH 用 `HB_AUG_SEED`），不能逐位复现；和已发布的 `b512*` ACT 一样。分布完全是增强 v2。硬件是阿里云 PAI DSW 1 × RTX 4090 46 GB，`num_workers` 32，进程以 nice 19 运行（同机在跑闭环评估） | 11-24 登记；是否给 hb_baselines 补增强种子待定 |
 | Delta Flow A17 cr2（`a17cr2lg`） | 沿用 legacy a18 e40 配方（旧增强 `b6-visual-aug-v2`，无本体增强） | 11-22 用户：Delta Flow 先不管 |
 | Delta Flow B6 v6 | 从 v5 `step_010200` 只加载权重续训，不是从 base 训 | 11-15 计划 |

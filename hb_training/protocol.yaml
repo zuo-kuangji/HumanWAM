@@ -142,7 +142,7 @@ models:
     upstream: {repo: "github.com/NTUMARS/FLASH-Policy", commit: f47e490, license: Apache-2.0}
     code: {repo: "github.com/zuo-kuangji/Humanoid_benchmark", branch: bai, commit: 9cca6255, entry: "evaluation/baselines/train.py --policy flash --contract g1_sonic_dfx6", model: evaluation/baselines/flash.py, parity: "check_flash_parity.py: 12 checks, max abs diff 0"}
     env: {name: hb-baselines, python: "3.12.1", torch: "2.9.0+cu128", torchvision: "0.24.0"}
-    hardware: "Volcengine team_10, 1 x RTX 4090D (not A800)"
+    hardware: "Aliyun PAI DSW hb_4090_6gpu_nas, 1 x RTX 4090 46 GB (card 5, cores 64-79; not A800); the team_10 RTX 4090D run stopped at step 4000 (backup only)"
     global_batch: 512
     layout: {nodes: 1, gpus_per_node: 1, per_gpu_batch: 512}
     gradient_accumulation_steps: 1
@@ -156,9 +156,9 @@ models:
     precision: "bf16 autocast; polynomial fitting in fp32"
     model: {dit: {width: 512, layers: 4, heads: 8, dropout: 0.0, time_embed: 256}, vision: "ResNet18 per camera, from scratch, GroupNorm, same lr", basis: {family: Legendre, degree: 6, fit_pad: 1, poly_prefix: 1, poly_suffix: 1, boundary: C1}, history_noise_std: 0.5, history_reg_lambda: 0.1, consistency_weight: 1.0, inference: "1-step Euler"}
     interface_adaptation: "user 2026-11-24, model-internal, not an exception: history = interface past_actions, 8 points every 2 frames up to t-1 (67 ms at 30 Hz; paper 60 ms), first row repeated before the episode start, frame 0 starts from zero coefficients; current-frame images only (ego_view + chest 168x224) + state44, no 8-frame observation history; polynomial evaluated per 30 Hz frame, 16 rows, no velocity feed-forward"
-    data: {b6v6: "HF b6-pedal-bin @ad2f5bf0, first 500 episodes (0-499), 305,667 frames"}
+    data: {b6v6: "HF b6-pedal-bin @ad2f5bf0, first 500 episodes (0-499), 305,667 frames (the 2026-11-18 rule; from 2026-11-24 B6 v6 uses all 542, see exceptions)"}
     inloop_mse: "evaluation/baselines/inloop.py -> eval-action-mse hb_inloop_core (copy of HumanWAM bai ff5bf95): every 250 steps, train10, batch 8, seed 1234, EMA weights; <run>/logs/inloop-mse.jsonl"
-    run_dir: "team_10 /root/hb_flash/runs/b6v6-b512-s16000"
+    run_dir: "NAS preflight-20261104T1648Z/flash-runs/b6v6-b512-s16000 (team_10 partial backup: flash-runs/team10-partial-20261124)"
     hf_upload: "to be decided by the user after training"
     act: {global_batch: 512, max_steps: 4000, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6, warmup_steps: 200, lr_schedule: cosine, ema: 0.9999, amp: true}
 
@@ -170,7 +170,7 @@ tasks:                            # newest data per task (HF org humanoid-benchm
   b1:       {robot: g1, hf: b1-riceball-microwave-expert-v1, data_commit: 36da298, episodes: 115}
   b5:       {robot: g1, hf: b5-chair-push-expert-v1, data_commit: b85b7e9, episodes: 100}
   b5ss:     {robot: g1, hf: A22-chair-push-standing-start-expert-v1-formerly-b5, data_commit: 913f5a1, episodes: 100}
-  b6v6:     {robot: g1, hf: b6-pedal-bin, data_commit: ad2f5bf0, episodes: 500, episodes_note: "first 500 of 542; GR00T/Psi-Zero pure-v6 (b6v6p) use all 542"}
+  b6v6:     {robot: g1, hf: b6-pedal-bin, data_commit: ad2f5bf0, episodes: 542, episodes_note: "all 542 (user 2026-11-24, supersedes the first-500 rule of 2026-11-18); FastWAM / Delta Flow / FLASH runs trained before used the first 500 (exceptions)"}
   b7t:      {robot: g1, hf: b7-black-clothes-hamper, data_commit: 949da46, episodes: 100, episodes_note: "first 100 of 107"}
   b7gt:     {robot: g1, hf: b7-green-clothes-hamper, data_commit: 22e3b83, episodes: 421}
   b8:       {robot: g1, hf: b8-table-wipe-expert-v1, data_commit: 3b2e618}
@@ -187,9 +187,7 @@ exceptions:                       # every item must also appear in the paper app
   - {model: psi0, task: "a10v3, b1, b8, c6", what: "layout 4 nodes x 8 GPUs x 16 per GPU (global 512, no accumulation; standard 2 x 8 x 32)", decision: "user 2026-11-24: registered as an exception, not retrained"}
   - {model: psi0, task: "a14cr3 (cropped-v3-b512), older a17/a18", what: "proprio delay 0.15", decision: "user 2026-11-22: removed; retrained a14cr3a / b512-2cam-cropped-v2"}
   - {model: "pi05, psi0, act", task: "runs before 2026-11-12", what: "15 % proprio delay + 15 % history drop", decision: "kept, appendix"}
-  - {model: "fastwam, deltaflow", task: b6v6, what: "first 500 episodes", decision: "user 2026-11-18"}
-  - {model: "groot, psi0", task: b6v6p, what: "all 542 episodes", decision: "user 2026-11-23"}
-  - {model: "act (hb_baselines)", task: b6v6p, what: "all 542 episodes (act/b6-pedal-bin/b512-v6-pure)", decision: "user 2026-11-24"}
+  - {model: "fastwam, deltaflow, flash", task: b6v6, what: "first 500 episodes (0-499) under the 2026-11-18 rule; from 2026-11-24 B6 v6 uses all 542", decision: "user 2026-11-18; results kept (user 2026-11-24 changed the rule for later runs)"}
   - {model: "act (hb_baselines)", task: b6v6p, what: "per-sample augmentation draws from pid/urandom (hb_baselines seeds only FLASH via HB_AUG_SEED) -> not bit-reproducible, as the published act b512*; Aliyun DSW 1 x RTX 4090 46 GB, num_workers 32, nice 19", decision: "recorded 2026-11-24; seeding hb_baselines augmentation pending"}
   - {model: deltaflow, task: a17cr2lg, what: "legacy a18 e40 recipe (old aug, no proprio aug)", decision: "user 2026-11-22: Delta Flow later"}
   - {model: deltaflow, task: b6v6, what: "weights-only continuation from v5 step_010200, lr 3e-5", decision: "2026-11-15 plan"}
