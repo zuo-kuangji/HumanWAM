@@ -165,6 +165,7 @@
 - 本项目以后所有 ACT 训练（新任务、补训、重训、续训）一律用合作者的 hb_baselines 代码：GitHub `zuo-kuangji/Humanoid_benchmark` 的 `evaluation/baselines/train.py --policy act --contract <contract>`，增强 `evaluation/augmentation/hb_aug_v2.py`，环境 `evaluation/baselines/requirements.txt`（Python 3.12、torch 2.9.0+cu128）。已发布的 ACT 用过的 commit 是 `4385573e`（B6）和 `028df1bb`（A10 v3、A20 basket v2）。
 - 配置以 HF `humanoid-benchmark/act` 现有 `b512*` 目录的 `config.json` 为准：种子 0，全局 batch 512，4000 步，lr 1e-4，AdamW (0.95, 0.999)，wd 1e-6，warmup 200 步 + cosine，backbone lr × 0.1，EMA 0.9999，AMP，增强 v2，图像 168 × 224。上传沿用 `hb_baselines/1` 格式和仓库里的 `code/hb_baselines_v1/` 加载器。
 - 训练中 MSE：已发布的 ACT 只有训练后的 `offline_eval`。Humanoid_benchmark bai `9cca6255` 起 hb_baselines 有训练中 MSE 接口 `evaluation/baselines/inloop.py`（加 `--inloop-task`，FLASH 已在用，FM-DiT、DP、ACT 都能用）。下次训 ACT 用它按第 6 节接上。
+- 11-24 晚第一次按本节训 ACT：B6 v6 全部 542 条（任务键 b6v6p，训练中 MSE 用 b6v6 train10），Humanoid_benchmark bai `8c3b88d2`，阿里云 DSW 2 号卡，4000 步，存 2000、4000；训练中 MSE 从 0.2572（250 步）降到 0.0673（4000 步）。上传 `act/b6-pedal-bin/b512-v6-pure/`。
 - 本仓库的 `hb_training/hb_act/`（Psi0 仓库内的 LeRobot ACT）**已退役**：入口 `hb_act_train.py` 默认直接退出，只有复现旧的 `act/<task>/epoch-NNN` 发布时才可设 `HB_ALLOW_RETIRED_ACT=1` 运行。说明见 `hb_training/hb_act/RETIRED.md`。
 
 ### 4.6 FLASH（2026-11-24 用户接入，用户自己的方法，NeurIPS 2026；先做 B6）
@@ -238,7 +239,8 @@
 | Psi-Zero A10 v3（`a10-trolley-push-v3`）、B1（`b1-riceball-microwave`）、B8（`b8-table-wipe`）、C6（`c6-bathroom-door-fetch`） | 节点布局 **4 节点** × 8 卡 × 每卡 16（全局 512、不累积、4000 步），不符合标准 2 节点 × 8 × 32（A14 的 4 × 8 × 16 是另行规定的布局，不在此列） | 11-24 用户：登记为例外，不重训 |
 | Psi-Zero A14 cr3（`cropped-v3-b512`）、旧 A17/A18 | 带本体延迟 0.15（原 H2 指南例外） | 11-22 取消；重训为 `a14cr3a`（`cropped-v3-b512-nodelay`）和 `b512-2cam-cropped-v2` |
 | π0.5、Psi-Zero、ACT 在 11-12 前训的 | 15% 本体延迟 + 15% 历史丢帧 | 结果保留，附录说明；受影响任务按对齐配置重训 |
-| B6 v6 条数 | FastWAM 和 Delta Flow 用前 500 条；GR00T / Psi-Zero 纯 v6（`b512-v6-pure`）用全部 542 条；早期的 v6 续训版也是 542 条 | 11-18 与 11-23 用户 |
+| B6 v6 条数 | FastWAM、Delta Flow、FLASH 用前 500 条；GR00T / Psi-Zero 纯 v6（`b512-v6-pure`）和 ACT 纯 v6（hb_baselines，`act/b6-pedal-bin/b512-v6-pure`）用全部 542 条；早期的 v6 续训版也是 542 条 | 11-18、11-23 用户；ACT 是 11-24 用户（问过 v6 542 条后让训） |
+| ACT 纯 v6（hb_baselines，`b512-v6-pure`） | hb_baselines 的 ACT/FM-DiT/DP 数据集每个样本的增强抽取用 pid、urandom 产生（只有 FLASH 用 `HB_AUG_SEED`），不能逐位复现；和已发布的 `b512*` ACT 一样。分布完全是增强 v2。硬件是阿里云 PAI DSW 1 × RTX 4090 46 GB，`num_workers` 32，进程以 nice 19 运行（同机在跑闭环评估） | 11-24 登记；是否给 hb_baselines 补增强种子待定 |
 | Delta Flow A17 cr2（`a17cr2lg`） | 沿用 legacy a18 e40 配方（旧增强 `b6-visual-aug-v2`，无本体增强） | 11-22 用户：Delta Flow 先不管 |
 | Delta Flow B6 v6 | 从 v5 `step_010200` 只加载权重续训，不是从 base 训 | 11-15 计划 |
 | FastWAM B5 standing start | 不训 | 用户 |

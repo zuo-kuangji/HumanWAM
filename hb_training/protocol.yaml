@@ -134,7 +134,7 @@ models:
     recipe_record: "config.json in each HF folder (training, augmentation, dataset episodes, code_commit)"
     code: {repo: "github.com/zuo-kuangji/Humanoid_benchmark", entry: "evaluation/baselines/train.py --policy act|fm_dit|dp --contract <contract>", augmentation: evaluation/augmentation/hb_aug_v2.py, env: "evaluation/baselines/requirements.txt (python 3.12, torch 2.9.0+cu128)", commits_published: [4385573e, 028df1bb]}
     only_act_code: true          # 2026-11-24 user: the only ACT used in this project
-    inloop_mse: available        # evaluation/baselines/inloop.py --inloop-task (Humanoid_benchmark bai 9cca6255); wire it for the next ACT training
+    inloop_mse: used             # evaluation/baselines/inloop.py --inloop-task (Humanoid_benchmark bai 9cca6255); first ACT run with it: b6v6p 2026-11-24 (bai 8c3b88d2)
   flash:                         # user's own method (NeurIPS 2026), joined 2026-11-24, B6 first; registered from the FLASH session's measurements
     seed: 42                     # upstream FLASH-Policy roboverse_learn/il/configs/train_config/default_train.yaml training_params.seed
     seed_source: "upstream NTUMARS/FLASH-Policy default_train.yaml training_params.seed"
@@ -189,6 +189,8 @@ exceptions:                       # every item must also appear in the paper app
   - {model: "pi05, psi0, act", task: "runs before 2026-11-12", what: "15 % proprio delay + 15 % history drop", decision: "kept, appendix"}
   - {model: "fastwam, deltaflow", task: b6v6, what: "first 500 episodes", decision: "user 2026-11-18"}
   - {model: "groot, psi0", task: b6v6p, what: "all 542 episodes", decision: "user 2026-11-23"}
+  - {model: "act (hb_baselines)", task: b6v6p, what: "all 542 episodes (act/b6-pedal-bin/b512-v6-pure)", decision: "user 2026-11-24"}
+  - {model: "act (hb_baselines)", task: b6v6p, what: "per-sample augmentation draws from pid/urandom (hb_baselines seeds only FLASH via HB_AUG_SEED) -> not bit-reproducible, as the published act b512*; Aliyun DSW 1 x RTX 4090 46 GB, num_workers 32, nice 19", decision: "recorded 2026-11-24; seeding hb_baselines augmentation pending"}
   - {model: deltaflow, task: a17cr2lg, what: "legacy a18 e40 recipe (old aug, no proprio aug)", decision: "user 2026-11-22: Delta Flow later"}
   - {model: deltaflow, task: b6v6, what: "weights-only continuation from v5 step_010200, lr 3e-5", decision: "2026-11-15 plan"}
   - {model: fastwam, task: b5ss, what: "not trained", decision: user}
