@@ -210,10 +210,11 @@
 
 | 模型 / 任务 | 偏离 | 决定 |
 |---|---|---|
-| GR00T C6（`c6-bathroom-door-fetch/b512`） | 11-13 旧配置：4 节点 × 每卡 8 × **梯度累积 2**，8000 步 | 11-14 用户：先不重训 |
+| GR00T C6（`c6-bathroom-door-fetch/b512`） | 11-13 旧配置：**4 节点** × 8 卡 × 每卡 8 × **梯度累积 2**（全局 512），8000 步；布局和累积都不符合标准 2 节点 × 8 × 32、不累积 | 11-14 用户：先不重训；11-24 用户：布局也登记为例外，不重训 |
 | GR00T basket v1、B7 黑 / 绿 v1（`groot-runs-ft512`） | 同上，4 × 8 × 累积 2 | 已有按新配置训的新数据版本，旧目录保留 |
 | GR00T / Psi-Zero basket v2 | HF 上已有的版本是从 v1 checkpoint 续训 2000 步（`b512-trimv2-from-b512`、`b512-trimv2`），不是在 v2 上从 base 训的 | 11-23 补训纯 v2，任务键 `basketv2p`，上传 `b512-trimv2-pure/` |
 | Psi-Zero C6 | 4000 步，没有按长任务翻倍 | 11-13 用户：不重训 |
+| Psi-Zero A10 v3（`a10-trolley-push-v3`）、B1（`b1-riceball-microwave`）、B8（`b8-table-wipe`）、C6（`c6-bathroom-door-fetch`） | 节点布局 **4 节点** × 8 卡 × 每卡 16（全局 512、不累积、4000 步），不符合标准 2 节点 × 8 × 32（A14 的 4 × 8 × 16 是另行规定的布局，不在此列） | 11-24 用户：登记为例外，不重训 |
 | Psi-Zero A14 cr3（`cropped-v3-b512`）、旧 A17/A18 | 带本体延迟 0.15（原 H2 指南例外） | 11-22 取消；重训为 `a14cr3a`（`cropped-v3-b512-nodelay`）和 `b512-2cam-cropped-v2` |
 | π0.5、Psi-Zero、ACT 在 11-12 前训的 | 15% 本体延迟 + 15% 历史丢帧 | 结果保留，附录说明；受影响任务按对齐配置重训 |
 | B6 v6 条数 | FastWAM 和 Delta Flow 用前 500 条；GR00T / Psi-Zero 纯 v6（`b512-v6-pure`）用全部 542 条；早期的 v6 续训版也是 542 条 | 11-18 与 11-23 用户 |

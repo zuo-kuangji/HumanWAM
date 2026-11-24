@@ -155,10 +155,11 @@ tasks:                            # newest data per task (HF org humanoid-benchm
   a18cr2:   {robot: h2, hf: a18-pour-water, data_commit: 44cdd571, episodes: 100}
 
 exceptions:                       # every item must also appear in the paper appendix
-  - {model: groot, task: c6, what: "4 nodes x 8 x grad-accum 2 (2026-11-13 recipe), 8000 steps", decision: "user 2026-11-14: not retrained"}
+  - {model: groot, task: c6, what: "layout 4 nodes x 8 GPUs x 8 per GPU with grad-accum 2 (2026-11-13 recipe; standard 2 x 8 x 32, no accumulation), 8000 steps", decision: "user 2026-11-14: not retrained; user 2026-11-24: layout also registered as an exception"}
   - {model: groot, task: "basket v1, b7 v1, b7green v1", what: "4 x 8 x grad-accum 2 (groot-runs-ft512)", decision: "superseded by newer data versions"}
   - {model: "groot, psi0", task: basketv2, what: "published versions are 2000-step continuations from v1", decision: "user 2026-11-23: pure v2 retrain basketv2p -> b512-trimv2-pure"}
   - {model: psi0, task: c6, what: "4000 steps, not doubled", decision: "user 2026-11-13"}
+  - {model: psi0, task: "a10v3, b1, b8, c6", what: "layout 4 nodes x 8 GPUs x 16 per GPU (global 512, no accumulation; standard 2 x 8 x 32)", decision: "user 2026-11-24: registered as an exception, not retrained"}
   - {model: psi0, task: "a14cr3 (cropped-v3-b512), older a17/a18", what: "proprio delay 0.15", decision: "user 2026-11-22: removed; retrained a14cr3a / b512-2cam-cropped-v2"}
   - {model: "pi05, psi0, act", task: "runs before 2026-11-12", what: "15 % proprio delay + 15 % history drop", decision: "kept, appendix"}
   - {model: "fastwam, deltaflow", task: b6v6, what: "first 500 episodes", decision: "user 2026-11-18"}
