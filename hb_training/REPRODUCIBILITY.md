@@ -171,6 +171,9 @@
 - 配置以 HF `humanoid-benchmark/act` 现有 `b512*` 目录的 `config.json` 为准：种子 0，全局 batch 512，4000 步，lr 1e-4，AdamW (0.95, 0.999)，wd 1e-6，warmup 200 步 + cosine，backbone lr × 0.1，EMA 0.9999，AMP，增强 v2，图像 168 × 224。上传沿用 `hb_baselines/1` 格式和仓库里的 `code/hb_baselines_v1/` 加载器。
 - 训练中 MSE：已发布的 ACT 只有训练后的 `offline_eval`。Humanoid_benchmark bai `9cca6255` 起 hb_baselines 有训练中 MSE 接口 `evaluation/baselines/inloop.py`（加 `--inloop-task`，FLASH 已在用，FM-DiT、DP、ACT 都能用）。下次训 ACT 用它按第 6 节接上。
 - 11-24 晚第一次按本节训 ACT：B6 v6 全部 542 条（任务键 b6v6p，训练中 MSE 用 b6v6 train10），Humanoid_benchmark bai `8c3b88d2`，阿里云 DSW 2 号卡，4000 步，存 2000、4000；训练中 MSE 从 0.2572（250 步）降到 0.0673（4000 步）。上传 `act/b6-pedal-bin/b512-v6-pure/`。
+- 11-25 起 ACT 用种子固定的增强流（Humanoid_benchmark bai `b4b94d29` 起，第 3 节 1b），日志里有 `HB_AUG_SEED=0`，`config.json` 里有 `training.aug_seed = 0`。下面两个是按本节训的合规样板。都在 Humanoid_benchmark bai `2c91a514` 的工作树上训，阿里云 DSW 1 × RTX 4090 46 GB，num_workers 32，prefetch 2，nice 19（同机在跑闭环评估），存 2000、4000 步，`protocol.json` 的 protocol_commit 是 `6814d6c`：
+  - B1 v2（任务键 b1v2）：`b1-riceball-microwave-expert-v2-30hz` @`b58f0434`，全部 200 条，30 Hz。训练中 MSE（b1v2 train10）2000 步 0.0852，4000 步 0.0731。HF `act/b1-riceball-microwave/b512-v2/`，act @`b0bcea4f`。
+  - B4（任务键 b4）：`b4-cushion` 根目录 v2 @`194e7cde`，全部 302 条，30 Hz。训练中 MSE（b4 train10）2000 步 0.0564，4000 步 0.0497。HF `act/b4-cushion/b512/`，act @`cff510cf`。
 - 本仓库的 `hb_training/hb_act/`（Psi0 仓库内的 LeRobot ACT）**已退役**：入口 `hb_act_train.py` 默认直接退出，只有复现旧的 `act/<task>/epoch-NNN` 发布时才可设 `HB_ALLOW_RETIRED_ACT=1` 运行。说明见 `hb_training/hb_act/RETIRED.md`。
 
 ### 4.6 FLASH（2026-11-24 用户接入，用户自己的方法，NeurIPS 2026；先做 B6）
@@ -239,6 +242,8 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 | a10v3 | A10 推小车 v3 | @`6e410c5` | 全部 | G1 |
 | basketv2 | A20 篮子转移，伸手前剪裁 v2（`a20-basket-transfer-pre-reach-trim-expert-v2`） | @`c4df4d4` | 100 | G1 |
 | b1 | B1 饭团进微波炉（`b1-riceball-microwave-expert-v1`） | @`36da298` | 115 | G1 |
+| b1v2 | B1 饭团进微波炉 v2，30 Hz 版（`b1-riceball-microwave-expert-v2-30hz`） | @`b58f0434` | 全部 200 条 | G1 |
+| b4 | B4 靠垫从床到沙发（`b4-cushion` 根目录 v2） | @`194e7cde` | 全部 302 条 | G1 |
 | b5 | B5 推椅子（`b5-chair-push-expert-v1`） | @`b85b7e9` | 100 | G1 |
 | b5ss | B5 standing start，现名 A22（`A22-chair-push-standing-start-expert-v1-formerly-b5`） | @`913f5a1` | 100 | G1 |
 | b6v6 | B6 丢垃圾 v6（`b6-pedal-bin` 根目录） | @`ad2f5bf0` | 全部 542 条（11-24 用户起）；11-24 以前 FastWAM、Delta Flow、FLASH 训完的版本用前 500 条（0–499） | G1 |
