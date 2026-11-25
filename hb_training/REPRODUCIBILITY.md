@@ -5,7 +5,7 @@
 > 数据增强的细节以项目规范 v2 为准：[`docs/augmentation_v2.md`](docs/augmentation_v2.md)；H2 任务另见 [`docs/h2/`](docs/h2/)。
 > 偏离本文件的唯一合法情形：用户明确声明的例外。例外必须同时写进运行目录、HF 上的 `protocol.json` 和第 7 节的登记表。
 
-最后核对：2026-11-23。核对依据是集群上实际训练产物：GR00T 的 `checkpoint-*/training_args.bin`、Psi-Zero 的 `train_args.txt`、FastWAM 的 `out/config.yaml`、HF 上已发布的 `protocol.json`，不是凭配置文件推测。
+最后核对：2026-11-23（2026-11-25 增补 ODE 和 hb_baselines 增强种子）。核对依据是集群上实际训练产物：GR00T 的 `checkpoint-*/training_args.bin`、Psi-Zero 的 `train_args.txt`、FastWAM 的 `out/config.yaml`、HF 上已发布的 `protocol.json`，不是凭配置文件推测。
 
 ---
 
@@ -66,11 +66,12 @@
 | FastWAM | **42** | 上游 `FastWAM/configs/train.yaml: seed: 42`；`fastwam/runs/*/out/config.yaml` 都是 42，续训也是 42。 | 推理适配器 `ad_fastwam.py`：10 步去噪，seed 42。增强随机流：11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定（第 3 节）。 |
 | Psi-Zero | **292285** | 上游 Psi0 官方 finetune 脚本（`scripts/train/psi0/*.sh` 都写 `--seed=292285`）→ `hb_psi0/hb_args.py`。 | 本体常偏：`hb-bias-seed=292285`，用 `default_rng([seed, epoch, episode])`，是确定的。视觉增强随机流：11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定。上游 `set_seed` 启用了 `use_deterministic_algorithms(True, warn_only=True)` 和 `cudnn.benchmark=False`。 |
 | ACT（Psi0 版，**2026-11-24 已退役**：Psi0 仓库内的 LeRobot ACT，只对应 HF 旧目录 `act/<task>/epoch-NNN`） | **292285** | `hb_act/hb_act_args.py`，复用 Psi0 仓库的 LeRobot ACT 和同一套参数。 | 同 Psi-Zero。 |
-| ACT（hb_baselines 版，**现行且唯一**，HF `act/<task>/b512*`）、FM-DiT、DP | **0** | 合作者的 hb_baselines 代码；种子记在每个 HF 目录 `config.json` 的 `training.seed`。2026-11-24 逐个核对：act 的 12 个、fm-dit 全部 68 个、dp 1 个目录都是 0。 | 增强按规范 v2（`config.json` 的 `training.augmentation`，实现 `evaluation/augmentation/hb_aug_v2.py`）；它的逐样本随机流怎样取种子未经本规范审计。代码版本记在 `config.json` 的 `code_commit`（部分目录缺）。 |
+| ACT（hb_baselines 版，**现行且唯一**，HF `act/<task>/b512*`）、FM-DiT、DP | **0** | 合作者的 hb_baselines 代码；种子记在每个 HF 目录 `config.json` 的 `training.seed`。2026-11-24 逐个核对：act 的 12 个、fm-dit 全部 68 个、dp 1 个目录都是 0。 | 增强按规范 v2（`config.json` 的 `training.augmentation`，实现 `evaluation/augmentation/hb_aug_v2.py`）；增强随机流：Humanoid_benchmark bai `b4b94d29`（2026-11-25 用户）起，所有 hb_baselines 模型都按 FLASH 的做法，每个 DataLoader worker 用 `default_rng([HB_AUG_SEED = 训练种子, torch.initial_seed(), worker id])`，日志打印 `HB_AUG_SEED=<seed>`，`config.json` 记 `training.aug_seed`；之前的运行用 pid + urandom，不可逐位复现。代码版本记在 `config.json` 的 `code_commit`（部分目录缺）。 |
 | π0.5 | **42** | openpi `TrainConfig.seed = 42`；`hb_pi05/hb_g1_data.py` 的 `HB_AUG_SEED` 默认 42。 | 常偏：`default_rng([seed, epoch, episode])`，确定。增强流：`torch.initial_seed()` 加全局 rank，在世界规模和 worker 数相同时是确定的。 |
 | DiT4DiT | **42** | `hb_dit4dit/hb_d4d_config.py: "seed": 42`；`HB_AUG_SEED` 默认 42。 | 数据顺序：`default_rng([seed, pass])` 打乱，可以精确续训。常偏确定。 |
 | Delta Flow | **42** | `deltaflow-runs/<task>/run/production.yaml: seed: 42`。 | 增强种子：image_policy `20261110`、proprio_policy `20261106`；`split-manifest.json` 种子 42。 |
 | FLASH | **42** | 上游 NTUMARS/FLASH-Policy @ `f47e490` 的 `roboverse_learn/il/configs/train_config/default_train.yaml`：`training_params.seed`；本项目的移植在 hb_baselines（Humanoid_benchmark bai `9cca6255`），见 4.6。 | 增强随机流：每个 DataLoader worker 用 `default_rng([HB_AUG_SEED=42, torch.initial_seed(), worker id])`，日志打印 `HB_AUG_SEED=42`。 |
+| ODE-MLP、ODE-DiT | **42** | 上游 NTUMARS/ODE-POLICY 的 `ode_policy/configs/train_config/default_train.yaml`：`training_params.seed`（与 FLASH 同一套训练代码）；本项目的移植在 hb_baselines（Humanoid_benchmark bai `b4b94d29`），见 4.7。 | 增强随机流：每个 DataLoader worker 用 `default_rng([HB_AUG_SEED=42, torch.initial_seed(), worker id])`，日志打印 `HB_AUG_SEED=42`。 |
 | 训练中 MSE | **1234** | `hb_groot/hb_inloop_eval.py` 和 `eval-action-mse/hb_inloop_core.py`：`SEED + 1000*rank + batch_idx`。 | 评估完恢复训练的 RNG 状态，不影响训练随机流。 |
 
 > 各模型种子不同，是因为它们各自沿用上游官方值，这和「模型内部按官方配方」的原则一致。种子不改变 benchmark 接口，不影响公平性。
@@ -87,6 +88,10 @@
    - 修复前的后果：同种子重训时，「每个样本选哪项增强、扰动多大」每次都不同。分布完全相同，结果只在统计上等价，逐位不同。GR00T 和 FastWAM 的关节常偏也由这个流产生。
    - 已修（用户 11-23 批准）：训练入口 `hb_groot/hb_launch.py`、`hb_psi0/hb_train.py`、`fastwam_tools/hb_fastwam_train.py` 把 `HB_AUG_SEED` 设为训练种子，并在日志打印 `HB_AUG_SEED=<seed>`；增强随机流改由 `(HB_AUG_SEED, 进程或 DataLoader worker 的 torch.initial_seed(), global rank, worker id)` 派生，FastWAM 另加样本下标和进程内计数。CPU 实测三个模型同种子两次运行逐位一致，不同 worker 的流不同。
    - 只对 11-23 21:05（13:05 UTC）之后启动的训练生效，分布不变。之前训的模型（包括已发布的全部 GR00T、Psi-Zero、FastWAM）在 `protocol.json` 的 `reproducibility.augmentation_random_stream` 里标为 not seeded，附录注明。
+1b. **hb_baselines（ACT、FM-DiT、DP、ODE）的增强随机流（2026-11-25 已修复）**
+   - 修复前：`evaluation/baselines/data.py` 的 `ChunkDataset` 不传随机数生成器，增强用 `evaluation/augmentation` 的 `worker_rng()`（pid + urandom）；只有 FLASH 的 `FlashChunkDataset` 按种子派生。
+   - 已修（用户 11-25）：Humanoid_benchmark bai `b4b94d29` 起，FLASH 的派生方式原样移到基类 `ChunkDataset`，`train.py` 对所有模型设 `aug_seed` = 训练种子，日志打印 `HB_AUG_SEED=<seed>`，`config.json` 记 `training.aug_seed`。CPU 测试：同种子、同 worker 数两次运行逐位一致，换种子则不同，动作标签不变（`tests/framework/test_baselines.py::test_augmentation_stream_is_seeded_and_reproducible`）。
+   - 只对之后启动的训练生效，分布不变。之前训的 ACT `b512*`、FM-DiT、DP 保留，`protocol.json` 里标为 not seeded（`hb_repro.py` 按 `config.json` 有没有 `training.aug_seed` 自动判断）。
 2. **GPU 计算不是逐位确定的**
    - 除 Psi0 的 `warn_only` 外，没有开 `cudnn.deterministic` / `use_deterministic_algorithms`。
    - bf16、NCCL 归约顺序、原子操作都会引入逐位差异。
@@ -188,6 +193,39 @@
 - **训练中 MSE**：`evaluation/baselines/inloop.py` 调用 eval-action-mse 的 `hb_inloop_core`（HumanWAM bai `ff5bf95` 的拷贝），协议不变：每 250 步、b6v6 train10、每批 8 个查询、种子 1234、评 EMA 权重；结果写 `<run>/logs/inloop-mse.jsonl`，日志有 `HB_INLOOP installed/ready`。team_10 上的缓存用同一个 `build_cache.py`（torchcodec 0.8.0）重建，基线 train_mean 0.9049、hold_last_action 0.3427 与 NAS 一致，9 个缓存 episode 的 state/action 逐位核对过。
 - **运行与上传**：运行目录 NAS `preflight-20261104T1648Z/flash-runs/b6v6-b512-s16000`（team_10 的部分训练备份在同级 `team10-partial-20261124/`）；HF 上传位置待用户定。上传的 `protocol.json` 要带 `seed` 和 `reproducibility`（`hb_repro.fields` 能按 `hb_baselines/1` 格式和 policy `flash` 生成），有例外再加 `exceptions`。
 
+### 4.7 ODE-MLP / ODE-DiT（2026-11-25 用户接入；先做 B6）
+
+- **代码**：hb_baselines，GitHub `zuo-kuangji/Humanoid_benchmark` bai `b4b94d29`，入口 `evaluation/baselines/train.py --policy ode_mlp|ode_dit --contract g1_sonic_dfx6`，模型 `evaluation/baselines/policies.py`（`ODEPolicy`、`ODEDiTPolicy`）和 `ode_nets.py`。
+- **来源**：NTUMARS/ODE-POLICY（Apache-2.0）。结构以作者的 G1 移植为准（`real-g1` @ `fd8bec47`，本仓库 `packages/ode_g1` 的 `SonicLatentODE`），因为它的动作就是本项目的 G1 action76；G1 移植的 3 B GR00T 骨干换成上游 `ode_policy`（main @ `cea26d94`，`ode.yaml`）自己的图像编码器；ODE-DiT 的速度场取自 `ode_dit.yaml`。速度场与上游逐行对照过源码。
+- **种子**：训练 42（上游 `default_train.yaml`）；增强随机流 `HB_AUG_SEED=42`；训练中 MSE 1234。
+- **模型**：
+  - ODE 状态 = contract 的第一组动作（G1：SONIC token 64；H2：`body_target` 31）。用 Euler 积分，每行一步、步长 1：b_{k+1} = b_k + f(b_k, s | c)，共 16 行。
+  - 速度场：ODE-MLP 是 FiLM 残差 MLP（宽 512、4 层、输入 [body, state44]、输出零初始化、field_scale 1）；ODE-DiT 是 adaLN DiT（512 × 4 块 × 8 头、4 个 token）。
+  - 条件 c = Linear(LayerNorm(图像特征)) → 512，不含本体。双手由 c 经 Linear-SiLU-Linear 解码，连续值，不加 sigmoid。
+  - 每路相机一个 ResNet18，从头训，GroupNorm，与其余部分同一学习率。
+  - 归一化：q01/q99 到 [-1, 1]，DFX6 固定按 [0, 1] 映射，截断 ±5。
+  - 损失：带 mask 的 MSE（超出 episode 末尾的行不计），body 和手按维数 64:12 加权。
+  - 起点：训练用录制数据里 t-1 行的 body，episode 第一帧用归一化零向量 BOS；部署用 `past_actions[-1]`（实际执行的上一行），没有历史时用 BOS。
+  - 不加起点扰动、不加多样性头（G1 移植都没有）。
+- **优化**（上游 `default_train.yaml`）：AdamW，lr 1e-4，betas (0.95, 0.999)，wd 1e-6，**学习率不按 batch 缩放**（与本规范所有模型一致：全局 512，用官方学习率原值；上游的 1e-4 对应 batch 32，FLASH 同样如此）；500 步线性预热后 diffusers cosine 降到 0；EMA 用 Diffusion Policy 的 EMAModel（power 0.75，max 0.9999），按上游方式计数，保存 EMA 权重。编码器 bf16 autocast，ODE 头（条件、积分、手）FP32。
+- **布局**：1 节点 × 1 卡 × 每卡 512 = 全局 512，不累积；`num_workers` 32，prefetch 2。B6 这次的硬件是工作站 b1ue-jay，1 × RTX 5090 32 GB，AMD Ryzen 9 9950X（32 线程）。以后 ODE 所有任务沿用此布局。
+- **步数与存档**：8000 步（用户 11-24），每 1000 步存一次。
+- **数据**：b6v6，HF `b6-pedal-bin` @`ad2f5bf0` 全部 542 条，331,577 帧。
+- **训练中 MSE**：`--inloop-task b6v6 --inloop-code <本仓库 hb_training/eval-action-mse>`，每 250 步、`train10`、每批 8 个查询、种子 1234、评 EMA 权重。ODE 从缓存的 `past_action` 最后一行起步。缺这一项时训练会拒绝启动，除非加 `--allow-no-inloop`，那会记为例外。
+  - 在新机器上建 `train10` 缓存：环境 hb-baselines 加 `torchcodec==0.8.0`。按 `hb_eval_common.py` 的布局，`$G/../b6-pedal-bin-v6-ad2f5bf/data` 指向本地数据，再运行 `G=<...> python build_cache.py b6v6 train10`。b1ue-jay 上建出的基线 train_mean 0.9049、hold_last_action 0.3427，与 NAS 一致。
+- **命令**（任何机器上完全相同，双方可互相复现）：
+
+```bash
+G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baselines/train.py \
+    --policy ode_mlp --contract g1_sonic_dfx6 --dataset <data>/b6-pedal-bin --out <run> \
+    --steps 8000 --batch-size 512 --workers 32 --save-every 1000 --cache-dir <frame cache> \
+    --inloop-task b6v6 --inloop-code <HumanWAM>/hb_training/eval-action-mse
+```
+
+  种子、学习率、调度、EMA、horizon、编码器设置都是 `--policy ode_mlp` 的默认值，命令里不再另写。
+- **已作废的一次**：2026-11-24 的 `b6v6_b512_s8000` 是登记前训的（种子 0、lr 4e-4、增强未固定种子、没有训练中 MSE），不作为正式结果，见第 7 节。
+- **上传**：位置待用户定（建议公开仓库 `humanoid-benchmark/ode-mlp`，`b6-pedal-bin/b512-v6/step-XXXXXX/`，`hb_baselines/1` 格式）。
+
 ---
 
 ## 5. 数据版本（每个任务当前最新版，开训前逐项核对）
@@ -240,7 +278,8 @@
 | Psi-Zero A14 cr3（`cropped-v3-b512`）、旧 A17/A18 | 带本体延迟 0.15（原 H2 指南例外） | 11-22 取消；重训为 `a14cr3a`（`cropped-v3-b512-nodelay`）和 `b512-2cam-cropped-v2` |
 | π0.5、Psi-Zero、ACT 在 11-12 前训的 | 15% 本体延迟 + 15% 历史丢帧 | 结果保留，附录说明；受影响任务按对齐配置重训 |
 | B6 v6 条数 | 11-24 起规定值是全部 542 条。已训完的 FastWAM、Delta Flow、FLASH（`b6v6-b512-s16000`）用的是前 500 条（当时 11-18 的规定），结果保留，作为例外登记。GR00T / Psi-Zero 纯 v6（`b512-v6-pure`）、ACT 纯 v6（hb_baselines，`act/b6-pedal-bin/b512-v6-pure`）和早期的 v6 续训版都是 542 条，现在符合规范 | 11-18 用户定前 500 条；11-24 用户改为以后都取全部 542 条 |
-| ACT 纯 v6（hb_baselines，`b512-v6-pure`） | hb_baselines 的 ACT/FM-DiT/DP 数据集每个样本的增强抽取用 pid、urandom 产生（只有 FLASH 用 `HB_AUG_SEED`），不能逐位复现；和已发布的 `b512*` ACT 一样。分布完全是增强 v2。硬件是阿里云 PAI DSW 1 × RTX 4090 46 GB，`num_workers` 32，进程以 nice 19 运行（同机在跑闭环评估） | 11-24 登记；是否给 hb_baselines 补增强种子待定 |
+| ACT 纯 v6（hb_baselines，`b512-v6-pure`） | hb_baselines 的 ACT/FM-DiT/DP 数据集每个样本的增强抽取用 pid、urandom 产生（只有 FLASH 用 `HB_AUG_SEED`），不能逐位复现；和已发布的 `b512*` ACT 一样。分布完全是增强 v2。硬件是阿里云 PAI DSW 1 × RTX 4090 46 GB，`num_workers` 32，进程以 nice 19 运行（同机在跑闭环评估） | 11-24 登记；11-25 用户：hb_baselines 的增强从 Humanoid_benchmark bai `b4b94d29` 起对所有模型按种子固定（第 3 节 1b），之前的运行保留，标为 not seeded |
+| ODE-MLP B6 v6（`b6v6_b512_s8000`，11-24） | 登记前训的：种子 0、lr 4e-4（按 √batch 放大）、增强未固定种子、没有训练中 MSE | 11-25 用户：不作为正式结果，按 4.7 重训 |
 | Delta Flow A17 cr2（`a17cr2lg`） | 沿用 legacy a18 e40 配方（旧增强 `b6-visual-aug-v2`，无本体增强） | 11-22 用户：Delta Flow 先不管 |
 | Delta Flow B6 v6 | 从 v5 `step_010200` 只加载权重续训，不是从 base 训 | 11-15 计划 |
 | FastWAM B5 standing start | 不训 | 用户 |
