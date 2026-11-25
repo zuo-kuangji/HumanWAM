@@ -56,6 +56,7 @@ TASKS = {
     "b7gtd": (P / "b7-green-clothes-hamper-v2leaddrop-4d2c613/data", None),  # 2026-11-24 user: B7 green v2, lead-in still frames dropped (HF @4d2c613c, all 421)
     "b5ss": (P / "b5-chair-push-standing-start-v1-913f5a1/data", None),  # HF b5-chair-push-standing-start-expert-v1 @913f5a1, all 100 (user 2026-11-22)
     "a9": (P / "a9-pedal-open-8d43206/data", None),  # 2026-11-24 user: A9 pedal bin lid open (HF a9-pedal-open-expert-v1 @8d432063, all 100 ep, G1, 30 Hz)
+    "b1v2": (P / "b1-riceball-microwave-v2-30hz-b58f043/data", None),  # 2026-11-25 user: B1 v2 (HF b1-riceball-microwave-expert-v2-30hz @b58f0434, all 200 ep, G1, 30 Hz)
     "a20kosmo": (P / "a20-basket-transfer-kosmo-30hz-v1-7324dbe/data", None),  # 2026-11-25 user: A20 basket v2 re-rendered in the Kosmo-scanned EAI room (HF a20-basket-transfer-kosmo-30hz-v1 @7324dbeb; data/ sim/ byte-identical to basketv2), GR00T only, same recipe as basketv2p
 }
 CONFIG = {"a18": "h2w3_body31_hand44_h16.py", "a17": "h2w3_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py",

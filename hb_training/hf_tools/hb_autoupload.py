@@ -1456,6 +1456,22 @@ SUBDIR.update({("groot2x32", "a20kosmo"): "b512-kosmo-v1"})
 
 
 
+# 2026-11-25 user: B1 v2 (HF b1-riceball-microwave-expert-v2-30hz @b58f0434, all 200 ep): GR00T, Psi-Zero, FastWAM 4000 + 2000
+# -> new sub-dirs b512-v2/ and b512-v2-cont2k/ (the v1 b512 dirs stay untouched)
+for _d in (TASKDIR, DESC, TASKNAME, ROBOT):
+    if "b1" in _d:
+        _d.setdefault("b1v2", _d["b1"])
+HFDATA["b1v2"] = "b1-riceball-microwave-expert-v2-30hz @b58f0434 (v2, all 200 episodes, 30 Hz)"
+TASKNAME["b1v2"] = TASKNAME.get("b1", "B1 rice ball into microwave (G1)") + ", data v2"
+EPISODES_OF["b1v2"] = 200
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("b1v2-cont2k", _d["b1v2"])
+SUBDIR.update({("groot2x32", "b1v2"): "b512-v2", ("psi0", "b1v2"): "b512-v2", ("fastwam", "b1v2"): "b512-v2",
+               ("fastwam", "b1v2-cont2k"): "b512-v2-cont2k"})
+FW_TASKS = FW_TASKS + ("b1v2", "b1v2-cont2k")
+
+
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
