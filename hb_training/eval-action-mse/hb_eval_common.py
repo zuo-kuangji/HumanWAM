@@ -65,6 +65,7 @@ TASKS = {
     # 2026-11-16: B5 standing start (HF b5-chair-push-standing-start-expert-v1 @913f5a16, 100 ep; FastWAM b5ss)
     "b5ss": (P / "b5-chair-push-standing-start-v1-913f5a1/data", None, "g1"),
     "a9": (P / "a9-pedal-open-8d43206/data", None, "g1"),  # 2026-11-24 user: A9 pedal bin lid open (HF a9-pedal-open-expert-v1 @8d432063, all 100 ep, G1, 30 Hz)
+    "a20kosmo": (P / "a20-basket-transfer-kosmo-30hz-v1-7324dbe/data", None, "g1"),  # 2026-11-25 user: A20 Kosmo replay (same states / actions as basketv2, Kosmo-scanned scene videos)
     # 2026-11-17: B7 black clothes trimmed (HF b7-black-clothes-hamper @949da46, 107 ep; train = first 100, heldout 100-106)
     "b7t": (P / "b7-black-clothes-hamper-trim-949da46/data", 100, "g1"),
     # 2026-11-15 night: H2 cropped v2 (GR00T h32 relay item 71); head+chest only -> build_cache --cams head,chest

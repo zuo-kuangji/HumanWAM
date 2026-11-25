@@ -1444,6 +1444,18 @@ FW_TASKS = FW_TASKS + ("b6v6p", "b6v6p-cont2k")
 
 
 
+# 2026-11-25 user: GR00T on A20 basket v2 re-rendered in the Kosmo-scanned EAI room (scanner variable only; identical
+# states / actions / episodes to basketv2p, same recipe 2 x 8 x 32, 4000 steps) -> groot/a20-basket-transfer/b512-kosmo-v1/
+for _d in (TASKDIR, DESC, TASKNAME, ROBOT, EPISODES_OF):
+    if "basketv2p" in _d:
+        _d.setdefault("a20kosmo", _d["basketv2p"])
+HFDATA["a20kosmo"] = ("a20-basket-transfer-kosmo-30hz-v1 @7324dbeb (all 100 episodes; the A20 v2 trajectories @c4df4d40 replayed in "
+                      "the Kosmo-scanned EAI room: data/ and sim/ byte-identical to v2, only the two camera videos differ)")
+TASKNAME["a20kosmo"] = TASKNAME.get("basketv2p", "A20 basket transfer") + ", Kosmo-scanned scene"
+SUBDIR.update({("groot2x32", "a20kosmo"): "b512-kosmo-v1"})
+
+
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

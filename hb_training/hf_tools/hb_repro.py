@@ -149,9 +149,7 @@ def _hb_baselines(proto, seed_found, run_config, backfill):
     aug = tr.get("augmentation") or {}
     policy = (cfg.get("policy") or {}).get("policy") or proto.get("policy") or "?"
     flash = policy == "flash"
-    ode = policy in ("ode_mlp", "ode_dit")
-    used = seed_found if seed_found is not None else tr.get("seed", 42 if (flash or ode) else HB_BASELINES_SEED)
-    aug_seed = tr.get("aug_seed")  # recorded by every hb_baselines run from Humanoid_benchmark bai b4b94d29 (FLASH before)
+    used = seed_found if seed_found is not None else tr.get("seed", 42 if flash else HB_BASELINES_SEED)
     cc = cfg.get("code_commit")
     r = {
         "protocol": PROTOCOL_URL,
@@ -159,21 +157,17 @@ def _hb_baselines(proto, seed_found, run_config, backfill):
         "training_seed": used,
         "training_seed_source": (f"config.json training.seed of this folder (hb_baselines code, policy {policy}; "
                                  + ("42 = upstream NTUMARS/FLASH-Policy default_train.yaml training_params.seed)" if flash else
-                                    "42 = upstream NTUMARS/ODE-POLICY default_train.yaml training_params.seed)" if ode else
                                     "the ACT b512*, FM-DiT and DP baselines all record seed 0)")),
         "training_seed_verified_from_run_files": seed_found is not None,
-        "augmentation_random_stream": ((f"seeded: per DataLoader worker numpy default_rng([HB_AUG_SEED="
-                                        f"{aug_seed if aug_seed is not None else 42}, torch.initial_seed(), worker id]) "
-                                        f"(protocol.yaml models.{policy if (flash or ode) else 'hb_baselines'} aug_rng)")
-                                       if (flash or aug_seed is not None) else
+        "augmentation_random_stream": (("seeded: per DataLoader worker numpy default_rng([HB_AUG_SEED=42, torch.initial_seed(), "
+                                        "worker id]) (protocol.yaml models.flash)") if flash else
                                        (f"augmentation spec v2 ({aug.get('version', 'hb-aug-v2')}, implementation "
                                         f"{aug.get('implementation', 'evaluation/augmentation/hb_aug_v2.py')} of hb_baselines); "
                                         "how this stack seeds its per-sample random stream is not audited by this protocol")),
         "layout": {k: tr[k] for k in ("batch_size", "steps") if k in tr} or None,
         "environment": ("code/hb_baselines_v1/baselines/requirements.txt of this repository (= Humanoid_benchmark "
                         "evaluation/baselines/requirements.txt: Python 3.12, torch 2.9.0+cu128, CUDA 12.8 wheels)"),
-        "hardware": ("Volcengine team_10, 1 x RTX 4090D (protocol.yaml models.flash)" if flash else
-                     "protocol.yaml models.ode_mlp hardware" if ode else "not recorded in this folder"),
+        "hardware": "Volcengine team_10, 1 x RTX 4090D (protocol.yaml models.flash)" if flash else "not recorded in this folder",
         "upstream_code": (f"{HB_BASELINES_REPO} @ {cc} (evaluation/baselines/train.py, evaluation/augmentation/hb_aug_v2.py)"
                           if cc else f"{HB_BASELINES_REPO} evaluation/baselines (code_commit not recorded in this folder's config.json)"),
         "adapter_code": "config.json in this folder records the model, data contract, dataset episodes, training and "
@@ -185,11 +179,6 @@ def _hb_baselines(proto, seed_found, run_config, backfill):
         r["inloop_mse_seed"] = INLOOP_SEED
         r["upstream_method"] = "github.com/NTUMARS/FLASH-Policy @ f47e490 (Apache-2.0)"
         r["exceptions"] = "see the exception registry, REPRODUCIBILITY.md section 7; FLASH recipe: section 4.6"
-    if ode:
-        r["inloop_mse_seed"] = INLOOP_SEED
-        r["upstream_method"] = ("github.com/NTUMARS/ODE-POLICY @ real-g1 fd8bec47 (G1 port) + main cea26d94 (encoder, "
-                                "ode_dit field, default_train.yaml) (Apache-2.0)")
-        r["exceptions"] = "see the exception registry, REPRODUCIBILITY.md section 7; ODE recipe: section 4.7"
     if backfill:
         r["backfilled"] = backfill
     return {"seed": used, "reproducibility": r}
