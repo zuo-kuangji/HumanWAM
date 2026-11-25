@@ -175,6 +175,7 @@
   - B1 v2（任务键 b1v2）：`b1-riceball-microwave-expert-v2-30hz` @`b58f0434`，全部 200 条，30 Hz。训练中 MSE（b1v2 train10）2000 步 0.0852，4000 步 0.0731。HF `act/b1-riceball-microwave/b512-v2/`，act @`b0bcea4f`。
   - B4（任务键 b4）：`b4-cushion` 根目录 v2 @`194e7cde`，全部 302 条，30 Hz。训练中 MSE（b4 train10）2000 步 0.0564，4000 步 0.0497。HF `act/b4-cushion/b512/`，act @`cff510cf`。
   - A29（任务键 a29）：`a29-drawer-close-black-marble-30hz-v1` @`d03c19e6`，全部 100 条，30 Hz，模型输入只用 ego_view + chest（数据里的 kitchen、drawer 两路不用）。同一配方和代码，但硬件是阿里云 PAI DLC A800 集群的 1 × A800 80 GB。训练中 MSE（a29 train10）2000 步 0.1396，4000 步 0.1296。HF `act/a29-drawer-close/b512/`，act @`7d7a302b`。
+  - A21（任务键 a21）：`a21-floor-transfer-basket-trim-raw-head-expert-v1` @`682f2bfc`，全部 100 条，30 Hz，ego_view + chest 两路。同一配方和代码，硬件是阿里云 PAI DLC A800 集群的 1 × A800 80 GB。训练中 MSE（a21 train10）2000 步 0.0353，4000 步 0.0288。HF `act/a21-floor-basket-transfer/b512/`，act @`415cfc57`。
 - 本仓库的 `hb_training/hb_act/`（Psi0 仓库内的 LeRobot ACT）**已退役**：入口 `hb_act_train.py` 默认直接退出，只有复现旧的 `act/<task>/epoch-NNN` 发布时才可设 `HB_ALLOW_RETIRED_ACT=1` 运行。说明见 `hb_training/hb_act/RETIRED.md`。
 
 ### 4.6 FLASH（2026-11-24 用户接入，用户自己的方法，NeurIPS 2026；先做 B6）
@@ -246,6 +247,7 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 | b1v2 | B1 饭团进微波炉 v2，30 Hz 版（`b1-riceball-microwave-expert-v2-30hz`） | @`b58f0434` | 全部 200 条 | G1 |
 | b4 | B4 靠垫从床到沙发（`b4-cushion` 根目录 v2） | @`194e7cde` | 全部 302 条 | G1 |
 | a29 | A29 关抽屉，30 Hz 版（`a29-drawer-close-black-marble-30hz-v1`），只用 ego_view + chest | @`d03c19e6` | 全部 100 条 | G1 |
+| a21 | A21 从地上拿篮子放到长桌（`a21-floor-transfer-basket-trim-raw-head-expert-v1`），ego_view + chest | @`682f2bfc` | 全部 100 条 | G1 |
 | b5 | B5 推椅子（`b5-chair-push-expert-v1`） | @`b85b7e9` | 100 | G1 |
 | b5ss | B5 standing start，现名 A22（`A22-chair-push-standing-start-expert-v1-formerly-b5`） | @`913f5a1` | 100 | G1 |
 | b6v6 | B6 丢垃圾 v6（`b6-pedal-bin` 根目录） | @`ad2f5bf0` | 全部 542 条（11-24 用户起）；11-24 以前 FastWAM、Delta Flow、FLASH 训完的版本用前 500 条（0–499） | G1 |
