@@ -1432,6 +1432,18 @@ FW_TASKS = FW_TASKS + ("b7td", "b7gtd", "b7td-cont2k", "b7gtd-cont2k")
 
 
 
+# 2026-11-25 user: FastWAM B6 v6 retrained on ALL 542 episodes (B6 v6 rule since 11-24; the published fastwam b6v6 b512 /
+# b512-cont2k used episodes 0-499). 4000 + 2000 -> new sub-dirs b512-v6-pure/ and b512-v6-pure-cont2k/ (old dirs untouched)
+HFDATA["b6v6p"] = "b6-pedal-bin @ad2f5bf0 (v6 at the repo root, all 542 episodes)"
+EPISODES_OF["b6v6p"] = 542
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    if "b6v6p" in _d:
+        _d.setdefault("b6v6p-cont2k", _d["b6v6p"])
+SUBDIR.update({("fastwam", "b6v6p"): "b512-v6-pure", ("fastwam", "b6v6p-cont2k"): "b512-v6-pure-cont2k"})
+FW_TASKS = FW_TASKS + ("b6v6p", "b6v6p-cont2k")
+
+
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
