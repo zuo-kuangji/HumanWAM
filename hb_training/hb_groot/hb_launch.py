@@ -31,7 +31,7 @@ from gr00t.model.gr00t_n1d7 import processing_gr00t_n1d7 as P  # noqa: E402
 Proc = P.Gr00tN1d7Processor
 BODY_KEYS = [k for k in os.environ.get("HB_BODY_STATE_KEYS", "left_leg,right_leg,waist,left_arm,right_arm").split(",") if k]
 LOG = os.environ.get("HB_AUG_LOG")
-_state = {"rng": None, "count": 0}
+_state = {"rng": None, "count": 0, "pid": None}
 _PROFILE = os.environ.get("HB_AUG_PROFILE", "hb_v2")
 if _PROFILE not in {"hb_v2", "unified", "unified_v1", "unified_v2", "unified_v3"}:
     raise ValueError(f"Unknown HB_AUG_PROFILE: {_PROFILE!r}; choose hb_v2, unified, unified_v1, unified_v2 or unified_v3")
@@ -69,9 +69,24 @@ if _UNIFIED:
           "(native sharded processor has no training-epoch identity)", flush=True)
 
 
+def _worker_id():
+    info = torch.utils.data.get_worker_info()
+    return 0 if info is None else info.id + 1
+
+
+# 2026-11-23 user (hb_training/REPRODUCIBILITY.md section 3): with HB_AUG_SEED set -- the training entry sets it
+# for every run it starts -- the augmentation stream is derived from (training seed, torch.initial_seed() of this
+# process / DataLoader worker, global rank, worker id), so a rerun with the same seed and layout draws the same
+# augmentations. Processes started before this change have no HB_AUG_SEED and keep the old pid/urandom stream.
 def _rng():
-    if _state["rng"] is None:
-        _state["rng"] = np.random.default_rng([os.getpid(), int.from_bytes(os.urandom(8), "little")])
+    pid = os.getpid()
+    if _state["rng"] is None or _state["pid"] != pid:
+        if os.environ.get("HB_AUG_SEED") is not None:
+            _state["rng"] = np.random.default_rng([int(os.environ["HB_AUG_SEED"]), torch.initial_seed() % (2 ** 63),
+                                  int(os.environ.get("RANK", "0")), _worker_id()])
+        else:
+            _state["rng"] = np.random.default_rng([pid, int.from_bytes(os.urandom(8), "little")])
+        _state["pid"] = pid
     return _state["rng"]
 
 
@@ -186,6 +201,8 @@ if os.environ.get("HB_PATCH_ONLY") != "1":
         print(f"HB_INLOOP disabled: {_e!r}", flush=True)
 
 if os.environ.get("HB_PATCH_ONLY") != "1":
+    os.environ.setdefault("HB_AUG_SEED", "42")  # = the GR00T training seed (gr00t data_config seed 42); see _rng()
+    print(f"HB_AUG_SEED={os.environ['HB_AUG_SEED']} (seeded augmentation stream, REPRODUCIBILITY.md section 3)", file=sys.stderr, flush=True)
     entry = Path(os.environ["GROOT_SRC"]) / "gr00t/experiment/launch_finetune.py"
     arguments = sys.argv[1:]
     if _UNIFIED:

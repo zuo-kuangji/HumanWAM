@@ -1,5 +1,7 @@
 # hb_training：Humanoid Benchmark 多模型训练适配
 
+> **当前训练规范以 [`REPRODUCIBILITY.md`](REPRODUCIBILITY.md) + [`protocol.yaml`](protocol.yaml) 为准（2026-11-23 起）。**开训前逐项对照，训完运行 [`check_protocol.py`](check_protocol.py)。下文「训练设置」是 2026-11-10 的历史记录，其中 20 epoch、batch 696、按显存取最大 batch 等均已废止。
+
 本目录存放 Humanoid Benchmark 任务在阿里云 PAI DLC（4 节点 × 8 张 A800）上训练用的适配代码。内容同步自训练节点上的 `$G = …/preflight-20261104T1648Z/policies-20261109`，同步时间 2026-11-10。
 
 ## 模型与上游代码
@@ -26,7 +28,7 @@
 
 每个任务都是 100 条。
 
-## 训练设置
+## 训练设置（2026-11-10 历史记录，已被 REPRODUCIBILITY.md 取代）
 
 - **π0.5、Psi-Zero、DiT4DiT、GR00T**：
   - 训 20 个 epoch，第 10、20 个 epoch 各存一次 checkpoint；
@@ -37,7 +39,7 @@
 - **本体两层原则**（2026-11-10 晚用户确认）：benchmark 接口层所有模型一致，都输入 G1 44 维 / H2 78 维原始 state，不含关节速度；模型内部预处理按各自官方配方。DiT4DiT 按原生 G1 配方对关节角做 sin/cos（G1 73 维、H2 153 维，chain hb1110n，每卡 batch 2）。Delta Flow G1 的 `wholebody_delta.py` 用参照版本 real30-from-sim60-20261108 的 state44 副本。
 - **GR00T / π0.5 重训**（2026-11-10 21:45）：全局 batch 696（每卡 87 × 8），每个训练只占一个节点，四节点并行。任务池见 `hb_pool.sh` 和 `pools/b696/jobs.txt`，单节点脚本为 `groot_single.sh` 和 `pi05_single.sh`。
 - **新任务 trolley**：HF humanoid-benchmark/trolley-push-expert-v1@ef9024a，取固定的前 100 条（共 103 条）。
-- **ACT**（`hb_act/`）：用 Psi0 自带的 LeRobot ACT，复用 Psi-Zero 的数据视图和 v2 增强，原生 ColorJitter 关闭。
+- **ACT**（`hb_act/`，**2026-11-24 起退役**）：用 Psi0 自带的 LeRobot ACT，复用 Psi-Zero 的数据视图和 v2 增强，原生 ColorJitter 关闭。以后所有 ACT 训练改用 `zuo-kuangji/Humanoid_benchmark` 的 hb_baselines（`evaluation/baselines/train.py --policy act`），见 [REPRODUCIBILITY.md](REPRODUCIBILITY.md) 第 4.5 节。
 - **节点管家**（`hb_nodectl.sh`，每个节点常驻一个）：在 `$G/control/kill-<id>.req` 写入请求，四个节点同时停训；队列处于两项之间且 GPU 被占用超过 2 分钟时，自动清理残留进程。
 - **batch**：每个模型都用显存允许的最大每卡 batch，峰值显存不超过 92%。GR00T 从 320 往下试（输出在 `groot-runs-bmax/`），DiT4DiT 从 64 往下试。
 - **数据增强**：统一用 Humanoid Benchmark 数据增强规范 v2，各模型原生的图像增强全部关闭。

@@ -23,9 +23,27 @@ NJ = int(os.environ.get("HB_FW_JOINTS", "29"))
 _seen = {"img": False, "state": False}
 _epoch = ContextVar("hb_fastwam_augmentation_epoch", default=0)
 _SAMPLE = "__hb_augmentation_sample"
+_calls = {"pid": None, "n": 0}
 
 
+def _worker_id():
+    info = torch.utils.data.get_worker_info()
+    return 0 if info is None else info.id + 1
+
+
+# 2026-11-23 user (hb_training/REPRODUCIBILITY.md section 3): with HB_AUG_SEED set -- the training entry sets it
+# for every run it starts -- the augmentation stream is derived from (training seed, torch.initial_seed() of this
+# process / DataLoader worker, global rank, worker id), so a rerun with the same seed and layout draws the same
+# augmentations. Processes started before this change have no HB_AUG_SEED and keep the old pid/urandom stream.
+# One generator per call; the per-process call counter keeps successive draws in a worker distinct.
 def _rng(idx=0):
+    if os.environ.get("HB_AUG_SEED") is not None:
+        pid = os.getpid()
+        if _calls["pid"] != pid:
+            _calls["pid"], _calls["n"] = pid, 0
+        _calls["n"] += 1
+        return np.random.default_rng([int(os.environ["HB_AUG_SEED"]), torch.initial_seed() % (2 ** 63),
+                                      int(os.environ.get("RANK", "0")), _worker_id(), int(idx) & 0xFFFFFFFF, _calls["n"]])
     return np.random.default_rng([os.getpid(), int(idx) & 0xFFFFFFFF, time.time_ns() & 0xFFFFFFFF])
 
 

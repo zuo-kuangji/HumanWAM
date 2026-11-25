@@ -23,6 +23,9 @@ PROFILES = {"g1": (("ego_view", "chest"), 44, 76, 29), "h2": (("head", "chest"),
             "h2p": (("head", "chest"), 78, 82, 31)}
 CAMS, SDIM, ADIM, NJ = PROFILES[os.environ.get("HB_FW_PROFILE", "g1")]
 os.environ.setdefault("HB_FW_JOINTS", str(NJ))
+# 2026-11-23 user (REPRODUCIBILITY.md section 3): seed the augmentation stream (hb_fastwam_aug._rng) with the training seed
+os.environ.setdefault("HB_AUG_SEED", next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("seed=")), "42"))
+print(f"HB_AUG_SEED={os.environ['HB_AUG_SEED']} (seeded augmentation stream, REPRODUCIBILITY.md section 3)", file=sys.stderr, flush=True)
 SHAPE_META = {
     "images": [{"key": n, "raw_shape": [3, 224, 224], "shape": [3, 224, 224]} for n in CAMS],
     "action": [{"key": "default", "raw_shape": ADIM, "shape": ADIM}],

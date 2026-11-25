@@ -1,0 +1,231 @@
+# Humanoid Benchmark canonical training protocol (machine-readable companion of REPRODUCIBILITY.md).
+# Verified 2026-11-23 against the artifacts of the runs actually trained (training_args.bin / train_args.txt /
+# out/config.yaml / published protocol.json). check_protocol.py reads this file. Change a value only together with
+# REPRODUCIBILITY.md and only on an explicit user decision; record deviations under `exceptions`.
+version: 2026-11-23
+
+interface:                       # identical for every model
+  proprio:
+    g1: {dim: 44, layout: "29 body joint angles + measured hands 6+6 + projected gravity 3", velocity: false}
+    h2: {dim: 78, layout: "75 joints (body 31 incl. head, Sharpa hands 22+22) + projected gravity 3", velocity: false}
+  action:
+    g1: {dim: 76, layout: "motion token 64 + same-frame measured hands 12"}
+    h2: {dim: 75}
+    h2p: {dim: 82, layout: "body 31 + hands 44 + SONIC planner 7 (A14)"}
+  cameras: {g1: [ego_view, chest], h2: [head, chest]}
+  fps: 30
+  augmentation:
+    spec: "Humanoid Benchmark online augmentation spec v2 (2026-11-09), see project CLAUDE.md / docs/augmentation_v2.md"
+    implementation: hb_groot/hb_aug_v2.py
+    implementation_sha256_prefix: 9f7713cea4f846ef
+    visual: "15 effects, one effect per sample boosted to 1.5x; model-native image augmentation off"
+    proprio: "per-joint bias U(+-2 deg) + N(0, 0.25 deg) clipped at 3 sigma (hb_aug_v2.perturb_joints); no delay, no history drop"
+    eval: "all random perturbation off"
+    rng: "numpy Generator from (HB_AUG_SEED = training seed, torch.initial_seed() of the process / DataLoader worker, global rank, worker id); FastWAM adds sample index + per-process call counter"
+    rng_since: "2026-11-23 13:05 UTC for GR00T, Psi-Zero, FastWAM (training log prints HB_AUG_SEED=<seed>); pi0.5, DiT4DiT, Delta Flow were always seeded"
+  gradient_accumulation_steps: 1
+  inloop_mse: {every: 250, batch: 8, seed: 1234, split: "heldout if the task has never-trained episodes else train10"}
+  continuation: {init: weights_only, peak_lr_factor: 0.3, warmup_ratio: 0.05, schedule: cosine, steps: 2000, steps_long_task: 4000}
+  long_task_step_factor: {c6: 2}          # A14 is NOT doubled
+
+models:
+  groot:
+    seed: 42                     # upstream gr00t/configs/data/data_config.py; HF TrainingArguments.seed
+    seed_source: "upstream Isaac-GR00T default"
+    global_batch: 512
+    layout: {nodes: 2, gpus_per_node: 8, per_gpu_batch: 32}
+    layout_h2p: {nodes: 4, gpus_per_node: 8, per_gpu_batch: 16}
+    max_steps: 4000
+    max_steps_c6: 8000
+    learning_rate: 1.0e-4
+    warmup_ratio: 0.05
+    lr_schedule: cosine
+    weight_decay: 1.0e-5
+    save_steps: [2000, 2500, 3000, 3500, 4000]
+    trainable: "full fine-tune: tune_llm, tune_visual, projector, diffusion action head, VLLN"
+    action_horizon: 16
+    dataloader_num_workers: 8
+    upstream: {repo: third_party/Isaac-GR00T, commit: 7aa0bca}
+    env: {name: groot-py312, python: 3.12.12, torch: 2.9.0+cu128}
+    launchers: {g1: hb_groot/groot_pair2x32.sh, h2: hb_groot/groot_pair2x32_h2.sh, h2p: hb_groot/groot_quad16_h2p.sh}
+  psi0:
+    seed: 292285                 # upstream Psi0 finetune scripts (scripts/train/psi0/*.sh --seed=292285)
+    seed_source: "upstream Psi0 official finetune scripts"
+    bias_seed: 292285
+    global_batch: 512
+    layout: {nodes: 2, gpus_per_node: 8, per_gpu_batch: 32}
+    layout_h2p: {nodes: 4, gpus_per_node: 8, per_gpu_batch: 16}
+    max_steps: 4000
+    max_steps_c6: 4000           # exception: not doubled (user 2026-11-13)
+    learning_rate: 1.0e-4
+    param_group_lr: {lang_backbone: 1.0e-6, vision_tower: 1.0e-5, mm_projector: 1.0e-4}
+    warmup_ratio: 0.025
+    lr_schedule: cosine
+    weight_decay: 1.0e-6
+    betas: [0.95, 0.999]
+    max_grad_norm: 1.0
+    mixed_precision: bf16
+    save_every: 2000
+    hb_delay_prob: 0.0
+    action_horizon: 30
+    num_workers: 8
+    upstream: {repo: third_party/Psi0, commit: cda3fdf}
+    env: {name: psi0, python: 3.11.18, torch: 2.7.0+cu126}
+    launchers: {all: hb_b512/psi0_multi.sh}
+  fastwam:
+    seed: 42                     # upstream FastWAM configs/train.yaml
+    seed_source: "upstream FastWAM default"
+    global_batch: 512
+    layout: {nodes: 4, gpus_per_node: 8, per_gpu_batch: 16}
+    max_steps: 4000
+    max_steps_c6: 8000
+    continuation_steps: 2000     # total 6000; C6 4000 more (total 12000)
+    learning_rate: 1.0e-4
+    continuation_learning_rate: 3.0e-5
+    lr_schedule: cosine
+    weight_decay: 0.01
+    max_grad_norm: 1.0
+    mixed_precision: bf16
+    save_every: 2000
+    continuation_save_every: 1000
+    action_horizon: 16
+    video: "17-frame clips, two cameras side by side 224x448"
+    num_workers: 8
+    upstream: {repo: "github.com/yuantianyuan01/FastWAM", commit: 7faa71108368fbb3b6885649f112af607427a2d4}
+    env: {name: fastwam, python: 3.11.18, torch: 2.7.1+cu128}
+    launchers: {train: hb_fastwam/fastwam_task.sh, cont: hb_fastwam/fastwam_cont.sh, cont_c6: hb_fastwam/fastwam_cont4k.sh}
+  pi05:
+    seed: 42                     # openpi TrainConfig.seed; HB_AUG_SEED default 42
+    global_batch: 256
+    max_steps: 4000
+    save_steps: [2000, 4000]
+    action_horizon: 16
+    inloop_mse: false            # MUST be wired before the next pi0.5 training
+    upstream: {repo: third_party/openpi, commit: 215abfb}
+  dit4dit:
+    seed: 42                     # hb_dit4dit/hb_d4d_config.py; HB_AUG_SEED default 42
+    global_batch: 64
+    max_steps: 8000
+    save_steps: [6000, 8000]
+    learning_rate: {backbone_interface: 1.0e-5, action_model: 1.0e-4, base: 3.0e-5, min_lr: 5.0e-7, schedule: cosine_with_min_lr}
+    warmup_ratio: 0.05
+    proprio_encoding: "sin/cos of joint angles (G1 73 / H2 153), native recipe"
+    inloop_mse: false            # MUST be wired before the next DiT4DiT training
+    upstream: {repo: third_party/DiT4DiT, commit: 66a6f3a}
+  deltaflow:
+    seed: 42                     # deltaflow-runs/<task>/run/production.yaml
+    aug_seeds: {image: 20261110, proprio: 20261106}
+    global_batch: 256
+    layout: {gpus: 32, per_gpu_batch: 8}
+    max_steps: 8000
+    max_steps_c6: 16000
+    warmup_ratio: 0.05
+    lr_schedule: cosine
+    save_steps: [6000, 8000]
+  act:
+    seed: 292285                 # hb_act/hb_act_args.py (Psi0 repo's LeRobot ACT; HF act/<task>/epoch-NNN)
+    retired: "2026-11-24 user: never train ACT with hb_training/hb_act again; every ACT training uses hb_baselines (models.hb_baselines)"
+    global_batch: 256
+    max_steps: 4000
+  hb_baselines:                  # collaborator's stack: HF act/<task>/b512*, fm-dit, dp (protocol format hb_baselines/1)
+    models: [act, fm_dit, dp]
+    seed: 0                      # config.json training.seed of every published folder (verified 2026-11-24)
+    seed_source: "hb_baselines config.json training.seed"
+    recipe_record: "config.json in each HF folder (training, augmentation, dataset episodes, code_commit)"
+    code: {repo: "github.com/zuo-kuangji/Humanoid_benchmark", entry: "evaluation/baselines/train.py --policy act|fm_dit|dp --contract <contract>", augmentation: evaluation/augmentation/hb_aug_v2.py, env: "evaluation/baselines/requirements.txt (python 3.12, torch 2.9.0+cu128)", commits_published: [4385573e, 028df1bb]}
+    only_act_code: true          # 2026-11-24 user: the only ACT used in this project
+    inloop_mse: used             # evaluation/baselines/inloop.py --inloop-task (Humanoid_benchmark bai 9cca6255); first ACT run with it: b6v6p 2026-11-24 (bai 8c3b88d2)
+    aug_rng: "from Humanoid_benchmark bai b4b94d29 (2026-11-25, user): every hb_baselines model draws its augmentations per DataLoader worker from numpy default_rng([HB_AUG_SEED = training seed, torch.initial_seed(), worker id]) (FLASH's stream, moved to ChunkDataset); runs before drew from pid + urandom (not bit-reproducible)"
+  flash:                         # user's own method (NeurIPS 2026), joined 2026-11-24, B6 first; registered from the FLASH session's measurements
+    seed: 42                     # upstream FLASH-Policy roboverse_learn/il/configs/train_config/default_train.yaml training_params.seed
+    seed_source: "upstream NTUMARS/FLASH-Policy default_train.yaml training_params.seed"
+    aug_rng: "per DataLoader worker numpy default_rng([HB_AUG_SEED=42, torch.initial_seed(), worker id]); log prints HB_AUG_SEED=42"
+    upstream: {repo: "github.com/NTUMARS/FLASH-Policy", commit: f47e490, license: Apache-2.0}
+    code: {repo: "github.com/zuo-kuangji/Humanoid_benchmark", branch: bai, commit: 9cca6255, entry: "evaluation/baselines/train.py --policy flash --contract g1_sonic_dfx6", model: evaluation/baselines/flash.py, parity: "check_flash_parity.py: 12 checks, max abs diff 0"}
+    env: {name: hb-baselines, python: "3.12.1", torch: "2.9.0+cu128", torchvision: "0.24.0"}
+    hardware: "Aliyun PAI DSW hb_4090_6gpu_nas, 1 x RTX 4090 46 GB (card 5, cores 64-79; not A800); the team_10 RTX 4090D run stopped at step 4000 (backup only)"
+    global_batch: 512
+    layout: {nodes: 1, gpus_per_node: 1, per_gpu_batch: 512}
+    gradient_accumulation_steps: 1
+    num_workers: 40
+    prefetch_factor: 2
+    max_steps: 12000             # user 2026-11-25 (was 16000 from 2026-11-24; runs finished at 16000 before 11-25: B6 b512-v6-500, B7 b512-leaddrop)
+    save_steps: [4000, 8000, 12000]   # user 2026-11-25: keep and upload only 8000 and 12000 (the 16000-step runs saved every 2000)
+    published_steps: [8000, 12000]
+    optimizer: {name: AdamW, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6}
+    lr_schedule: {warmup_steps: 500, warmup: linear, schedule: "diffusers cosine", final_lr: 0.0, decays_to_zero_at: max_steps}
+    ema: {impl: "Diffusion Policy EMAModel", power: 0.75, max_decay: 0.9999, saved_weights: ema}
+    precision: "bf16 autocast; polynomial fitting in fp32"
+    model: {dit: {width: 512, layers: 4, heads: 8, dropout: 0.0, time_embed: 256}, vision: "ResNet18 per camera, from scratch, GroupNorm, same lr", basis: {family: Legendre, degree: 6, fit_pad: 1, poly_prefix: 1, poly_suffix: 1, boundary: C1}, history_noise_std: 0.5, history_reg_lambda: 0.1, consistency_weight: 1.0, inference: "1-step Euler"}
+    interface_adaptation: "user 2026-11-24, model-internal, not an exception: history = interface past_actions, 8 points every 2 frames up to t-1 (67 ms at 30 Hz; paper 60 ms), first row repeated before the episode start, frame 0 starts from zero coefficients; current-frame images only (ego_view + chest 168x224) + state44, no 8-frame observation history; polynomial evaluated per 30 Hz frame, 16 rows, no velocity feed-forward"
+    data: {b6v6: "HF b6-pedal-bin @ad2f5bf0, first 500 episodes (0-499), 305,667 frames (the 2026-11-18 rule; from 2026-11-24 B6 v6 uses all 542, see exceptions)"}
+    inloop_mse: "evaluation/baselines/inloop.py -> eval-action-mse hb_inloop_core (copy of HumanWAM bai ff5bf95): every 250 steps, train10, batch 8, seed 1234, EMA weights; <run>/logs/inloop-mse.jsonl"
+    run_dir: "NAS preflight-20261104T1648Z/flash-runs/b6v6-b512-s16000 (team_10 partial backup: flash-runs/team10-partial-20261124)"
+    hf_upload: "public repo humanoid-benchmark/flash, <task dir>/<sub dir>/step-XXXXXX/ (hb_baselines/1 format); from 2026-11-25 only step-008000 and step-012000"
+    act: {global_batch: 512, max_steps: 4000, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6, warmup_steps: 200, lr_schedule: cosine, ema: 0.9999, amp: true}
+
+  ode_mlp:                       # ODE policy (NTUMARS ODE-POLICY), joined 2026-11-25 (user), B6 first; hb_baselines code
+    variants: {ode_mlp: "FiLM residual MLP field", ode_dit: "DiT (adaLN) field, models.ode_dit"}
+    seed: 42                     # upstream ODE-POLICY ode_policy/configs/train_config/default_train.yaml training_params.seed
+    seed_source: "upstream NTUMARS/ODE-POLICY default_train.yaml training_params.seed"
+    aug_rng: "per DataLoader worker numpy default_rng([HB_AUG_SEED=42, torch.initial_seed(), worker id]); log prints HB_AUG_SEED=42"
+    upstream: {repo: "github.com/NTUMARS/ODE-POLICY", commits: {real-g1: fd8bec47, main: cea26d94}, license: Apache-2.0, g1_port: "HumanWAM packages/ode_g1 (from real-g1)"}
+    code: {repo: "github.com/zuo-kuangji/Humanoid_benchmark", branch: bai, commit: b4b94d29, entry: "evaluation/baselines/train.py --policy ode_mlp --contract g1_sonic_dfx6", model: "evaluation/baselines/policies.py ODEPolicy, ode_nets.py"}
+    env: {name: hb-baselines, python: "3.12", torch: "2.9.0+cu128", torchvision: "0.24.0", cache_build: "torchcodec 0.8.0 (eval-action-mse build_cache.py)"}
+    hardware: "workstation b1ue-jay, 1 x RTX 5090 32 GB, AMD Ryzen 9 9950X (32 threads)"
+    global_batch: 512
+    layout: {nodes: 1, gpus_per_node: 1, per_gpu_batch: 512}
+    gradient_accumulation_steps: 1
+    num_workers: 32
+    prefetch_factor: 2
+    max_steps: 8000              # user 2026-11-24
+    save_steps: "every 1000 (1000 .. 8000)"
+    optimizer: {name: AdamW, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6, lr_batch_scaling: none}
+    lr_schedule: {warmup_steps: 500, warmup: linear, schedule: "diffusers cosine", final_lr: 0.0, decays_to_zero_at: max_steps}
+    ema: {impl: "Diffusion Policy EMAModel", power: 0.75, max_decay: 0.9999, saved_weights: ema}
+    precision: "bf16 autocast for the image encoder; the ODE head (condition, Euler integration, hands) in fp32"
+    model: {follows: "the G1 port (SonicLatentODE) with ODE-POLICY's image encoder", ode_state: "the contract's first action group (G1 motion token 64; H2 body_target 31)", field: {width: 512, layers: 4, input: "[body, state]", field_scale: 1.0, output: zero-init}, condition: "Linear(LayerNorm(image features)) -> 512; no proprio", hands: "Linear-SiLU-Linear from the condition, 16 rows, no sigmoid", vision: "ResNet18 per camera, from scratch, GroupNorm, same lr", horizon: 16, integration: "Euler, dt = one row", normalization: "q01/q99 to [-1,1], DFX6 fixed [0,1], clip +-5", loss: "masked MSE, body:hands weighted 64:12", start: "recorded body row t-1 in training, normalized-zero BOS at an episode start; executed row past_actions[-1] at deployment", start_perturbation: none, diversity_head: none}
+    data: {b6v6: "HF b6-pedal-bin @ad2f5bf0, all 542 episodes, 331,577 frames"}
+    inloop_mse: "evaluation/baselines/inloop.py -> eval-action-mse hb_inloop_core: every 250 steps, train10 (b6v6), batch 8, seed 1234, EMA weights; the ODE starts from the cached past_action's last row; <run>/logs/inloop-mse.jsonl"
+    run_dir: "b1ue-jay ~/hb_models/baselines/runs/b6-pedal-bin-v6/ode_mlp-protocol"
+    hf_upload: "pending the user's decision (proposed: public repo humanoid-benchmark/ode-mlp, b6-pedal-bin/b512-v6/step-XXXXXX, hb_baselines/1 format)"
+  ode_dit:                       # the same as ode_mlp except the field (ODE-POLICY ode_dit.yaml: 512 wide, 4 adaLN blocks, 8 heads, 4 tokens); not trained yet
+    seed: 42
+    same_as: ode_mlp
+
+tasks:                            # newest data per task (HF org humanoid-benchmark, private datasets)
+  a3v4:     {robot: g1, data_commit: 6393d4a}
+  a7v4:     {robot: g1, data_commit: 90cc2b5}
+  a10v3:    {robot: g1, data_commit: 6e410c5}
+  basketv2: {robot: g1, hf: a20-basket-transfer-pre-reach-trim-expert-v2, data_commit: c4df4d4, episodes: 100}
+  b1:       {robot: g1, hf: b1-riceball-microwave-expert-v1, data_commit: 36da298, episodes: 115}
+  b5:       {robot: g1, hf: b5-chair-push-expert-v1, data_commit: b85b7e9, episodes: 100}
+  b5ss:     {robot: g1, hf: A22-chair-push-standing-start-expert-v1-formerly-b5, data_commit: 913f5a1, episodes: 100}
+  b6v6:     {robot: g1, hf: b6-pedal-bin, data_commit: ad2f5bf0, episodes: 542, episodes_note: "all 542 (user 2026-11-24, supersedes the first-500 rule of 2026-11-18); FastWAM / Delta Flow / FLASH runs trained before used the first 500 (exceptions)"}
+  b7t:      {robot: g1, hf: b7-black-clothes-hamper, data_commit: 949da46, episodes: 100, episodes_note: "first 100 of 107"}
+  b7gt:     {robot: g1, hf: b7-green-clothes-hamper, data_commit: 22e3b83, episodes: 421}
+  b8:       {robot: g1, hf: b8-table-wipe-expert-v1, data_commit: 3b2e618}
+  c6:       {robot: g1, hf: c6-bathroom-door-fetch-expert-v1, data_commit: 3afba69, long_task: true}
+  a14cr3:   {robot: h2p, hf: a14-screw-bulb, data_commit: 79fe08a, action_dim: 82}
+  a17cr2:   {robot: h2, hf: a17-unscrew-bottle, data_commit: 3520b70f, episodes: 100}
+  a18cr2:   {robot: h2, hf: a18-pour-water, data_commit: 44cdd571, episodes: 100}
+
+exceptions:                       # every item must also appear in the paper appendix
+  - {model: groot, task: c6, what: "layout 4 nodes x 8 GPUs x 8 per GPU with grad-accum 2 (2026-11-13 recipe; standard 2 x 8 x 32, no accumulation), 8000 steps", decision: "user 2026-11-14: not retrained; user 2026-11-24: layout also registered as an exception"}
+  - {model: groot, task: "basket v1, b7 v1, b7green v1", what: "4 x 8 x grad-accum 2 (groot-runs-ft512)", decision: "superseded by newer data versions"}
+  - {model: "groot, psi0", task: basketv2, what: "published versions are 2000-step continuations from v1", decision: "user 2026-11-23: pure v2 retrain basketv2p -> b512-trimv2-pure"}
+  - {model: psi0, task: c6, what: "4000 steps, not doubled", decision: "user 2026-11-13"}
+  - {model: psi0, task: "a10v3, b1, b8, c6", what: "layout 4 nodes x 8 GPUs x 16 per GPU (global 512, no accumulation; standard 2 x 8 x 32)", decision: "user 2026-11-24: registered as an exception, not retrained"}
+  - {model: psi0, task: "a14cr3 (cropped-v3-b512), older a17/a18", what: "proprio delay 0.15", decision: "user 2026-11-22: removed; retrained a14cr3a / b512-2cam-cropped-v2"}
+  - {model: "pi05, psi0, act", task: "runs before 2026-11-12", what: "15 % proprio delay + 15 % history drop", decision: "kept, appendix"}
+  - {model: "fastwam, deltaflow, flash", task: b6v6, what: "first 500 episodes (0-499) under the 2026-11-18 rule; from 2026-11-24 B6 v6 uses all 542", decision: "user 2026-11-18; results kept (user 2026-11-24 changed the rule for later runs)"}
+  - {model: "act (hb_baselines)", task: b6v6p, what: "per-sample augmentation draws from pid/urandom (hb_baselines seeded only FLASH via HB_AUG_SEED) -> not bit-reproducible, as the published act b512*; Aliyun DSW 1 x RTX 4090 46 GB, num_workers 32, nice 19", decision: "recorded 2026-11-24; user 2026-11-25: hb_baselines augmentation seeded from Humanoid_benchmark bai b4b94d29 for every model; runs before keep their results, marked not seeded"}
+  - {model: ode_mlp, task: b6v6, what: "b6v6_b512_s8000 (2026-11-24, before this registration): seed 0, lr 4e-4 (square-root batch scaling), augmentation not seeded, no in-training MSE", decision: "user 2026-11-25: not an official result; retrained on the protocol recipe (models.ode_mlp)"}
+  - {model: deltaflow, task: a17cr2lg, what: "legacy a18 e40 recipe (old aug, no proprio aug)", decision: "user 2026-11-22: Delta Flow later"}
+  - {model: deltaflow, task: b6v6, what: "weights-only continuation from v5 step_010200, lr 3e-5", decision: "2026-11-15 plan"}
+  - {model: fastwam, task: b5ss, what: "not trained", decision: user}
+  - {model: act, task: "b7 black trimmed (collaborator baseline)", what: "256 x 8000 steps", decision: "collaborator run"}
+  - {model: "psi0, act", task: all, what: "seed 292285 (upstream Psi0) while the other models use 42", decision: "pending user decision on a single global seed"}
+  - {model: "hb_baselines (act b512*, fm_dit, dp)", task: all, what: "seed 0 (collaborator stack, config.json training.seed)", decision: "recorded 2026-11-24; pending the same user decision"}
+  - {model: "groot, psi0, fastwam", task: all, what: "runs started before 2026-11-23 13:05 UTC: visual-augmentation RNG drawn from pid/urandom/time, not from the seed -> not bit-reproducible", decision: "user 2026-11-23: fixed for later runs; old results kept, appendix"}
+  - {model: "groot, psi0, fastwam", task: "runs before 2026-11-15 (e.g. groot c6, psi0 c6) and unregistered task keys (groot a14cr3, fastwam b7gt + b7gt-cont2k, fastwam a14cr3; psi0 a14cr3 has 1 point)", what: "no in-training MSE curve", decision: "post-hoc open-loop MSE only; not allowed for new runs (user 2026-11-22)"}

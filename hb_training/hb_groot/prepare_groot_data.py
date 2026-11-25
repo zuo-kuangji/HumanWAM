@@ -18,6 +18,7 @@ TASKS = {
     "b6": (P / "b6-v5t7-ready-start-60ep-20261109/data/deliveries/g1/b6-v5t7-ready-start-20261109", 100),
     "basket": (P / "basket-current-dynamics-100-v21-b0ff522/data", None),  # HF basket-transfer-expert-v1 @current-dynamics-100-v21 b0ff522 (old ed77719 retired)
     "basketv2": (P / "basket-trimv2-c4df4d4/data", None),  # HF a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40 (user 2026-11-14)
+    "basketv2p": (P / "basket-trimv2-c4df4d4/data", None),  # 2026-11-23 user: basket v2 (A20 final data) from the base model, 4000 steps (no v1 stage)
     "trolley": (P / "trolley-push-expert-v1-20261110/data/trolley_push", 100),  # HF trolley-push-expert-v1 @ef9024a: fixed first 100 of 103
     "b7": (P / "b7-black-clothes-hamper-v1-1bb002a/data", 100),  # HF b7-black-clothes-hamper-expert-v1 @1bb002a, first 100 of 107
     "a6": (P / "a6-door-pull-v1-cf3ee9b/data/door_pull", None),  # HF door-pull-expert-v1 @cf3ee9b (A6)
@@ -29,6 +30,7 @@ TASKS = {
     "a3v3": (P / "a3-fridge-open-v3-24882d5/data", None),  # HF a3-fridge-open-expert-v3 @24882d5, all 125 episodes, measured hands (user 2026-11-15)
     "a7v3": (P / "a7-cabinet-close-v3-c2e15b0/data", None),  # HF a7-cabinet-close-expert-v3 @c2e15b0, all 100 episodes, measured hands (user 2026-11-15)
     "b6v6": (P / "b6-pedal-bin-v6-ad2f5bf/data", None),  # HF b6-pedal-bin @ad2f5bf0 (v6 at the repo root), all 542 episodes (user 2026-11-15)
+    "b6v6p": (P / "b6-pedal-bin-v6-ad2f5bf/data", None),  # 2026-11-23 user: pure v6 from the base model, all 542 (exception to the first-500 rule)
     "b5": (P / "b5-chair-push-v1-b85b7e9/data", None),  # HF b5-chair-push-expert-v1 @b85b7e9, all 100 episodes (user 2026-11-15)
     "a3v4": (P / "a3-fridge-open-v4-6393d4a/data", None),  # HF a3-fridge-open-expert-v4 @6393d4a, all 125 episodes (user 2026-11-15: v4 replaces v3)
     "a7v4": (P / "a7-cabinet-close-v4-90cc2b5/data", None),  # HF a7-cabinet-close-expert-v4 @90cc2b5, all 100 episodes (user 2026-11-15: v4 replaces v3)
@@ -48,6 +50,14 @@ TASKS = {
     "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2, 3 cameras)
     "a14v2": (P / "a14-unscrew-bulb-v2-8411a6d/data", None),  # HF a14-unscrew-bulb-expert-v2 @8411a6da: + action.planner (H2 guide 2026-11-14)
     "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None),  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed from v2 @8411a6d; user 2026-11-20: newest A14)
+    "b7t": (P / "b7-black-clothes-hamper-trim-949da46/data", 100),  # HF b7-black-clothes-hamper @949da46 trimmed, first 100 of 107 as FastWAM / DF / pi0.5 (user 2026-11-22)
+    "b7gt": (P / "b7-green-clothes-hamper-v2trim-22e3b83/data", None),  # HF b7-green-clothes-hamper @22e3b83 trimmed v2, all 421 (user 2026-11-22)
+    "b7td": (P / "b7-black-clothes-hamper-leaddrop-619f342/data", 100),  # 2026-11-24 user: B7 black, lead-in still frames dropped (HF @619f3427, 107 ep), first 100 as before
+    "b7gtd": (P / "b7-green-clothes-hamper-v2leaddrop-4d2c613/data", None),  # 2026-11-24 user: B7 green v2, lead-in still frames dropped (HF @4d2c613c, all 421)
+    "b5ss": (P / "b5-chair-push-standing-start-v1-913f5a1/data", None),  # HF b5-chair-push-standing-start-expert-v1 @913f5a1, all 100 (user 2026-11-22)
+    "a9": (P / "a9-pedal-open-8d43206/data", None),  # 2026-11-24 user: A9 pedal bin lid open (HF a9-pedal-open-expert-v1 @8d432063, all 100 ep, G1, 30 Hz)
+    "b1v2": (P / "b1-riceball-microwave-v2-30hz-b58f043/data", None),  # 2026-11-25 user: B1 v2 (HF b1-riceball-microwave-expert-v2-30hz @b58f0434, all 200 ep, G1, 30 Hz)
+    "a20kosmo": (P / "a20-basket-transfer-kosmo-30hz-v1-7324dbe/data", None),  # 2026-11-25 user: A20 basket v2 re-rendered in the Kosmo-scanned EAI room (HF a20-basket-transfer-kosmo-30hz-v1 @7324dbeb; data/ sim/ byte-identical to basketv2), GR00T only, same recipe as basketv2p
 }
 CONFIG = {"a18": "h2w3_body31_hand44_h16.py", "a17": "h2w3_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py",
           "a18c2": "h2_body31_hand44_h16.py", "a17c2": "h2_body31_hand44_h16.py",

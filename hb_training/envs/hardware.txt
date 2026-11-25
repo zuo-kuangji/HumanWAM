@@ -1,0 +1,6 @@
+# A800 training cluster, captured 2026-11-23T12:06:11Z on dlc19te5fv9wtn5t-master-0
+      8 NVIDIA A800-SXM4-80GB, 570.133.20, 81920 MiB
+| NVIDIA-SMI 570.133.20             Driver Version: 570.133.20     CUDA Version: 12.8     |
+NAME="Ubuntu"
+VERSION="22.04.4 LTS (Jammy Jellyfish)"
+5.10.134-013.9.kangaroo.al8.x86_64

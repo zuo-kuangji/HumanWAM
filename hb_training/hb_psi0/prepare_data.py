@@ -47,6 +47,7 @@ TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "b6": (P / "b6-v5t7-ready-start-60ep-20261109/data/deliveries/g1/b6-v5t7-ready-start-20261109", 100, "g1"),
     "basket": (P / "basket-current-dynamics-100-v21-b0ff522/data", None, "g1"),  # HF basket-transfer-expert-v1 @current-dynamics-100-v21 b0ff522 (old ed77719 retired)
     "basketv2": (P / "basket-trimv2-c4df4d4/data", None, "g1"),  # HF a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40 (user 2026-11-14)
+    "basketv2p": (P / "basket-trimv2-c4df4d4/data", None, "g1"),  # 2026-11-23 user: basket v2 (A20 final data) from the base model, 4000 steps (no v1 stage)
     "trolley": (P / "trolley-push-expert-v1-20261110/data/trolley_push", 100, "g1"),  # HF trolley-push-expert-v1 @ef9024a: fixed first 100 of 103
     "b7": (P / "b7-black-clothes-hamper-v1-1bb002a/data", 100, "g1"),  # HF b7-black-clothes-hamper-expert-v1 @1bb002a, first 100 of 107
     "a7v2": (P / "a7-cabinet-close-v2-aecf070/data", None, "g1"),  # HF a7-cabinet-close-expert-v2 @aecf070 (user 2026-11-14)
@@ -56,6 +57,7 @@ TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "a3v3": (P / "a3-fridge-open-v3-24882d5/data", None, "g1"),  # HF a3-fridge-open-expert-v3 @24882d5, all 125 episodes, measured hands (user 2026-11-15)
     "a7v3": (P / "a7-cabinet-close-v3-c2e15b0/data", None, "g1"),  # HF a7-cabinet-close-expert-v3 @c2e15b0, all 100 episodes, measured hands (user 2026-11-15)
     "b6v6": (P / "b6-pedal-bin-v6-ad2f5bf/data", None, "g1"),  # HF b6-pedal-bin @ad2f5bf0 (v6 at the repo root), all 542 episodes (user 2026-11-15)
+    "b6v6p": (P / "b6-pedal-bin-v6-ad2f5bf/data", None, "g1"),  # 2026-11-23 user: pure v6 from the base model, all 542 (exception to the first-500 rule)
     "b5": (P / "b5-chair-push-v1-b85b7e9/data", None, "g1"),  # HF b5-chair-push-expert-v1 @b85b7e9, all 100 episodes (user 2026-11-15)
     "a3v4": (P / "a3-fridge-open-v4-6393d4a/data", None, "g1"),  # HF a3-fridge-open-expert-v4 @6393d4a, all 125 episodes (user 2026-11-15: v4 replaces v3)
     "a7v4": (P / "a7-cabinet-close-v4-90cc2b5/data", None, "g1"),  # HF a7-cabinet-close-expert-v4 @90cc2b5, all 100 episodes (user 2026-11-15: v4 replaces v3)
@@ -72,7 +74,17 @@ TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "a17": (P / "a17-unscrew-bottle-v1-407e6e2/data", None, "h2"),  # HF a17-unscrew-bottle-expert-v1 @407e6e2
     "a14": (P / "a14-unscrew-bulb-v1-b4390fc/data", None, "h2"),  # HF a14-unscrew-bulb-expert-v1 @b4390fc (H2)
     "a14v2": (P / "a14-unscrew-bulb-v2-8411a6d/data", None, "h2p"),  # HF a14-unscrew-bulb-expert-v2 @8411a6da (+ planner)
-    "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None, "h2p"),  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed v2, + planner; user 2026-11-20)
+    "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None, "h2p"),
+    "a14cr3a": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None, "h2p"),  # same data; Psi-Zero re-run on the default recipe (no proprio delay), user 2026-11-22  # see next lines
+    "b7t": (P / "b7-black-clothes-hamper-trim-949da46/data", 100, "g1"),  # HF b7-black-clothes-hamper @949da46 trimmed, first 100 of 107 (user 2026-11-22)
+    "b7gt": (P / "b7-green-clothes-hamper-v2trim-22e3b83/data", None, "g1"),  # HF b7-green-clothes-hamper @22e3b83 trimmed v2, all 421 (user 2026-11-22)
+    "b7td": (P / "b7-black-clothes-hamper-leaddrop-619f342/data", 100, "g1"),  # 2026-11-24 user: B7 black, lead-in still frames dropped (HF @619f3427, 107 ep), first 100 as before
+    "b7gtd": (P / "b7-green-clothes-hamper-v2leaddrop-4d2c613/data", None, "g1"),  # 2026-11-24 user: B7 green v2, lead-in still frames dropped (HF @4d2c613c, all 421)
+    "b5ss": (P / "b5-chair-push-standing-start-v1-913f5a1/data", None, "g1"),  # HF b5-chair-push-standing-start-expert-v1 @913f5a1 (user 2026-11-22)
+    "a9": (P / "a9-pedal-open-8d43206/data", None, "g1"),  # 2026-11-24 user: A9 pedal bin lid open (HF a9-pedal-open-expert-v1 @8d432063, all 100 ep, G1, 30 Hz)
+    "b1v2": (P / "b1-riceball-microwave-v2-30hz-b58f043/data", None, "g1"),  # 2026-11-25 user: B1 v2 (HF b1-riceball-microwave-expert-v2-30hz @b58f0434, all 200 ep, G1, 30 Hz)
+    "a18cr2": (P / "a18-pour-water-cropped-v2-44cdd57/data", None, "h2"),  # HF a18-pour-water-expert-cropped-v2 @44cdd57, head + chest (user 2026-11-22)
+    "a17cr2": (P / "a17-unscrew-bottle-cropped-v2-3520b70/data", None, "h2"),  # HF a17-unscrew-bottle-expert-cropped-v2 @3520b70, head + chest (user 2026-11-22)  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed v2, + planner; user 2026-11-20)
 }
 BODY = ["left_hip_pitch_joint", "left_hip_roll_joint", "left_hip_yaw_joint", "left_knee_joint", "left_ankle_pitch_joint",
         "left_ankle_roll_joint", "right_hip_pitch_joint", "right_hip_roll_joint", "right_hip_yaw_joint",

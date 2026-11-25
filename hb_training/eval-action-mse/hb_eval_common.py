@@ -64,11 +64,22 @@ TASKS = {
     "a7v4": (P / "a7-cabinet-close-v4-90cc2b5/data", None, "g1"),
     # 2026-11-16: B5 standing start (HF b5-chair-push-standing-start-expert-v1 @913f5a16, 100 ep; FastWAM b5ss)
     "b5ss": (P / "b5-chair-push-standing-start-v1-913f5a1/data", None, "g1"),
+    "a9": (P / "a9-pedal-open-8d43206/data", None, "g1"),  # 2026-11-24 user: A9 pedal bin lid open (HF a9-pedal-open-expert-v1 @8d432063, all 100 ep, G1, 30 Hz)
+    "b1v2": (P / "b1-riceball-microwave-v2-30hz-b58f043/data", None, "g1"),  # 2026-11-25 user: B1 v2 (HF b1-riceball-microwave-expert-v2-30hz @b58f0434, all 200 ep, G1, 30 Hz)
+    "a20kosmo": (P / "a20-basket-transfer-kosmo-30hz-v1-7324dbe/data", None, "g1"),  # 2026-11-25 user: A20 Kosmo replay (same states / actions as basketv2, Kosmo-scanned scene videos)
     # 2026-11-17: B7 black clothes trimmed (HF b7-black-clothes-hamper @949da46, 107 ep; train = first 100, heldout 100-106)
     "b7t": (P / "b7-black-clothes-hamper-trim-949da46/data", 100, "g1"),
     # 2026-11-15 night: H2 cropped v2 (GR00T h32 relay item 71); head+chest only -> build_cache --cams head,chest
     "a18cr2": (P / "a18-pour-water-cropped-v2-44cdd57/data", None, "h2"),  # HF a18-pour-water-expert-cropped-v2 @44cdd571
     "a17cr2": (P / "a17-unscrew-bottle-cropped-v2-3520b70/data", None, "h2"),  # HF a17-unscrew-bottle-expert-cropped-v2 @3520b70f
+    # 2026-11-22 user: every training must run the in-training MSE -> register every dataset before it is trained on
+    "b7gt": (P / "b7-green-clothes-hamper-v2trim-22e3b83/data", None, "g1"),  # HF b7-green-clothes-hamper @22e3b83 trimmed v2, 421 ep
+    # 2026-11-24 (owner): B7 with the 10 standing frames before dock dropped (every episode starts at dock;
+    # debug/tasks/b7/tools/trim/b7_drop_lead.py, bai faddba64): black HF @619f3427 (107 ep, train = first 100,
+    # heldout 100-106), green HF @4d2c613c (421 ep)
+    "b7td": (P / "b7-black-clothes-hamper-leaddrop-619f342/data", 100, "g1"),
+    "b7gtd": (P / "b7-green-clothes-hamper-v2leaddrop-4d2c613/data", None, "g1"),
+    "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None, "h2p"),  # HF a14-screw-bulb @79fe08a cropped-v3, head + chest, action82
 }
 
 

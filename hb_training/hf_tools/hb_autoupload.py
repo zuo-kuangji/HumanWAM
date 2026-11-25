@@ -488,6 +488,7 @@ def stage(model, task, c):
         if missing:
             proto["note"] = (f"epoch {missing} checkpoint not available: the trainer kept only the last 2 checkpoints "
                              "and saved twice at the end of training, which rotated the epoch-10 save out.")
+        proto.update(_hb_repro_fields(model, proto, c, e))
         proto["files"] = {str(p.relative_to(ed)): p.stat().st_size for p in sorted(ed.rglob("*")) if p.is_file()}
         (ed / "protocol.json").write_text(json.dumps(proto, indent=2, ensure_ascii=False, default=str) + "\n")
     return dst
@@ -1284,6 +1285,191 @@ for _d, _v in ((TASKDIR, dict(a14cr3=TASKDIR["a14"])), (DESC, dict(a14cr3=DESC["
 EPISODES_OF.update(a14cr3=100)
 FW_TASKS = FW_TASKS + ("a14cr3",)
 SUBDIR.update({("groot2x32", "a14cr3"): "cropped-v3-b512", ("psi0", "a14cr3"): "cropped-v3-b512", ("fastwam", "a14cr3"): "cropped-v3-b512"})
+
+# 2026-11-20 user: FastWAM continuation, 2000 more steps (weights only, fresh AdamW, warmup 5 % to peak lr 3e-5 =
+# 0.3 x the original 1e-4, cosine) on the 7 tasks whose action nMSE still fell at step 4000. Run runs/<task>-cont2k,
+# uploaded to fastwam/<task dir>/b512-cont2k/step-005000 and step-006000 (total steps); the 4000-step b512/ stays.
+FWC_TASKS = ("b5", "b8", "a7v4", "a10v3", "basketv2", "b1", "b6v6", "a18cr2", "a3v4", "b7gt", "b7t", "a17cr2", "a14cr3")  # 11-20 22:3x: + a18cr2, a3v4 after the const-dim re-eval; 11-22 user: + b7gt b7t a17cr2 a14cr3 (all at 6000)
+for _b in FWC_TASKS:
+    _k = _b + "-cont2k"
+    for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+        if _b in _d:
+            _d.setdefault(_k, _d[_b])
+    SUBDIR[("fastwam", _k)] = "b512-cont2k"
+FW_TASKS = FW_TASKS + tuple(_b + "-cont2k" for _b in FWC_TASKS)
+SUBDIR[("fastwam", "a14cr3-cont2k")] = "cropped-v3-b512-cont2k"  # 11-22: next to cropped-v3-b512
+_collect_fastwam_v1 = collect_fastwam
+
+
+def collect_fastwam(task):
+    c = _collect_fastwam_v1(task)
+    if c is None or not task.endswith("-cont2k"):
+        return c
+    base = task[:-len("-cont2k")]
+    for e in c["eps"]:
+        e["step"] += 4000
+        e["name"] = f"step-{e['step']:06d}"
+    c["proto"].update(total_steps=6000, save_steps=[e["step"] for e in c["eps"]], continuation_steps=2000,
+                      continued_from=f"fastwam/{TASKDIR[base]}/{SUBDIR.get(('fastwam', base), 'b512')}/step-004000",
+                      continuation="weights only (DiT + proprio encoder loaded before DeepSpeed init, "
+                                   "code/hb_fastwam_cont.py): fresh AdamW, warmup 5 % to peak lr 3e-5 (0.3 x the "
+                                   "original 1e-4), cosine to 1 % over 2000 steps; same data, normalization, "
+                                   "augmentation and batch as the 4000-step run")
+    c["common"]["code/fastwam_cont.sh"] = G / "hb_fastwam" / "fastwam_cont.sh"
+    return c
+
+
+COLLECT.update(fastwam=collect_fastwam)
+
+# 2026-11-22 user: GR00T / Psi-Zero on the newest data still missing on HF (never over the existing b512/ dirs)
+SUBDIR.update({("groot2x32", "b7t"): "b512-trim", ("groot2x32", "b7gt"): "b512-trimv2", ("groot2x32", "b5ss"): "b512",
+               ("psi0", "b7t"): "b512-trim", ("psi0", "b7gt"): "b512-trimv2", ("psi0", "b5ss"): "b512",
+               ("psi0", "a18cr2"): "b512-2cam-cropped-v2", ("psi0", "a17cr2"): "b512-2cam-cropped-v2"})
+# 2026-11-22 user: FastWAM C6 continuation, 4000 more steps from step 8000 (C6 long-task 2x rule) -> fastwam/<c6>/b512-cont4k/
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    if "c6" in _d:
+        _d.setdefault("c6-cont4k", _d["c6"])
+SUBDIR[("fastwam", "c6-cont4k")] = "b512-cont4k"
+FW_TASKS = FW_TASKS + ("c6-cont4k",)
+_collect_fastwam_before_c6c = COLLECT["fastwam"]
+
+
+def collect_fastwam_c6c(task):
+    if task != "c6-cont4k":
+        return _collect_fastwam_before_c6c(task)
+    c = _collect_fastwam_v1(task)
+    if c is None:
+        return c
+    for e in c["eps"]:
+        e["step"] += 8000
+        e["name"] = f"step-{e['step']:06d}"
+    c["proto"].update(total_steps=12000, save_steps=[e["step"] for e in c["eps"]], continuation_steps=4000,
+                      continued_from=f"fastwam/{TASKDIR['c6']}/{SUBDIR.get(('fastwam', 'c6'), 'b512')}/step-008000",
+                      continuation="weights only (DiT + proprio encoder loaded before DeepSpeed init, "
+                                   "code/hb_fastwam_cont.py): fresh AdamW, warmup 5 % to peak lr 3e-5 (0.3 x the "
+                                   "original 1e-4), cosine to 1 % over 4000 steps (C6 long-task rule: 2 x the 2000-step "
+                                   "continuation of the other tasks); same data, normalization, augmentation and batch")
+    c["common"]["code/fastwam_cont4k.sh"] = G / "hb_fastwam" / "fastwam_cont4k.sh"
+    return c
+
+
+COLLECT.update(fastwam=collect_fastwam_c6c)
+
+# 2026-11-22 user: H2 aligned with every other task. GR00T a18cr2 / a17cr2 on the standard recipe (h32 dropped) and Psi-Zero
+# a14cr3 again without the proprio delay (task key a14cr3a, same data); new sub-dirs, nothing existing is overwritten.
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF, H2DATA, H2REF, H2ACTION):
+    if "a14cr3" in _d:
+        _d.setdefault("a14cr3a", _d["a14cr3"])
+SUBDIR.update({("groot2x32", "a18cr2"): "b512-2cam-cropped-v2", ("groot2x32", "a17cr2"): "b512-2cam-cropped-v2",
+               ("psi0", "a14cr3a"): "cropped-v3-b512-nodelay"})
+
+
+# 2026-11-23 user: GR00T / Psi-Zero pure B6 v6 (all 542, from base, no v5 stage) -> new sub-dirs b512-v6-pure/
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    if "b6v6" in _d:
+        _d.setdefault("b6v6p", _d["b6v6"])
+HFDATA["b6v6p"] = ("b6-pedal-bin @ad2f5bf0 (v6 at the repo root, all 542 episodes; trained from the base model on v6 only, "
+                   "no v5 stage; user exception to the B6 v6 first-500 rule - FastWAM b6v6 used episodes 0-499)")
+SUBDIR.update({("groot2x32", "b6v6p"): "b512-v6-pure", ("psi0", "b6v6p"): "b512-v6-pure"})
+
+
+# 2026-11-23 user: GR00T / Psi-Zero basket v2 (A20 final data) from base, 4000 steps -> new sub-dirs b512-trimv2-pure/
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    if "basketv2" in _d:
+        _d.setdefault("basketv2p", _d["basketv2"])
+HFDATA["basketv2p"] = ("a20-basket-transfer-pre-reach-trim-expert-v2 @c4df4d40 (A20 final data, all 100 episodes; "
+                       "trained from the base model on v2 only, no v1 stage)")
+SUBDIR.update({("groot2x32", "basketv2p"): "b512-trimv2-pure", ("psi0", "basketv2p"): "b512-trimv2-pure"})
+
+
+
+
+# 2026-11-23 user: every protocol.json carries the seed and the reproducibility block (hb_repro.py,
+# hb_training/REPRODUCIBILITY.md section 8). Never blocks an upload.
+import hb_repro as _HBR  # noqa: E402
+
+
+def _hb_repro_fields(model, proto, c, e):
+    try:
+        srcs = [Path(v) for v in list((e.get("files") or {}).values()) + list((c.get("common") or {}).values())]
+        if e.get("tree") is not None:
+            srcs.append(Path(e["tree"]))
+        return _HBR.fields(REPO_OF.get(model, model), proto, run_logs=_HBR.find_logs(srcs), run_files=srcs)
+    except Exception as ex:  # noqa: BLE001
+        log("repro fields failed", model, repr(ex)[:300])
+        return {}
+
+
+# 2026-11-24 user: A9 pedal bin lid open (HF a9-pedal-open-expert-v1 @8d432063, 100 ep, G1): GR00T, Psi-Zero, FastWAM 4000 + 2000
+TASKDIR["a9"] = "a9-pedal-open"
+DESC["a9"] = "Walk to the pedal bin and step on its pedal with the left foot to open the lid"
+TASKNAME["a9"] = "A9 pedal bin lid open (G1)"
+HFDATA["a9"] = "a9-pedal-open-expert-v1 @8d432063 (all 100 episodes)"
+ROBOT["a9"] = "Unitree G1"
+EPISODES_OF["a9"] = 100
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("a9-cont2k", _d["a9"])
+SUBDIR.update({("groot2x32", "a9"): "b512", ("psi0", "a9"): "b512", ("fastwam", "a9"): "b512", ("fastwam", "a9-cont2k"): "b512-cont2k"})
+FW_TASKS = FW_TASKS + ("a9", "a9-cont2k")
+
+
+
+# 2026-11-24 user: B7 retrain on the lead-in-dropped data (10 still frames before the start removed): GR00T, Psi-Zero,
+# FastWAM 4000 + 2000 -> new sub-dirs b512-leaddrop/ (old b7t / b7gt dirs stay untouched)
+for _new, _old in (("b7td", "b7t"), ("b7gtd", "b7gt")):
+    for _d in (TASKDIR, DESC, TASKNAME, ROBOT):
+        if _old in _d:
+            _d.setdefault(_new, _d[_old])
+HFDATA["b7td"] = "b7-black-clothes-hamper @619f3427 (lead-in still frames dropped; first 100 of 107 episodes, 100-106 held out)"
+HFDATA["b7gtd"] = "b7-green-clothes-hamper @4d2c613c (v2 at the repo root, lead-in still frames dropped; all 421 episodes)"
+EPISODES_OF.update(b7td=100, b7gtd=421)
+for _b in ("b7td", "b7gtd"):
+    for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+        _d.setdefault(_b + "-cont2k", _d[_b])
+    SUBDIR.update({("groot2x32", _b): "b512-leaddrop", ("psi0", _b): "b512-leaddrop", ("fastwam", _b): "b512-leaddrop",
+                   ("fastwam", _b + "-cont2k"): "b512-leaddrop-cont2k"})
+FW_TASKS = FW_TASKS + ("b7td", "b7gtd", "b7td-cont2k", "b7gtd-cont2k")
+
+
+
+# 2026-11-25 user: FastWAM B6 v6 retrained on ALL 542 episodes (B6 v6 rule since 11-24; the published fastwam b6v6 b512 /
+# b512-cont2k used episodes 0-499). 4000 + 2000 -> new sub-dirs b512-v6-pure/ and b512-v6-pure-cont2k/ (old dirs untouched)
+HFDATA["b6v6p"] = "b6-pedal-bin @ad2f5bf0 (v6 at the repo root, all 542 episodes)"
+EPISODES_OF["b6v6p"] = 542
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    if "b6v6p" in _d:
+        _d.setdefault("b6v6p-cont2k", _d["b6v6p"])
+SUBDIR.update({("fastwam", "b6v6p"): "b512-v6-pure", ("fastwam", "b6v6p-cont2k"): "b512-v6-pure-cont2k"})
+FW_TASKS = FW_TASKS + ("b6v6p", "b6v6p-cont2k")
+
+
+
+# 2026-11-25 user: GR00T on A20 basket v2 re-rendered in the Kosmo-scanned EAI room (scanner variable only; identical
+# states / actions / episodes to basketv2p, same recipe 2 x 8 x 32, 4000 steps) -> groot/a20-basket-transfer/b512-kosmo-v1/
+for _d in (TASKDIR, DESC, TASKNAME, ROBOT, EPISODES_OF):
+    if "basketv2p" in _d:
+        _d.setdefault("a20kosmo", _d["basketv2p"])
+HFDATA["a20kosmo"] = ("a20-basket-transfer-kosmo-30hz-v1 @7324dbeb (all 100 episodes; the A20 v2 trajectories @c4df4d40 replayed in "
+                      "the Kosmo-scanned EAI room: data/ and sim/ byte-identical to v2, only the two camera videos differ)")
+TASKNAME["a20kosmo"] = TASKNAME.get("basketv2p", "A20 basket transfer") + ", Kosmo-scanned scene"
+SUBDIR.update({("groot2x32", "a20kosmo"): "b512-kosmo-v1"})
+
+
+
+# 2026-11-25 user: B1 v2 (HF b1-riceball-microwave-expert-v2-30hz @b58f0434, all 200 ep): GR00T, Psi-Zero, FastWAM 4000 + 2000
+# -> new sub-dirs b512-v2/ and b512-v2-cont2k/ (the v1 b512 dirs stay untouched)
+for _d in (TASKDIR, DESC, TASKNAME, ROBOT):
+    if "b1" in _d:
+        _d.setdefault("b1v2", _d["b1"])
+HFDATA["b1v2"] = "b1-riceball-microwave-expert-v2-30hz @b58f0434 (v2, all 200 episodes, 30 Hz)"
+TASKNAME["b1v2"] = TASKNAME.get("b1", "B1 rice ball into microwave (G1)") + ", data v2"
+EPISODES_OF["b1v2"] = 200
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("b1v2-cont2k", _d["b1v2"])
+SUBDIR.update({("groot2x32", "b1v2"): "b512-v2", ("psi0", "b1v2"): "b512-v2", ("fastwam", "b1v2"): "b512-v2",
+               ("fastwam", "b1v2-cont2k"): "b512-v2-cont2k"})
+FW_TASKS = FW_TASKS + ("b1v2", "b1v2-cont2k")
+
 
 
 def main():

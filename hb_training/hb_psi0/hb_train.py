@@ -17,6 +17,10 @@ sys.path.insert(0, HERE)
 
 def main() -> None:
     psi = os.environ["PSI_SRC"]
+    # 2026-11-23 user (REPRODUCIBILITY.md section 3): seed the augmentation stream (hb_psi0_config.hb_rng) with the
+    # training seed; set before the DataLoader workers fork so every new run inherits it
+    os.environ.setdefault("HB_AUG_SEED", next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--seed=")), "292285"))
+    print(f"HB_AUG_SEED={os.environ['HB_AUG_SEED']} (seeded augmentation stream, REPRODUCIBILITY.md section 3)", file=sys.stderr, flush=True)
     import hb_psi0_config
     sys.modules["psi.config.train.hb_psi0_config"] = hb_psi0_config
     import hb_patches
