@@ -1487,6 +1487,21 @@ FW_TASKS = FW_TASKS + ("b4", "b4-cont2k")
 
 
 
+# 2026-11-25 user: A29 drawer close, black-marble kitchen 30 Hz (HF a29-drawer-close-black-marble-30hz-v1 @d03c19e6, all 100 ep,
+# G1, ego_view + chest of its four views): GR00T, Psi-Zero, FastWAM 4000 + 2000 (FLASH by hb_flash, ACT by hb_baselines staging)
+TASKDIR["a29"] = "a29-drawer-close"
+DESC["a29"] = "Walk to the cabinet beside the worktop and close its pulled-out top drawer"
+TASKNAME["a29"] = "A29 drawer close, black-marble kitchen (G1)"
+HFDATA["a29"] = "a29-drawer-close-black-marble-30hz-v1 @d03c19e6 (all 100 episodes, 30 Hz; ego_view + chest of the four views)"
+ROBOT["a29"] = "Unitree G1"
+EPISODES_OF["a29"] = 100
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("a29-cont2k", _d["a29"])
+SUBDIR.update({("groot2x32", "a29"): "b512", ("psi0", "a29"): "b512", ("fastwam", "a29"): "b512", ("fastwam", "a29-cont2k"): "b512-cont2k"})
+FW_TASKS = FW_TASKS + ("a29", "a29-cont2k")
+
+
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
