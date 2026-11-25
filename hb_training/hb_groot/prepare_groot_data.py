@@ -59,6 +59,7 @@ TASKS = {
     "b1v2": (P / "b1-riceball-microwave-v2-30hz-b58f043/data", None),  # 2026-11-25 user: B1 v2 (HF b1-riceball-microwave-expert-v2-30hz @b58f0434, all 200 ep, G1, 30 Hz)
     "b4": (P / "b4-cushion-194e7cd/data", None),  # 2026-11-25 user: B4 cushion bed -> sofa (HF b4-cushion @194e7cde, v2 at the repo root, all 302 ep, G1, 30 Hz)
     "a29": (P / "a29-drawer-close-black-marble-30hz-d03c19e/data", None),  # 2026-11-25 user: A29 drawer close, black-marble kitchen 30 Hz (HF a29-drawer-close-black-marble-30hz-v1 @d03c19e6, all 100 ep, G1, ego_view + chest)
+    "a21": (P / "a21-floor-transfer-basket-682f2bf/data", None),  # 2026-11-26 user: A21 floor basket transfer (HF a21-floor-transfer-basket-trim-raw-head-expert-v1 @682f2bfc, all 100 ep, G1, ego_view + chest, idle-trimmed)
     "a20kosmo": (P / "a20-basket-transfer-kosmo-30hz-v1-7324dbe/data", None),  # 2026-11-25 user: A20 basket v2 re-rendered in the Kosmo-scanned EAI room (HF a20-basket-transfer-kosmo-30hz-v1 @7324dbeb; data/ sim/ byte-identical to basketv2), GR00T only, same recipe as basketv2p
 }
 CONFIG = {"a18": "h2w3_body31_hand44_h16.py", "a17": "h2w3_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py",

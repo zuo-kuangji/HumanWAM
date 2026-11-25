@@ -1502,6 +1502,21 @@ FW_TASKS = FW_TASKS + ("a29", "a29-cont2k")
 
 
 
+# 2026-11-26 user: A21 floor basket transfer (HF a21-floor-transfer-basket-trim-raw-head-expert-v1 @682f2bfc, all 100 ep, G1,
+# ego_view + chest, idle-trimmed): GR00T, Psi-Zero, FastWAM 4000 + 2000 (FLASH by hb_flash, ACT by hb_baselines staging)
+TASKDIR["a21"] = "a21-floor-basket-transfer"
+DESC["a21"] = "Grasp the basket handle from the floor with the right hand, stand up, carry it to the long desk and place it there"
+TASKNAME["a21"] = "A21 floor basket transfer (G1)"
+HFDATA["a21"] = "a21-floor-transfer-basket-trim-raw-head-expert-v1 @682f2bfc (all 100 episodes, 30 Hz, idle frames trimmed)"
+ROBOT["a21"] = "Unitree G1"
+EPISODES_OF["a21"] = 100
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("a21-cont2k", _d["a21"])
+SUBDIR.update({("groot2x32", "a21"): "b512", ("psi0", "a21"): "b512", ("fastwam", "a21"): "b512", ("fastwam", "a21-cont2k"): "b512-cont2k"})
+FW_TASKS = FW_TASKS + ("a21", "a21-cont2k")
+
+
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
