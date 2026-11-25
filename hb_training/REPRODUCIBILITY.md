@@ -176,8 +176,8 @@
 - **环境**：hb-baselines，Python 3.12.1、torch 2.9.0+cu128、torchvision 0.24.0。
 - **种子**：训练 42（上游 `default_train.yaml` 的 `training_params.seed`）；增强随机流由 `HB_AUG_SEED=42` 决定（第 2 节）；训练中 MSE 1234。
 - **布局**：1 节点 × 1 卡 × 每卡 512 = 全局 512，不累积；`num_workers` 40，prefetch 2。B6 那次正式训练的硬件是阿里云 PAI DSW 的 1 × RTX 4090 46 GB（5 号卡、64–79 号核），不是 A800；火山 team_10（RTX 4090D）上的同配置训练停在第 4000 步，只作备份。以后 FLASH 所有任务沿用此布局。
-- **步数与存档**（用户 11-24 定）：16000 步，每 2000 步存一次（2000、4000、…、16000，共 8 个）。
-- **优化**（按上游）：AdamW，lr 1e-4，betas (0.95, 0.999)，wd 1e-6；500 步线性预热后 diffusers cosine，到第 16000 步降到 0；EMA 用上游 Diffusion Policy 的 EMAModel（power 0.75，max 0.9999），保存 EMA 权重；bf16 autocast，多项式拟合用 fp32。
+- **步数与存档**（用户 11-25 改）：12000 步，每 4000 步存一次（4000、8000、12000），只上传 8000 和 12000 两个。11-24 原定 16000 步、每 2000 步存一次；11-25 以前按 16000 步训完的 B6（`b512-v6-500`）、B7（`b512-leaddrop`）结果保留。
+- **优化**（按上游）：AdamW，lr 1e-4，betas (0.95, 0.999)，wd 1e-6；500 步线性预热后 diffusers cosine，到最后一步（12000）降到 0；EMA 用上游 Diffusion Policy 的 EMAModel（power 0.75，max 0.9999），保存 EMA 权重；bf16 autocast，多项式拟合用 fp32。
 - **模型**（按上游 `flash.yaml`）：DiT 512 × 4 层 × 8 头，dropout 0，time embed 256；每路相机一个 ResNet18，从头训，GroupNorm，与其余部分同一学习率；Legendre 6 阶，fit_pad 1、poly_prefix 1、poly_suffix 1，C1 边界约束；history_noise_std 0.5、history_reg_lambda 0.1、consistency_weight 1.0；推理 1 步 Euler。
 - **接口适配**（用户 11-24 定，属模型内部，不算例外）：
   - 历史 = 接口的 past_actions（每帧发出的 token 和当帧实测手部开合），8 个点、间隔 2 帧（30 Hz 下 67 ms，论文是 60 ms），截止到 t-1；episode 开始前重复第一行；第 0 帧没有历史行，flow 从零系数起步。
