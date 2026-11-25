@@ -139,6 +139,7 @@ models:
     seeded_act_runs:             # templates of the current ACT recipe (seeded augmentation, HB_AUG_SEED=0, training.aug_seed 0); Aliyun DSW 1 x RTX 4090, num_workers 32, nice 19
       - {task: b1v2, code: 2c91a514, hf: act/b1-riceball-microwave/b512-v2, hf_commit: b0bcea4f, inloop_nmse: {2000: 0.0852, 4000: 0.0731}}
       - {task: b4, code: 2c91a514, hf: act/b4-cushion/b512, hf_commit: cff510cf, inloop_nmse: {2000: 0.0564, 4000: 0.0497}}
+      - {task: a29, code: 2c91a514, hf: act/a29-drawer-close/b512, hf_commit: 7d7a302b, inloop_nmse: {2000: 0.1396, 4000: 0.1296}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
   flash:                         # user's own method (NeurIPS 2026), joined 2026-11-24, B6 first; registered from the FLASH session's measurements
     seed: 42                     # upstream FLASH-Policy roboverse_learn/il/configs/train_config/default_train.yaml training_params.seed
     seed_source: "upstream NTUMARS/FLASH-Policy default_train.yaml training_params.seed"
@@ -204,6 +205,7 @@ tasks:                            # newest data per task (HF org humanoid-benchm
   b1:       {robot: g1, hf: b1-riceball-microwave-expert-v1, data_commit: 36da298, episodes: 115}
   b1v2:     {robot: g1, hf: b1-riceball-microwave-expert-v2-30hz, data_commit: b58f0434, episodes: 200}
   b4:       {robot: g1, hf: b4-cushion, data_commit: 194e7cde, episodes: 302, episodes_note: "v2 at the repo root"}
+  a29:      {robot: g1, hf: a29-drawer-close-black-marble-30hz-v1, data_commit: d03c19e6, episodes: 100, cameras: [ego_view, chest]}
   b5:       {robot: g1, hf: b5-chair-push-expert-v1, data_commit: b85b7e9, episodes: 100}
   b5ss:     {robot: g1, hf: A22-chair-push-standing-start-expert-v1-formerly-b5, data_commit: 913f5a1, episodes: 100}
   b6v6:     {robot: g1, hf: b6-pedal-bin, data_commit: ad2f5bf0, episodes: 542, episodes_note: "all 542 (user 2026-11-24, supersedes the first-500 rule of 2026-11-18); FastWAM / Delta Flow / FLASH runs trained before used the first 500 (exceptions)"}
