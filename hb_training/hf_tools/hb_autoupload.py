@@ -1472,6 +1472,21 @@ FW_TASKS = FW_TASKS + ("b1v2", "b1v2-cont2k")
 
 
 
+# 2026-11-25 user: B4 cushion bed -> sofa (HF b4-cushion @194e7cde, v2 at the repo root, all 302 ep, G1, 30 Hz):
+# GR00T, Psi-Zero, FastWAM 4000 + 2000 (FLASH is published by hb_flash, ACT on the 4090 side)
+TASKDIR["b4"] = "b4-cushion"
+DESC["b4"] = "Take the cushion from the bed and put it on the sofa"
+TASKNAME["b4"] = "B4 cushion from bed to sofa (G1)"
+HFDATA["b4"] = "b4-cushion @194e7cde (v2 at the repo root, all 302 episodes, 30 Hz)"
+ROBOT["b4"] = "Unitree G1"
+EPISODES_OF["b4"] = 302
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("b4-cont2k", _d["b4"])
+SUBDIR.update({("groot2x32", "b4"): "b512", ("psi0", "b4"): "b512", ("fastwam", "b4"): "b512", ("fastwam", "b4-cont2k"): "b512-cont2k"})
+FW_TASKS = FW_TASKS + ("b4", "b4-cont2k")
+
+
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)

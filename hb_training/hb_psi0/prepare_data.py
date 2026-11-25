@@ -83,6 +83,7 @@ TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "b5ss": (P / "b5-chair-push-standing-start-v1-913f5a1/data", None, "g1"),  # HF b5-chair-push-standing-start-expert-v1 @913f5a1 (user 2026-11-22)
     "a9": (P / "a9-pedal-open-8d43206/data", None, "g1"),  # 2026-11-24 user: A9 pedal bin lid open (HF a9-pedal-open-expert-v1 @8d432063, all 100 ep, G1, 30 Hz)
     "b1v2": (P / "b1-riceball-microwave-v2-30hz-b58f043/data", None, "g1"),  # 2026-11-25 user: B1 v2 (HF b1-riceball-microwave-expert-v2-30hz @b58f0434, all 200 ep, G1, 30 Hz)
+    "b4": (P / "b4-cushion-194e7cd/data", None, "g1"),  # 2026-11-25 user: B4 cushion bed -> sofa (HF b4-cushion @194e7cde, v2 at the repo root, all 302 ep, G1, 30 Hz)
     "a18cr2": (P / "a18-pour-water-cropped-v2-44cdd57/data", None, "h2"),  # HF a18-pour-water-expert-cropped-v2 @44cdd57, head + chest (user 2026-11-22)
     "a17cr2": (P / "a17-unscrew-bottle-cropped-v2-3520b70/data", None, "h2"),  # HF a17-unscrew-bottle-expert-cropped-v2 @3520b70, head + chest (user 2026-11-22)  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed v2, + planner; user 2026-11-20)
 }
