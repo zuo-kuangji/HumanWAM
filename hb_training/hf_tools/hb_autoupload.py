@@ -1472,6 +1472,57 @@ FW_TASKS = FW_TASKS + ("b1v2", "b1v2-cont2k")
 
 
 
+# 2026-11-25 user: B4 cushion bed -> sofa (HF b4-cushion @194e7cde, v2 at the repo root, all 302 ep, G1, 30 Hz):
+# GR00T, Psi-Zero, FastWAM 4000 + 2000 (FLASH is published by hb_flash, ACT on the 4090 side)
+TASKDIR["b4"] = "b4-cushion"
+DESC["b4"] = "Take the cushion from the bed and put it on the sofa"
+TASKNAME["b4"] = "B4 cushion from bed to sofa (G1)"
+HFDATA["b4"] = "b4-cushion @194e7cde (v2 at the repo root, all 302 episodes, 30 Hz)"
+ROBOT["b4"] = "Unitree G1"
+EPISODES_OF["b4"] = 302
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("b4-cont2k", _d["b4"])
+SUBDIR.update({("groot2x32", "b4"): "b512", ("psi0", "b4"): "b512", ("fastwam", "b4"): "b512", ("fastwam", "b4-cont2k"): "b512-cont2k"})
+FW_TASKS = FW_TASKS + ("b4", "b4-cont2k")
+
+
+
+# 2026-11-25 user: A29 drawer close, black-marble kitchen 30 Hz (HF a29-drawer-close-black-marble-30hz-v1 @d03c19e6, all 100 ep,
+# G1, ego_view + chest of its four views): GR00T, Psi-Zero, FastWAM 4000 + 2000 (FLASH by hb_flash, ACT by hb_baselines staging)
+TASKDIR["a29"] = "a29-drawer-close"
+DESC["a29"] = "Walk to the cabinet beside the worktop and close its pulled-out top drawer"
+TASKNAME["a29"] = "A29 drawer close, black-marble kitchen (G1)"
+HFDATA["a29"] = "a29-drawer-close-black-marble-30hz-v1 @d03c19e6 (all 100 episodes, 30 Hz; ego_view + chest of the four views)"
+ROBOT["a29"] = "Unitree G1"
+EPISODES_OF["a29"] = 100
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("a29-cont2k", _d["a29"])
+SUBDIR.update({("groot2x32", "a29"): "b512", ("psi0", "a29"): "b512", ("fastwam", "a29"): "b512", ("fastwam", "a29-cont2k"): "b512-cont2k"})
+FW_TASKS = FW_TASKS + ("a29", "a29-cont2k")
+
+
+
+# 2026-11-26 user: A21 floor basket transfer (HF a21-floor-transfer-basket-trim-raw-head-expert-v1 @682f2bfc, all 100 ep, G1,
+# ego_view + chest, idle-trimmed): GR00T, Psi-Zero, FastWAM 4000 + 2000 (FLASH by hb_flash, ACT by hb_baselines staging)
+TASKDIR["a21"] = "a21-floor-basket-transfer"
+DESC["a21"] = "Grasp the basket handle from the floor with the right hand, stand up, carry it to the long desk and place it there"
+TASKNAME["a21"] = "A21 floor basket transfer (G1)"
+HFDATA["a21"] = "a21-floor-transfer-basket-trim-raw-head-expert-v1 @682f2bfc (all 100 episodes, 30 Hz, idle frames trimmed)"
+ROBOT["a21"] = "Unitree G1"
+EPISODES_OF["a21"] = 100
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("a21-cont2k", _d["a21"])
+SUBDIR.update({("groot2x32", "a21"): "b512", ("psi0", "a21"): "b512", ("fastwam", "a21"): "b512", ("fastwam", "a21-cont2k"): "b512-cont2k"})
+FW_TASKS = FW_TASKS + ("a21", "a21-cont2k")
+
+
+
+# 2026-11-26 user: B5 standing start, all models at the end of the queue -> FastWAM b5ss 4000 + 2000-step continuation
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("b5ss-cont2k", _d["b5ss"])
+SUBDIR.update({("fastwam", "b5ss"): "b512", ("fastwam", "b5ss-cont2k"): "b512-cont2k"})
+FW_TASKS = FW_TASKS + ("b5ss-cont2k",)
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
