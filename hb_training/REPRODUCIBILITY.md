@@ -296,6 +296,7 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 | 种子 | Psi-Zero 和 Psi0 版 ACT 是 292285；合作者 hb_baselines 的 ACT（b512 目录）、FM-DiT、DP 是 0；其余模型是 42（各用上游或所用代码的默认值） | 待用户决定是否统一；决定前各自不改 |
 | 增强随机流 | 2026-11-23 21:05 之前启动的 GR00T、Psi-Zero、FastWAM 训练：由 pid、urandom、时间产生，不可逐位复现（第 3 节） | 11-23 已修，之后启动的训练由种子决定；旧结果保留，附录注明 |
 
+| FM-DiT v1 / v2 对比（hb_baselines `--policy fm_dit` 与 `fm_dit_v2`）：B6 v6 全部 542 条（`fmdit-runs/b6v6p-*-b512-s12000`）、A20 basket v2 全部 100 条（`fmdit-runs/basketv2-*-b512-s12000`） | 两版都用种子 42、batch 512、12000 步、每 4000 步存。v1 规定的 hb_baselines 种子是 0；v2 是 FLASH-Policy 自带的 FM-DiT，42 是它的上游默认值，不算例外。增强 v2，随机流已固定（`HB_AUG_SEED=42`），训练中 MSE 每 250 步 | 11-26 用户：v1 用 42，和 B6 对比一致；登记为例外 |
 新例外追加到本表，同时写进该运行的 `protocol.json` 的 `exceptions` 字段。
 
 ---
