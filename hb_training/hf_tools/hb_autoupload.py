@@ -1517,6 +1517,12 @@ FW_TASKS = FW_TASKS + ("a21", "a21-cont2k")
 
 
 
+# 2026-11-26 user: B5 standing start, all models at the end of the queue -> FastWAM b5ss 4000 + 2000-step continuation
+for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
+    _d.setdefault("b5ss-cont2k", _d["b5ss"])
+SUBDIR.update({("fastwam", "b5ss"): "b512", ("fastwam", "b5ss-cont2k"): "b512-cont2k"})
+FW_TASKS = FW_TASKS + ("b5ss-cont2k",)
+
 def main():
     lock = open(A / "daemon.lock", "w")
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
