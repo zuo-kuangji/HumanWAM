@@ -21,7 +21,7 @@ from pathlib import Path
 
 H = Path(__file__).resolve().parent
 G = Path(os.environ.get("G", H.parent))
-TASKS = ("b6", "basket", "basketv2", "a3", "a7", "a18", "trolley", "a17", "b7", "a6", "a1", "a10v2", "c6t", "c6", "a14", "a7v2", "b8", "a18c2", "a17c2", "b1", "a14v2", "a10v3", "a3v3", "a7v3", "b6v6", "b5", "a3v4", "a7v4", "a14cr3", "b7t", "b7gt", "b5ss", "a18cr2", "a17cr2", "a14cr3a", "b6v6p", "basketv2p", "a9", "b1v2", "b7td", "b7gtd", "b4", "a29", "a21")
+TASKS = ("b6", "basket", "basketv2", "a3", "a7", "a18", "trolley", "a17", "b7", "a6", "a1", "a10v2", "c6t", "c6", "a14", "a7v2", "b8", "a18c2", "a17c2", "b1", "a14v2", "a10v3", "a3v3", "a7v3", "b6v6", "b5", "a3v4", "a7v4", "a14cr3", "b7t", "b7gt", "b5ss", "a18cr2", "a17cr2", "a14cr3a", "b6v6p", "basketv2p", "a9", "b1v2", "b7td", "b7gtd", "b4", "a29", "a21", "a3v4p", "a7v4p", "b1v2p", "a14cr5", "a17cr4", "a18cr4")
 WORLD = int(os.environ.get("HB_WORLD", "32"))          # 4 nodes x 8 GPUs
 EPOCHS, SAVE_EPOCH, WARMUP_FRAC = 20, 10, 0.025        # warmup: native 1000/40000 = 2.5 %
 HORIZON = 30
@@ -42,12 +42,13 @@ def receipt(task):
 # resume state), HF folders step-002000 / step-004000.
 FIXED_STEPS = int(os.environ.get("HB_FIXED_STEPS", "4000"))
 CKPT_EVERY = 2000
+CKPT_SAVE = os.environ.get("HB_CKPT_SAVE")  # 2026-11-27 big-model rule: first checkpoint at ~80 % (3200 of 4000); unset = old cadence
 
 
 def plan(frames, batch):
     gb = batch * WORLD
     steps = FIXED_STEPS
-    save = CKPT_EVERY if steps % CKPT_EVERY == 0 else steps - CKPT_EVERY  # saves at steps - 2000 and steps
+    save = int(CKPT_SAVE) if CKPT_SAVE else (CKPT_EVERY if steps % CKPT_EVERY == 0 else steps - CKPT_EVERY)  # saves at save and steps (the trainer always saves its last step)
     return {"frames": frames, "per_gpu_batch": batch, "global_batch": gb, "fixed_steps": True, "epochs": None,
             "epochs_equivalent": round(steps * gb / frames, 2), "steps": steps, "save_steps": save,
             "warmup_steps": max(1, round(WARMUP_FRAC * steps))}

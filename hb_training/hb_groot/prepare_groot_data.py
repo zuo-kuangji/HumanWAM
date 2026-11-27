@@ -60,16 +60,23 @@ TASKS = {
     "b4": (P / "b4-cushion-194e7cd/data", None),  # 2026-11-25 user: B4 cushion bed -> sofa (HF b4-cushion @194e7cde, v2 at the repo root, all 302 ep, G1, 30 Hz)
     "a29": (P / "a29-drawer-close-black-marble-30hz-d03c19e/data", None),  # 2026-11-25 user: A29 drawer close, black-marble kitchen 30 Hz (HF a29-drawer-close-black-marble-30hz-v1 @d03c19e6, all 100 ep, G1, ego_view + chest)
     "a21": (P / "a21-floor-transfer-basket-682f2bf/data", None),  # 2026-11-26 user: A21 floor basket transfer (HF a21-floor-transfer-basket-trim-raw-head-expert-v1 @682f2bfc, all 100 ep, G1, ego_view + chest, idle-trimmed)
+    "a3v4p": (P / "a3-fridge-open-v4p-fe89f5b/data", None),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a3-fridge-open-expert-v4 @fe89f5b3
+    "a7v4p": (P / "a7-cabinet-close-v4p-d3ec805/data", None),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a7-cabinet-close-expert-v4 @d3ec8057
+    "b1v2p": (P / "b1-riceball-microwave-v2-30hz-p-276ceb9/data", None),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF b1-riceball-microwave-expert-v2-30hz @276ceb91
+    "a14cr5": (P / "a14-screw-bulb-cropped-v5-33beae7/data", None),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a14-screw-bulb @33beae7c, head + chest, + planner
+    "a17cr4": (P / "a17-unscrew-bottle-cropped-v4-f710531/data", None),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a17-unscrew-bottle @f7105314, head + chest
+    "a18cr4": (P / "a18-pour-water-cropped-v4-73fd522/data", None),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a18-pour-water @73fd5225, head + chest
     "a20kosmo": (P / "a20-basket-transfer-kosmo-30hz-v1-7324dbe/data", None),  # 2026-11-25 user: A20 basket v2 re-rendered in the Kosmo-scanned EAI room (HF a20-basket-transfer-kosmo-30hz-v1 @7324dbeb; data/ sim/ byte-identical to basketv2), GR00T only, same recipe as basketv2p
 }
 CONFIG = {"a18": "h2w3_body31_hand44_h16.py", "a17": "h2w3_body31_hand44_h16.py", "a14": "h2w3_body31_hand44_h16.py",
           "a18c2": "h2_body31_hand44_h16.py", "a17c2": "h2_body31_hand44_h16.py",
           "a18cr2": "h2_body31_hand44_h16.py", "a17cr2": "h2_body31_hand44_h16.py",
-          "a14v2": "h2_body31_hand44_planner7_h16.py", "a14cr3": "h2_body31_hand44_planner7_h16.py"}  # 2026-11-14 H2 guide: action82 incl. the planner command
+          "a14v2": "h2_body31_hand44_planner7_h16.py", "a14cr3": "h2_body31_hand44_planner7_h16.py",
+          "a18cr4": "h2_body31_hand44_h16.py", "a17cr4": "h2_body31_hand44_h16.py", "a14cr5": "h2_body31_hand44_planner7_h16.py"}  # 2026-11-14 H2 guide: action82 incl. the planner command
 # model-input cameras per H2 task (user 2026-11-12 22:0x: EVERY H2 task uses head + chest + wrist; third_person never)
 CAMS = {"a18": ("head", "chest", "wrist"), "a17": ("head", "chest", "wrist"), "a14": ("head", "chest", "wrist"),
-        "a18c2": ("head", "chest"), "a17c2": ("head", "chest"), "a18cr2": ("head", "chest"), "a17cr2": ("head", "chest"), "a14v2": ("head", "chest"), "a14cr3": ("head", "chest")}  # 2026-11-14: 2-camera re-train (user)
-PLANNER = {"a14v2", "a14cr3"}  # tasks whose action adds action.planner (7) after body_target + hands (H2 guide a14 2.2)
+        "a18c2": ("head", "chest"), "a17c2": ("head", "chest"), "a18cr2": ("head", "chest"), "a17cr2": ("head", "chest"), "a14v2": ("head", "chest"), "a14cr3": ("head", "chest"), "a18cr4": ("head", "chest"), "a17cr4": ("head", "chest"), "a14cr5": ("head", "chest")}  # 2026-11-14: 2-camera re-train (user)
+PLANNER = {"a14v2", "a14cr3", "a14cr5"}  # tasks whose action adds action.planner (7) after body_target + hands (H2 guide a14 2.2)
 H2_GROUPS = {"left_leg": (0, 6), "right_leg": (6, 12), "waist": (12, 15), "left_arm": (15, 22), "right_arm": (22, 29),
              "head": (29, 31), "left_hand": (31, 53), "right_hand": (53, 75)}
 

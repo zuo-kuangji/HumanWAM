@@ -86,6 +86,12 @@ TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "b4": (P / "b4-cushion-194e7cd/data", None, "g1"),  # 2026-11-25 user: B4 cushion bed -> sofa (HF b4-cushion @194e7cde, v2 at the repo root, all 302 ep, G1, 30 Hz)
     "a29": (P / "a29-drawer-close-black-marble-30hz-d03c19e/data", None, "g1"),  # 2026-11-25 user: A29 drawer close, black-marble kitchen 30 Hz (HF a29-drawer-close-black-marble-30hz-v1 @d03c19e6, all 100 ep, G1, ego_view + chest)
     "a21": (P / "a21-floor-transfer-basket-682f2bf/data", None, "g1"),  # 2026-11-26 user: A21 floor basket transfer (HF a21-floor-transfer-basket-trim-raw-head-expert-v1 @682f2bfc, all 100 ep, G1, ego_view + chest, idle-trimmed)
+    "a3v4p": (P / "a3-fridge-open-v4p-fe89f5b/data", None, "g1"),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a3-fridge-open-expert-v4 @fe89f5b3
+    "a7v4p": (P / "a7-cabinet-close-v4p-d3ec805/data", None, "g1"),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a7-cabinet-close-expert-v4 @d3ec8057
+    "b1v2p": (P / "b1-riceball-microwave-v2-30hz-p-276ceb9/data", None, "g1"),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF b1-riceball-microwave-expert-v2-30hz @276ceb91
+    "a14cr5": (P / "a14-screw-bulb-cropped-v5-33beae7/data", None, "h2p"),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a14-screw-bulb @33beae7c, head + chest, + planner
+    "a17cr4": (P / "a17-unscrew-bottle-cropped-v4-f710531/data", None, "h2"),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a17-unscrew-bottle @f7105314, head + chest
+    "a18cr4": (P / "a18-pour-water-cropped-v4-73fd522/data", None, "h2"),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a18-pour-water @73fd5225, head + chest
     "a18cr2": (P / "a18-pour-water-cropped-v2-44cdd57/data", None, "h2"),  # HF a18-pour-water-expert-cropped-v2 @44cdd57, head + chest (user 2026-11-22)
     "a17cr2": (P / "a17-unscrew-bottle-cropped-v2-3520b70/data", None, "h2"),  # HF a17-unscrew-bottle-expert-cropped-v2 @3520b70, head + chest (user 2026-11-22)  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed v2, + planner; user 2026-11-20)
 }

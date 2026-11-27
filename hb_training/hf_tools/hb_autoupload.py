@@ -776,9 +776,10 @@ def collect_groot2x32_h2(task):
     if c is None or task not in H2DATA:
         return c
     run = G / "groot-runs-2x32" / task
-    c["eps"] = [e for e in c["eps"] if e["step"] in (2000, 4000)]
-    if [e["step"] for e in c["eps"]] != [2000, 4000]:
-        raise RuntimeError(f"groot2x32/{task}: checkpoints 2000 and 4000 not both present")
+    _want = [3200, 4000] if rd(run / "production-complete.json").get("save_list") == [3200, 4000] else [2000, 4000]  # 2026-11-27 r80 rule
+    c["eps"] = [e for e in c["eps"] if e["step"] in _want]
+    if [e["step"] for e in c["eps"]] != _want:
+        raise RuntimeError(f"groot2x32/{task}: checkpoints {_want} not both present")
     hist = [h for h in rd(run / "production/checkpoint-4000/trainer_state.json")["log_history"] if "loss" in h]
     curve = run / "loss_curve.csv"
     curve.write_text("step,loss,learning_rate,grad_norm\n" + "".join(
@@ -795,7 +796,7 @@ def collect_groot2x32_h2(task):
         initialization="GR00T N1.7 base (groot-n17-base); VLM nvidia/Cosmos-Reason2-2B",
         recipe_reference=f"{H2REF[task]} recipe with cameras head + chest and global batch 512 (2 nodes x 8 GPUs x 32, "
                          "no gradient accumulation); everything else unchanged (H2 training guide 4.1)",
-        published_steps=[2000, 4000], final_loss_mean_last50=round(sum(last) / len(last), 5),
+        published_steps=_want, final_loss_mean_last50=round(sum(last) / len(last), 5),
         loss_curve="loss_curve.csv")
     return c
 
@@ -1522,6 +1523,43 @@ for _d in (TASKDIR, DESC, TASKNAME, HFDATA, ROBOT, EPISODES_OF):
     _d.setdefault("b5ss-cont2k", _d["b5ss"])
 SUBDIR.update({("fastwam", "b5ss"): "b512", ("fastwam", "b5ss-cont2k"): "b512-cont2k"})
 FW_TASKS = FW_TASKS + ("b5ss-cont2k",)
+
+
+# 2026-11-27 user: newest pause-trim data (debug/newton/a29_trim_stationary.py be2caba1, 3 frames) -> every baseline
+# retrains; big three on the new checkpoint rule (protocol.yaml interface.save_rule, launchers *_r80): GR00T / Psi-Zero
+# 3200 + 4000, FastWAM 3200 + 4000 and continuation 5600 + 6000. HF subfolder name pending the user's confirmation;
+# jobs.json gets these tasks only after that.
+R80_TASKS = {"a3v4p": "a3v4", "a7v4p": "a7v4", "b1v2p": "b1v2", "a14cr5": "a14cr3", "a17cr4": "a17cr2", "a18cr4": "a18cr2"}
+R80_SUB = "b512-trim3f"
+for _k, _r in R80_TASKS.items():
+    for _d in (TASKDIR, DESC, ROBOT):
+        _d.setdefault(_k, _d[_r])
+    TASKNAME.setdefault(_k, TASKNAME[_r] + ", pause-trim data (3-frame stationary trim)")
+    for _d in (TASKDIR, DESC, TASKNAME, ROBOT):
+        _d.setdefault(_k + "-cont2k", _d[_k])
+    SUBDIR.update({("groot2x32", _k): R80_SUB, ("psi0", _k): R80_SUB, ("fastwam", _k): R80_SUB,
+                   ("fastwam", _k + "-cont2k"): R80_SUB + "-cont2k"})
+HFDATA.update({"a3v4p": "a3-fridge-open-expert-v4 @fe89f5b3 (all 125 episodes; pause-trim: 3-frame stationary trim, a29_trim_stationary.py be2caba1)", "a7v4p": "a7-cabinet-close-expert-v4 @d3ec8057 (all 100 episodes; pause-trim: 3-frame stationary trim, a29_trim_stationary.py be2caba1)", "b1v2p": "b1-riceball-microwave-expert-v2-30hz @276ceb91 (all 200 episodes; pause-trim: 3-frame stationary trim, a29_trim_stationary.py be2caba1)", "a14cr5": "a14-screw-bulb @33beae7c (all 100 episodes; pause-trim: 3-frame stationary trim, a29_trim_stationary.py be2caba1)", "a17cr4": "a17-unscrew-bottle @f7105314 (all 100 episodes; pause-trim: 3-frame stationary trim, a29_trim_stationary.py be2caba1)", "a18cr4": "a18-pour-water @73fd5225 (all 100 episodes; pause-trim: 3-frame stationary trim, a29_trim_stationary.py be2caba1)"})
+EPISODES_OF.update({"a3v4p": 125, "a7v4p": 100, "b1v2p": 200, "a14cr5": 100, "a17cr4": 100, "a18cr4": 100})
+for _k in R80_TASKS:
+    HFDATA.setdefault(_k + "-cont2k", HFDATA[_k]); EPISODES_OF.setdefault(_k + "-cont2k", EPISODES_OF[_k])
+FW_TASKS = FW_TASKS + tuple(R80_TASKS) + tuple(_k + "-cont2k" for _k in R80_TASKS)
+H2DATA.update({"a14cr5": "humanoid-benchmark/a14-screw-bulb @ 33beae7cb38483976a08411f89a9932bc6ec4c4b", "a17cr4": "humanoid-benchmark/a17-unscrew-bottle @ f71053140324e79082b84d99eafdefc6e6c9bcf3", "a18cr4": "humanoid-benchmark/a18-pour-water @ 73fd5225fea97662b6ff45893a170f85f2aa35bf"})
+H2REF.update(a14cr5="a14-unscrew-bulb/cropped-v3-b512 (A14 cropped v3)", a17cr4=H2REF["a17cr2"], a18cr4=H2REF["a18cr2"])
+H2ACTION["a14cr5"] = H2ACTION["a14v2"]
+_collect_fastwam_before_r80 = COLLECT["fastwam"]
+
+
+def collect_fastwam_r80(task):
+    c = _collect_fastwam_before_r80(task)
+    if c is not None and task.replace("-cont2k", "") in R80_TASKS:
+        c["common"]["code/fastwam_task_r80.sh"] = G / "hb_fastwam" / "fastwam_task_r80.sh"
+        c["common"]["code/fastwam_cont_r80.sh"] = G / "hb_fastwam" / "fastwam_cont_r80.sh"
+    return c
+
+
+COLLECT.update(fastwam=collect_fastwam_r80)
+
 
 def main():
     lock = open(A / "daemon.lock", "w")
