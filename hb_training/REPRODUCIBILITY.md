@@ -248,6 +248,8 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 - **已作废的一次**：2026-11-24 的 `b6v6_b512_s8000` 是登记前训的（种子 0、lr 4e-4、增强未固定种子、没有训练中 MSE），不作为正式结果，见第 7 节。
 - **上传**：公开仓库 `humanoid-benchmark/ode`，`<task-dir>/b512-<ver>/step-XXXXXX/`，`hb_baselines/1` 格式；B6 在 `b6-pedal-bin/b512-v6/`。每个任务只传最后一个 checkpoint（见「步数与存档」）。
 
+- **A800 15 个任务（2026-11-27）**：Humanoid_benchmark bai `d2096858`，种子 42，batch 512，5000 步从头训，存 6 个均匀点，A800 单卡任务池（`policies-20261109/hb_small/small_pool.sh`）。HF `ode/<任务目录>/<子目录>/step-005000/` 只传最后一个，ode @`78e21eec`，目录名和 FLASH 仓库同一数据的目录一致（新剪裁 6 个为 `b512-trim3f`）；B6 的 `b512-v6` 是历史名不改。每个运行和第 5000 步训练中 MSE 见 protocol.yaml `models.ode_mlp.runs_a800`。C6、B6、B7 等新剪裁后再训。
+
 ### 4.8 FM-DiT v2（2026-11-25 用户接入，FLASH-Policy 自带的 FM-DiT）
 
 - **代码**：hb_baselines `evaluation/baselines/fm_dit_v2.py`（Humanoid_benchmark bai `3eb27c92` 起），上游 NTUMARS/FLASH-Policy @ `f47e490` 的 `roboverse_learn/il/policies/fm/fm_dit_image_policy.py` + `fm_dit.yaml`；网络复用 flash.py 移植的 FlowTransformer（torchtune RoPE）和 MultiImageObsEncoder。入口 `train.py --policy fm_dit_v2 --contract g1_sonic_dfx6`。

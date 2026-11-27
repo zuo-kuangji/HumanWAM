@@ -227,7 +227,23 @@ models:
     data: {b6v6: "HF b6-pedal-bin @ad2f5bf0, all 542 episodes, 331,577 frames"}
     inloop_mse: "evaluation/baselines/inloop.py -> eval-action-mse hb_inloop_core: every 250 steps, train10 (b6v6), batch 8, seed 1234, EMA weights; the ODE starts from the cached past_action's last row; <run>/logs/inloop-mse.jsonl"
     run_dir: "b1ue-jay ~/hb_models/baselines/runs/b6-pedal-bin-v6/ode_mlp-protocol"
-    hf_upload: "public repo humanoid-benchmark/ode, <task-dir>/b512-<ver>/step-XXXXXX, hb_baselines/1 format (b6: b6-pedal-bin/b512-v6); last checkpoint only"
+    hf_upload: "public repo humanoid-benchmark/ode, <task-dir>/<sub>/step-XXXXXX, hb_baselines/1 format; <task-dir>/<sub> = the FLASH repo's folder for the same data (else ACT's, else b512); b6: b6-pedal-bin/b512-v6 (historical name); last checkpoint only"
+    runs_a800:                   # 2026-11-27, code d2096858, seed 42, 5000 steps from scratch, saves [750, 1750, 2500, 3250, 4250, 5000], HF step-005000 only, ode @78e21eec (hb训练部署 upload, format agreed with ODE-hb)
+      - {task: a3v4p, hf: ode/a3-fridge-open-v4/b512-trim3f/step-005000, inloop_nmse_5000: 0.3111}
+      - {task: a7v4p, hf: ode/a7-cabinet-close-v4/b512-trim3f/step-005000, inloop_nmse_5000: 0.4038}
+      - {task: b1v2p, hf: ode/b1-riceball-microwave/b512-trim3f/step-005000, inloop_nmse_5000: 0.2925}
+      - {task: a14cr5, hf: ode/a14-unscrew-bulb/b512-trim3f/step-005000, inloop_nmse_5000: 0.0433}
+      - {task: a17cr4, hf: ode/a17-unscrew-bottle/b512-trim3f/step-005000, inloop_nmse_5000: 0.0159}
+      - {task: a18cr4, hf: ode/a18-pour-water/b512-trim3f/step-005000, inloop_nmse_5000: 0.0277}
+      - {task: a9, hf: ode/a9-pedal-open/b512/step-005000, inloop_nmse_5000: 0.2727}
+      - {task: a10v3, hf: ode/a10-trolley-push-v3/b512/step-005000, inloop_nmse_5000: 0.0421}
+      - {task: a21, hf: ode/a21-floor-basket-transfer/b512/step-005000, inloop_nmse_5000: 0.0827}
+      - {task: a29, hf: ode/a29-drawer-close/b512/step-005000, inloop_nmse_5000: 0.5473}
+      - {task: b4, hf: ode/b4-cushion/b512/step-005000, inloop_nmse_5000: 0.1293}
+      - {task: b5, hf: ode/b5-chair-push/b512/step-005000, inloop_nmse_5000: 0.0259}
+      - {task: b5ss, hf: ode/b5-chair-push-standing-start/b512/step-005000, inloop_nmse_5000: 0.0378}
+      - {task: b8, hf: ode/b8-table-wipe/b512/step-005000, inloop_nmse_5000: 0.3974}
+      - {task: basketv2, hf: ode/a20-basket-transfer/b512-trimv2-pure/step-005000, inloop_nmse_5000: 0.2034}
   fm_dit_v2:                     # FLASH-Policy's own FM-DiT (user 2026-11-25); hb_baselines evaluation/baselines/fm_dit_v2.py (Humanoid_benchmark bai 3eb27c92)
     seed: 42                     # upstream FLASH-Policy default_train.yaml training_params.seed
     upstream: {repo: "github.com/NTUMARS/FLASH-Policy", commit: f47e490, files: "roboverse_learn/il/policies/fm/fm_dit_image_policy.py, configs/policy_config/fm_dit.yaml"}
