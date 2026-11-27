@@ -83,6 +83,13 @@ TASKS = {
     "b7td": (P / "b7-black-clothes-hamper-leaddrop-619f342/data", 100, "g1"),
     "b7gtd": (P / "b7-green-clothes-hamper-v2leaddrop-4d2c613/data", None, "g1"),
     "a14cr3": (P / "a14-screw-bulb-cropped-v3-79fe08a/data", None, "h2p"),  # HF a14-screw-bulb @79fe08a cropped-v3, head + chest, action82
+    # 2026-11-27 user: newest trim (A29 stationary / pause trim) versions; every model retrains on them
+    "a3v4p": (P / "a3-fridge-open-v4p-fe89f5b/data", None, "g1"),  # HF a3-fridge-open-expert-v4 @fe89f5b3
+    "a7v4p": (P / "a7-cabinet-close-v4p-d3ec805/data", None, "g1"),  # HF a7-cabinet-close-expert-v4 @d3ec8057
+    "b1v2p": (P / "b1-riceball-microwave-v2-30hz-p-276ceb9/data", None, "g1"),  # HF b1-riceball-microwave-expert-v2-30hz @276ceb91
+    "a14cr5": (P / "a14-screw-bulb-cropped-v5-33beae7/data", None, "h2p"),  # HF a14-screw-bulb @33beae7c
+    "a17cr4": (P / "a17-unscrew-bottle-cropped-v4-f710531/data", None, "h2"),  # HF a17-unscrew-bottle @f7105314
+    "a18cr4": (P / "a18-pour-water-cropped-v4-73fd522/data", None, "h2"),  # HF a18-pour-water @73fd5225
 }
 
 
