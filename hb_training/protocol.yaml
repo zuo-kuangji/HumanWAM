@@ -162,6 +162,18 @@ models:
       - {task: a29, code: 2c91a514, hf: act/a29-drawer-close/b512, hf_commit: 7d7a302b, inloop_nmse: {2000: 0.1396, 4000: 0.1296}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
       - {task: a21, code: 2c91a514, hf: act/a21-floor-basket-transfer/b512, hf_commit: 415cfc57, inloop_nmse: {2000: 0.0353, 4000: 0.0288}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
       - {task: b5ss, code: d2096858, hf: act/b5-chair-push-standing-start/b512, hf_commit: 42e17a53, saves: [750, 1250, 2000, 2750, 3250, 4000], published: [3250, 4000], inloop_nmse: {2000: 0.0534, 3250: 0.0452, 4000: 0.0444}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: a3v4p, code: d2096858, hf: act/a3-fridge-open-v4/b512-trim3f, hf_commit: 3d9388a7, saves: [750, 1250, 2000, 2750, 3250, 4000], published: [3250, 4000], inloop_nmse: {2000: 0.0775, 3250: 0.0648, 4000: 0.0629}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: a7v4p, code: d2096858, hf: act/a7-cabinet-close-v4/b512-trim3f, hf_commit: 3d9388a7, saves: [750, 1250, 2000, 2750, 3250, 4000], published: [3250, 4000], inloop_nmse: {2000: 0.0926, 3250: 0.0774, 4000: 0.0751}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: b1v2p, code: 36ded31d, hf: act/b1-riceball-microwave/b512-trim3f, hf_commit: 3d9388a7, saves: [750, 1250, 2000, 2750, 3250, 4000], published: [3250, 4000], inloop_nmse: {2000: 0.0916, 3250: 0.08, 4000: 0.0774}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: a14cr5, code: 36ded31d, hf: act/a14-unscrew-bulb/b512-trim3f, hf_commit: 3d9388a7, saves: [750, 1250, 2000, 2750, 3250, 4000], published: [3250, 4000], inloop_nmse: {2000: 0.1118, 3250: 0.0916, 4000: 0.0879}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: a18cr4, code: 36ded31d, hf: act/a18-pour-water/b512-trim3f, hf_commit: 3d9388a7, saves: [750, 1250, 2000, 2750, 3250, 4000], published: [3250, 4000], inloop_nmse: {2000: 0.08, 3250: 0.0721, 4000: 0.0707}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: b6v6p, code: 2c91a514, hf: act/b6-pedal-bin/b512-v6-pure-seeded, hf_commit: 7fb26f44, replaces: act/b6-pedal-bin/b512-v6-pure, inloop_nmse: {2000: 0.077, 4000: 0.0673}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: b7td, code: 2c91a514, hf: act/b7-black-clothes-hamper/b512-leaddrop-seeded, hf_commit: 7fb26f44, replaces: act/b7-black-clothes-hamper/b512-leaddrop, inloop_nmse: {2000: 0.0404, 4000: 0.0375}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: b7gtd, code: 2c91a514, hf: act/b7-green-clothes-hamper/b512-leaddrop-seeded, hf_commit: 7fb26f44, replaces: act/b7-green-clothes-hamper/b512-leaddrop, inloop_nmse: {2000: 0.0363, 4000: 0.0331}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: a10v3, code: 2c91a514, hf: act/a10-trolley-push-v3/b512-seeded, hf_commit: 7fb26f44, replaces: act/a10-trolley-push-v3/b512, inloop_nmse: {2000: 0.0798, 4000: 0.0657}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: a3v4, code: 2c91a514, hf: act/a3-fridge-open-v4/b512-seeded, hf_commit: 7fb26f44, replaces: act/a3-fridge-open-v4/b512, inloop_nmse: {2000: 0.0795, 4000: 0.0655}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: a7v4, code: 2c91a514, hf: act/a7-cabinet-close-v4/b512-seeded, hf_commit: 7fb26f44, replaces: act/a7-cabinet-close-v4/b512, inloop_nmse: {2000: 0.095, 4000: 0.0782}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: basketv2, code: 2c91a514, hf: act/a20-basket-transfer/b512-trimv2-seeded, hf_commit: 7fb26f44, replaces: act/a20-basket-transfer/b512-trimv2, inloop_nmse: {2000: 0.048, 4000: 0.0411}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
   flash:                         # user's own method (NeurIPS 2026), joined 2026-11-24, B6 first; registered from the FLASH session's measurements
     seed: 42                     # upstream FLASH-Policy roboverse_learn/il/configs/train_config/default_train.yaml training_params.seed
     seed_source: "upstream NTUMARS/FLASH-Policy default_train.yaml training_params.seed"
@@ -236,11 +248,14 @@ models:
 
 tasks:                            # newest data per task (HF org humanoid-benchmark, private datasets)
   a3v4:     {robot: g1, data_commit: 6393d4a}
+  a3v4p:    {robot: g1, hf: a3-fridge-open-expert-v4, data_commit: fe89f5b3, episodes: 125, note: "pause trim (A29 stationary frames, Humanoid_benchmark be2caba1 debug/newton/a29_trim_stationary.py), user 2026-11-27"}
   a7v4:     {robot: g1, data_commit: 90cc2b5}
+  a7v4p:    {robot: g1, hf: a7-cabinet-close-expert-v4, data_commit: d3ec8057, episodes: 100, note: "pause trim (A29 stationary frames, Humanoid_benchmark be2caba1 debug/newton/a29_trim_stationary.py), user 2026-11-27"}
   a10v3:    {robot: g1, data_commit: 6e410c5}
   basketv2: {robot: g1, hf: a20-basket-transfer-pre-reach-trim-expert-v2, data_commit: c4df4d4, episodes: 100}
   b1:       {robot: g1, hf: b1-riceball-microwave-expert-v1, data_commit: 36da298, episodes: 115}
   b1v2:     {robot: g1, hf: b1-riceball-microwave-expert-v2-30hz, data_commit: b58f0434, episodes: 200}
+  b1v2p:    {robot: g1, hf: b1-riceball-microwave-expert-v2-30hz, data_commit: 276ceb91, episodes: 200, note: "pause trim (A29 stationary frames, Humanoid_benchmark be2caba1 debug/newton/a29_trim_stationary.py), user 2026-11-27"}
   b4:       {robot: g1, hf: b4-cushion, data_commit: 194e7cde, episodes: 302, episodes_note: "v2 at the repo root"}
   a29:      {robot: g1, hf: a29-drawer-close-black-marble-30hz-v1, data_commit: d03c19e6, episodes: 100, cameras: [ego_view, chest]}
   a21:      {robot: g1, hf: a21-floor-transfer-basket-trim-raw-head-expert-v1, data_commit: 682f2bfc, episodes: 100, cameras: [ego_view, chest]}
@@ -252,8 +267,11 @@ tasks:                            # newest data per task (HF org humanoid-benchm
   b8:       {robot: g1, hf: b8-table-wipe-expert-v1, data_commit: 3b2e618}
   c6:       {robot: g1, hf: c6-bathroom-door-fetch-expert-v1, data_commit: 3afba69, long_task: true}
   a14cr3:   {robot: h2p, hf: a14-screw-bulb, data_commit: 79fe08a, action_dim: 82}
+  a14cr5:   {robot: h2p, hf: a14-screw-bulb, data_commit: 33beae7c, episodes: 100, action_dim: 82, note: "cropped v5, pause trim (A29 stationary frames, Humanoid_benchmark be2caba1 debug/newton/a29_trim_stationary.py), user 2026-11-27"}
   a17cr2:   {robot: h2, hf: a17-unscrew-bottle, data_commit: 3520b70f, episodes: 100}
+  a17cr4:   {robot: h2, hf: a17-unscrew-bottle, data_commit: f7105314, episodes: 100, note: "cropped v4, pause trim (A29 stationary frames, Humanoid_benchmark be2caba1 debug/newton/a29_trim_stationary.py), user 2026-11-27"}
   a18cr2:   {robot: h2, hf: a18-pour-water, data_commit: 44cdd571, episodes: 100}
+  a18cr4:   {robot: h2, hf: a18-pour-water, data_commit: 73fd5225, episodes: 100, note: "cropped v4, pause trim (A29 stationary frames, Humanoid_benchmark be2caba1 debug/newton/a29_trim_stationary.py), user 2026-11-27"}
 
 exceptions:                       # every item must also appear in the paper appendix
   - {model: "act, fm_dit, fm_dit_v2, flash", task: "runs on the Aliyun DSW 2026-11-24..26", what: "trained in /root/.venvs/hb-baselines (python 3.12.1, pillow 12.3.0); the A800 runs use the NAS env (python 3.12.12, pillow 13.0.0); the augmentation's JPEG effect depends on Pillow (same distribution, not bit-identical)", decision: "2026-11-27: pinned to pillow 13.0.0 (envs/hb-baselines.txt); every run records its environment"}
@@ -265,7 +283,7 @@ exceptions:                       # every item must also appear in the paper app
   - {model: psi0, task: "a14cr3 (cropped-v3-b512), older a17/a18", what: "proprio delay 0.15", decision: "user 2026-11-22: removed; retrained a14cr3a / b512-2cam-cropped-v2"}
   - {model: "pi05, psi0, act", task: "runs before 2026-11-12", what: "15 % proprio delay + 15 % history drop", decision: "kept, appendix"}
   - {model: "fastwam, deltaflow, flash", task: b6v6, what: "first 500 episodes (0-499) under the 2026-11-18 rule; from 2026-11-24 B6 v6 uses all 542", decision: "user 2026-11-18; results kept (user 2026-11-24 changed the rule for later runs)"}
-  - {model: "act (hb_baselines)", task: b6v6p, what: "per-sample augmentation draws from pid/urandom (hb_baselines seeded only FLASH via HB_AUG_SEED) -> not bit-reproducible, as the published act b512*; Aliyun DSW 1 x RTX 4090 46 GB, num_workers 32, nice 19", decision: "recorded 2026-11-24; user 2026-11-25: hb_baselines augmentation seeded from Humanoid_benchmark bai b4b94d29 for every model; runs before keep their results, marked not seeded"}
+  - {model: "act (hb_baselines)", task: b6v6p, what: "per-sample augmentation draws from pid/urandom (hb_baselines seeded only FLASH via HB_AUG_SEED) -> not bit-reproducible, as the published act b512*; Aliyun DSW 1 x RTX 4090 46 GB, num_workers 32, nice 19", decision: "recorded 2026-11-24; user 2026-11-25: hb_baselines augmentation seeded from Humanoid_benchmark bai b4b94d29 for every model; runs before keep their results, marked not seeded; 2026-11-27: retrained, replaced by act/b6-pedal-bin/b512-v6-pure-seeded (and the other -seeded folders)"}
   - {model: ode_mlp, task: b6v6, what: "b6v6_b512_s8000 (2026-11-24, before this registration): seed 0, lr 4e-4 (square-root batch scaling), augmentation not seeded, no in-training MSE", decision: "user 2026-11-25: not an official result; retrained on the protocol recipe (models.ode_mlp)"}
   - {model: deltaflow, task: a17cr2lg, what: "legacy a18 e40 recipe (old aug, no proprio aug)", decision: "user 2026-11-22: Delta Flow later"}
   - {model: deltaflow, task: b6v6, what: "weights-only continuation from v5 step_010200, lr 3e-5", decision: "2026-11-15 plan"}

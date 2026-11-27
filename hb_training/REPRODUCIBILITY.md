@@ -189,6 +189,8 @@
   - A29（任务键 a29）：`a29-drawer-close-black-marble-30hz-v1` @`d03c19e6`，全部 100 条，30 Hz，模型输入只用 ego_view + chest（数据里的 kitchen、drawer 两路不用）。同一配方和代码，但硬件是阿里云 PAI DLC A800 集群的 1 × A800 80 GB。训练中 MSE（a29 train10）2000 步 0.1396，4000 步 0.1296。HF `act/a29-drawer-close/b512/`，act @`7d7a302b`。
   - A21（任务键 a21）：`a21-floor-transfer-basket-trim-raw-head-expert-v1` @`682f2bfc`，全部 100 条，30 Hz，ego_view + chest 两路。同一配方和代码，硬件是阿里云 PAI DLC A800 集群的 1 × A800 80 GB。训练中 MSE（a21 train10）2000 步 0.0353，4000 步 0.0288。HF `act/a21-floor-basket-transfer/b512/`，act @`415cfc57`。
   - B5 站立起步（任务键 b5ss，现名 A22）：`A22-chair-push-standing-start-expert-v1-formerly-b5` @`913f5a1`，全部 100 条（30,908 帧），30 Hz，ego_view + chest 两路。同一配方，代码 Humanoid_benchmark bai `d2096858`（对齐规范后的 `train.py`）；按 2026-11-27 存档规则存 750/1250/2000/2750/3250/4000 六个，HF 只传最后两个（3250、4000）。硬件是阿里云 PAI DLC A800 集群的 1 × A800 80 GB。训练中 MSE（b5ss train10）2000 步 0.0534，3250 步 0.0452，4000 步 0.0444。HF `act/b5-chair-push-standing-start/b512/`，act @`42e17a53`。
+  - 新剪裁数据（用户 2026-11-27：A3 v4、A7 v4、B1 v2 和 H2 的 A14/A17/A18 按 A29 静止帧方式重剪，所有模型重训）：a3v4p、a7v4p（代码 `d2096858`），b1v2p、a14cr5、a18cr4（代码 `36ded31d`）；同一配方，A800 单卡，存 6 个均匀存档点、HF 只传 3250 和 4000，子目录统一 `b512-trim3f`（用户 2026-11-27 定名），act @`3d9388a7`。训练中 MSE 第 4000 步：0.0629、0.0751、0.0774、0.0879、0.0707。a17cr4 在重训（第一次中断，旧目录改名 `.aborted-20261127T0957Z`，不上传）。
+  - 带种子重训（用户 2026-11-25）：b6v6p、b7td、b7gtd、a10v3、a3v4、a7v4、basketv2 在原数据上按同一配方（代码 `2c91a514`，`HB_AUG_SEED=0`）重训，HF 放在原目录名加 `-seeded`，act @`7fb26f44`；**`-seeded` 目录取代原目录**（原目录的增强不能逐位复现，保留只作参考）。
 - 本仓库的 `hb_training/hb_act/`（Psi0 仓库内的 LeRobot ACT）**已退役**：入口 `hb_act_train.py` 默认直接退出，只有复现旧的 `act/<task>/epoch-NNN` 发布时才可设 `HB_ALLOW_RETIRED_ACT=1` 运行。说明见 `hb_training/hb_act/RETIRED.md`。
 
 ### 4.6 FLASH（2026-11-24 用户接入，用户自己的方法，NeurIPS 2026；先做 B6）
@@ -262,11 +264,14 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 | 任务键 | 任务 | HF 数据 @ commit | 条数 | 机器人 |
 |---|---|---|---|---|
 | a3v4 | A3 开冰箱门 v4 | @`6393d4a` | 全部 | G1 |
+| a3v4p | A3 开冰箱门 v4，按 A29 静止帧方式剪裁（Humanoid_benchmark `be2caba1` 的 `debug/newton/a29_trim_stationary.py`，用户 2026-11-27）（`a3-fridge-open-expert-v4`） | @`fe89f5b3` | 全部 125 条 | G1 |
 | a7v4 | A7 关橱柜门 v4 | @`90cc2b5` | 全部 | G1 |
+| a7v4p | A7 关橱柜门 v4，按 A29 静止帧方式剪裁（Humanoid_benchmark `be2caba1` 的 `debug/newton/a29_trim_stationary.py`，用户 2026-11-27）（`a7-cabinet-close-expert-v4`） | @`d3ec8057` | 全部 100 条 | G1 |
 | a10v3 | A10 推小车 v3 | @`6e410c5` | 全部 | G1 |
 | basketv2 | A20 篮子转移，伸手前剪裁 v2（`a20-basket-transfer-pre-reach-trim-expert-v2`） | @`c4df4d4` | 100 | G1 |
 | b1 | B1 饭团进微波炉（`b1-riceball-microwave-expert-v1`） | @`36da298` | 115 | G1 |
 | b1v2 | B1 饭团进微波炉 v2，30 Hz 版（`b1-riceball-microwave-expert-v2-30hz`） | @`b58f0434` | 全部 200 条 | G1 |
+| b1v2p | B1 饭团进微波炉 v2 30 Hz，按 A29 静止帧方式剪裁（Humanoid_benchmark `be2caba1` 的 `debug/newton/a29_trim_stationary.py`，用户 2026-11-27） | @`276ceb91` | 全部 200 条 | G1 |
 | b4 | B4 靠垫从床到沙发（`b4-cushion` 根目录 v2） | @`194e7cde` | 全部 302 条 | G1 |
 | a29 | A29 关抽屉，30 Hz 版（`a29-drawer-close-black-marble-30hz-v1`），只用 ego_view + chest | @`d03c19e6` | 全部 100 条 | G1 |
 | a21 | A21 从地上拿篮子放到长桌（`a21-floor-transfer-basket-trim-raw-head-expert-v1`），ego_view + chest | @`682f2bfc` | 全部 100 条 | G1 |
@@ -278,8 +283,11 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 | b8 | B8 擦桌子（`b8-table-wipe-expert-v1`） | @`3b2e618` | 全部 | G1 |
 | c6 | C6 浴室开门取物（`c6-bathroom-door-fetch-expert-v1`） | @`3afba69` | 全部 | G1 |
 | a14cr3 | A14 拧灯泡，cropped-v3（`a14-screw-bulb` 根目录） | @`79fe08a` | 全部 | H2，动作 82 |
+| a14cr5 | A14 拧灯泡，cropped-v5，按 A29 静止帧方式剪裁（Humanoid_benchmark `be2caba1` 的 `debug/newton/a29_trim_stationary.py`，用户 2026-11-27）（`a14-screw-bulb` 根目录） | @`33beae7c` | 100 | H2，动作 82 |
 | a17cr2 | A17 拧瓶盖，cropped-v2（`a17-unscrew-bottle` 根目录） | @`3520b70f` | 100 | H2 |
+| a17cr4 | A17 拧瓶盖，cropped-v4，按 A29 静止帧方式剪裁（Humanoid_benchmark `be2caba1` 的 `debug/newton/a29_trim_stationary.py`，用户 2026-11-27）（`a17-unscrew-bottle` 根目录） | @`f7105314` | 100 | H2 |
 | a18cr2 | A18 倒水，cropped-v2（`a18-pour-water` 根目录） | @`44cdd571` | 100 | H2 |
+| a18cr4 | A18 倒水，cropped-v4，按 A29 静止帧方式剪裁（Humanoid_benchmark `be2caba1` 的 `debug/newton/a29_trim_stationary.py`，用户 2026-11-27）（`a18-pour-water` 根目录） | @`73fd5225` | 100 | H2 |
 
 - 新任务（A9、A29、B4 v2 等）开训前必须逐项核对字段、维度、条数和帧率。全部任务都是 30 Hz，**A29 是 50 Hz**，处理方式要先问用户。
 - 核对通过后同时登记三处：各模型的 `prepare_*` 注册表、`hb_eval_common.TASKS`、上传脚本。
@@ -309,7 +317,7 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 | Psi-Zero A14 cr3（`cropped-v3-b512`）、旧 A17/A18 | 带本体延迟 0.15（原 H2 指南例外） | 11-22 取消；重训为 `a14cr3a`（`cropped-v3-b512-nodelay`）和 `b512-2cam-cropped-v2` |
 | π0.5、Psi-Zero、ACT 在 11-12 前训的 | 15% 本体延迟 + 15% 历史丢帧 | 结果保留，附录说明；受影响任务按对齐配置重训 |
 | B6 v6 条数 | 11-24 起规定值是全部 542 条。已训完的 FastWAM、Delta Flow、FLASH（`b6v6-b512-s16000`）用的是前 500 条（当时 11-18 的规定），结果保留，作为例外登记。GR00T / Psi-Zero 纯 v6（`b512-v6-pure`）、ACT 纯 v6（hb_baselines，`act/b6-pedal-bin/b512-v6-pure`）和早期的 v6 续训版都是 542 条，现在符合规范 | 11-18 用户定前 500 条；11-24 用户改为以后都取全部 542 条 |
-| ACT 纯 v6（hb_baselines，`b512-v6-pure`） | hb_baselines 的 ACT/FM-DiT/DP 数据集每个样本的增强抽取用 pid、urandom 产生（只有 FLASH 用 `HB_AUG_SEED`），不能逐位复现；和已发布的 `b512*` ACT 一样。分布完全是增强 v2。硬件是阿里云 PAI DSW 1 × RTX 4090 46 GB，`num_workers` 32，进程以 nice 19 运行（同机在跑闭环评估） | 11-24 登记；11-25 用户：hb_baselines 的增强从 Humanoid_benchmark bai `b4b94d29` 起对所有模型按种子固定（第 3 节 1b），之前的运行保留，标为 not seeded |
+| ACT 纯 v6（hb_baselines，`b512-v6-pure`） | hb_baselines 的 ACT/FM-DiT/DP 数据集每个样本的增强抽取用 pid、urandom 产生（只有 FLASH 用 `HB_AUG_SEED`），不能逐位复现；和已发布的 `b512*` ACT 一样。分布完全是增强 v2。硬件是阿里云 PAI DSW 1 × RTX 4090 46 GB，`num_workers` 32，进程以 nice 19 运行（同机在跑闭环评估） | 11-24 登记；11-25 用户：hb_baselines 的增强从 Humanoid_benchmark bai `b4b94d29` 起对所有模型按种子固定（第 3 节 1b），之前的运行保留，标为 not seeded；11-27 起已由带种子重训的 `b512-v6-pure-seeded` 等 `-seeded` 目录取代（第 4.5 节） |
 | ODE-MLP B6 v6（`b6v6_b512_s8000`，11-24） | 登记前训的：种子 0、lr 4e-4（按 √batch 放大）、增强未固定种子、没有训练中 MSE | 11-25 用户：不作为正式结果，按 4.7 重训 |
 | ODE-MLP B6 v6 正式版（`humanoid-benchmark/ode` `b6-pedal-bin/b512-v6`） | 按 11-24 的旧步数训了 8000 步。11-26 规定步数改为 5000 后，正式 checkpoint 取这次运行的 `step-005000`；它在第 5000 步时学习率还没降到 0，和从头训 5000 步的运行不是同一个训练 | 11-26 用户：不重训，登记为例外 |
 | Delta Flow A17 cr2（`a17cr2lg`） | 沿用 legacy a18 e40 配方（旧增强 `b6-visual-aug-v2`，无本体增强） | 11-22 用户：Delta Flow 先不管 |
