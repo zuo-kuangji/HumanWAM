@@ -177,14 +177,14 @@ models:
     upstream: {repo: "github.com/NTUMARS/ODE-POLICY", commits: {real-g1: fd8bec47, main: cea26d94}, license: Apache-2.0, g1_port: "HumanWAM packages/ode_g1 (from real-g1)"}
     code: {repo: "github.com/zuo-kuangji/Humanoid_benchmark", branch: bai, commit: b4b94d29, entry: "evaluation/baselines/train.py --policy ode_mlp --contract g1_sonic_dfx6", model: "evaluation/baselines/policies.py ODEPolicy, ode_nets.py"}
     env: {name: hb-baselines, python: "3.12", torch: "2.9.0+cu128", torchvision: "0.24.0", cache_build: "torchcodec 0.8.0 (eval-action-mse build_cache.py)"}
-    hardware: "workstation b1ue-jay, 1 x RTX 5090 32 GB, AMD Ryzen 9 9950X (32 threads)"
+    hardware: "b6: workstation b1ue-jay, 1 x RTX 5090 32 GB, AMD Ryzen 9 9950X (32 threads); the other 18 tasks (2026-11-27): Aliyun PAI DLC A800 80 GB, 1 GPU per task, 4-5 tasks per node with equal CPU slices (92 cores per node)"
     global_batch: 512
     layout: {nodes: 1, gpus_per_node: 1, per_gpu_batch: 512}
     gradient_accumulation_steps: 1
     num_workers: 32
     prefetch_factor: 2
-    max_steps: 8000              # user 2026-11-24
-    save_steps: "every 1000 (1000 .. 8000)"
+    max_steps: 5000              # user 2026-11-26 (was 8000, 2026-11-24); long task c6: 10000; train from scratch, never cut a longer run
+    save_steps: "every 1000 (1000 .. 5000; c6 .. 10000); evaluation and HF upload use only the last one (step-005000, c6 step-010000)"
     optimizer: {name: AdamW, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6, lr_batch_scaling: none}
     lr_schedule: {warmup_steps: 500, warmup: linear, schedule: "diffusers cosine", final_lr: 0.0, decays_to_zero_at: max_steps}
     ema: {impl: "Diffusion Policy EMAModel", power: 0.75, max_decay: 0.9999, saved_weights: ema}
@@ -193,7 +193,7 @@ models:
     data: {b6v6: "HF b6-pedal-bin @ad2f5bf0, all 542 episodes, 331,577 frames"}
     inloop_mse: "evaluation/baselines/inloop.py -> eval-action-mse hb_inloop_core: every 250 steps, train10 (b6v6), batch 8, seed 1234, EMA weights; the ODE starts from the cached past_action's last row; <run>/logs/inloop-mse.jsonl"
     run_dir: "b1ue-jay ~/hb_models/baselines/runs/b6-pedal-bin-v6/ode_mlp-protocol"
-    hf_upload: "pending the user's decision (proposed: public repo humanoid-benchmark/ode-mlp, b6-pedal-bin/b512-v6/step-XXXXXX, hb_baselines/1 format)"
+    hf_upload: "public repo humanoid-benchmark/ode, <task-dir>/b512-<ver>/step-XXXXXX, hb_baselines/1 format (b6: b6-pedal-bin/b512-v6); last checkpoint only"
   ode_dit:                       # the same as ode_mlp except the field (ODE-POLICY ode_dit.yaml: 512 wide, 4 adaLN blocks, 8 heads, 4 tokens); not trained yet
     seed: 42
     same_as: ode_mlp
@@ -239,3 +239,4 @@ exceptions:                       # every item must also appear in the paper app
   - {model: "fm_dit (hb_baselines v1)", task: "b6v6 (fmdit-runs/b6v6p-fm_dit-b512-s12000), basketv2 (fmdit-runs/basketv2-fm_dit-b512-s12000)", what: "seed 42 instead of the hb_baselines seed 0, to match fm_dit_v2 (upstream FLASH-Policy default 42) in the v1/v2 comparison; batch 512, 12000 steps, save every 4000, seeded augmentation, in-training MSE", decision: "user 2026-11-26"}
   - {model: "groot, psi0, fastwam", task: all, what: "runs started before 2026-11-23 13:05 UTC: visual-augmentation RNG drawn from pid/urandom/time, not from the seed -> not bit-reproducible", decision: "user 2026-11-23: fixed for later runs; old results kept, appendix"}
   - {model: "groot, psi0, fastwam", task: "runs before 2026-11-15 (e.g. groot c6, psi0 c6) and unregistered task keys (groot a14cr3, fastwam b7gt + b7gt-cont2k, fastwam a14cr3; psi0 a14cr3 has 1 point)", what: "no in-training MSE curve", decision: "post-hoc open-loop MSE only; not allowed for new runs (user 2026-11-22)"}
+  - {model: ode_mlp, task: b6v6, what: "8000-step run (the 2026-11-24 schedule); the official checkpoint is its step-005000, whose learning rate had not yet decayed to 0 (the 2026-11-26 schedule is 5000 steps from scratch)", decision: "user 2026-11-26: not retrained"}

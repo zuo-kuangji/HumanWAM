@@ -213,9 +213,11 @@
   - 起点：训练用录制数据里 t-1 行的 body，episode 第一帧用归一化零向量 BOS；部署用 `past_actions[-1]`（实际执行的上一行），没有历史时用 BOS。
   - 不加起点扰动、不加多样性头（G1 移植都没有）。
 - **优化**（上游 `default_train.yaml`）：AdamW，lr 1e-4，betas (0.95, 0.999)，wd 1e-6，**学习率不按 batch 缩放**（与本规范所有模型一致：全局 512，用官方学习率原值；上游的 1e-4 对应 batch 32，FLASH 同样如此）；500 步线性预热后 diffusers cosine 降到 0；EMA 用 Diffusion Policy 的 EMAModel（power 0.75，max 0.9999），按上游方式计数，保存 EMA 权重。编码器 bf16 autocast，ODE 头（条件、积分、手）FP32。
-- **布局**：1 节点 × 1 卡 × 每卡 512 = 全局 512，不累积；`num_workers` 32，prefetch 2。B6 这次的硬件是工作站 b1ue-jay，1 × RTX 5090 32 GB，AMD Ryzen 9 9950X（32 线程）。以后 ODE 所有任务沿用此布局。
-- **步数与存档**：8000 步（用户 11-24），每 1000 步存一次。
-- **数据**：b6v6，HF `b6-pedal-bin` @`ad2f5bf0` 全部 542 条，331,577 帧。
+- **布局**：1 节点 × 1 卡 × 每卡 512 = 全局 512，不累积；`num_workers` 32，prefetch 2。B6 这次的硬件是工作站 b1ue-jay，1 × RTX 5090 32 GB，AMD Ryzen 9 9950X（32 线程）。以后 ODE 所有任务沿用此布局。其余 18 个任务（2026-11-27 起）在阿里云 PAI DLC 的 A800 集群上训：每个任务 1 张 A800 80 GB，同一节点并行 4–5 个任务，各分同样多的 CPU 核（节点 92 核），代码同为 `b4b94d29`，运行目录 `ode-runs/<task>-b512-s<steps>/`；H2 任务的 contract 是 `h2_sharpa`（A17、A18）和 `h2_sharpa_planner`（A14）。
+- **步数与存档**：5000 步，C6 为 10000 步（长任务翻倍，与其他模型一致；用户 11-26，依据 B6 普通 50 局：step-005000 28/50、step-006000 28/50、step-008000 23/50；取代 11-24 的 8000 步），每 1000 步存一次。cosine 在最后一步降到 0，所以必须按这个步数从头训，不能从更长的运行里截取中间的 checkpoint。
+  - **评测和上传只用最后一个 checkpoint**：普通任务 `step-005000`，C6 `step-010000`。选 checkpoint 只在一个模型第一次评测时做（规则见 `evaluation/README.md`，bai `0f9a5309`），ODE 已在 B6 上选定第 5000 步。中间每 1000 步的存档照存。
+  - **例外**：B6 这次是 8000 步的运行，评测和上传用其中的 `step-005000`，见第 7 节。
+- **数据**：b6v6，HF `b6-pedal-bin` @`ad2f5bf0` 全部 542 条，331,577 帧。其余任务用 `protocol.yaml` `tasks` 下各任务的最新数据，全部条数。
 - **训练中 MSE**：`--inloop-task b6v6 --inloop-code <本仓库 hb_training/eval-action-mse>`，每 250 步、`train10`、每批 8 个查询、种子 1234、评 EMA 权重。ODE 从缓存的 `past_action` 最后一行起步。缺这一项时训练会拒绝启动，除非加 `--allow-no-inloop`，那会记为例外。
   - 在新机器上建 `train10` 缓存：环境 hb-baselines 加 `torchcodec==0.8.0`。按 `hb_eval_common.py` 的布局，`$G/../b6-pedal-bin-v6-ad2f5bf/data` 指向本地数据，再运行 `G=<...> python build_cache.py b6v6 train10`。b1ue-jay 上建出的基线 train_mean 0.9049、hold_last_action 0.3427，与 NAS 一致。
 - **命令**（任何机器上完全相同，双方可互相复现）：
@@ -223,13 +225,13 @@
 ```bash
 G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baselines/train.py \
     --policy ode_mlp --contract g1_sonic_dfx6 --dataset <data>/b6-pedal-bin --out <run> \
-    --steps 8000 --batch-size 512 --workers 32 --save-every 1000 --cache-dir <frame cache> \
+    --steps 5000 --batch-size 512 --workers 32 --save-every 1000 --cache-dir <frame cache> \
     --inloop-task b6v6 --inloop-code <HumanWAM>/hb_training/eval-action-mse
 ```
 
-  种子、学习率、调度、EMA、horizon、编码器设置都是 `--policy ode_mlp` 的默认值，命令里不再另写。
+  种子、学习率、调度、EMA、horizon、编码器设置都是 `--policy ode_mlp` 的默认值，命令里不再另写。C6 用 `--steps 10000`；`--inloop-task` 填该任务的任务键。
 - **已作废的一次**：2026-11-24 的 `b6v6_b512_s8000` 是登记前训的（种子 0、lr 4e-4、增强未固定种子、没有训练中 MSE），不作为正式结果，见第 7 节。
-- **上传**：位置待用户定（建议公开仓库 `humanoid-benchmark/ode-mlp`，`b6-pedal-bin/b512-v6/step-XXXXXX/`，`hb_baselines/1` 格式）。
+- **上传**：公开仓库 `humanoid-benchmark/ode`，`<task-dir>/b512-<ver>/step-XXXXXX/`，`hb_baselines/1` 格式；B6 在 `b6-pedal-bin/b512-v6/`。每个任务只传最后一个 checkpoint（见「步数与存档」）。
 
 ---
 
@@ -289,6 +291,7 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 | B6 v6 条数 | 11-24 起规定值是全部 542 条。已训完的 FastWAM、Delta Flow、FLASH（`b6v6-b512-s16000`）用的是前 500 条（当时 11-18 的规定），结果保留，作为例外登记。GR00T / Psi-Zero 纯 v6（`b512-v6-pure`）、ACT 纯 v6（hb_baselines，`act/b6-pedal-bin/b512-v6-pure`）和早期的 v6 续训版都是 542 条，现在符合规范 | 11-18 用户定前 500 条；11-24 用户改为以后都取全部 542 条 |
 | ACT 纯 v6（hb_baselines，`b512-v6-pure`） | hb_baselines 的 ACT/FM-DiT/DP 数据集每个样本的增强抽取用 pid、urandom 产生（只有 FLASH 用 `HB_AUG_SEED`），不能逐位复现；和已发布的 `b512*` ACT 一样。分布完全是增强 v2。硬件是阿里云 PAI DSW 1 × RTX 4090 46 GB，`num_workers` 32，进程以 nice 19 运行（同机在跑闭环评估） | 11-24 登记；11-25 用户：hb_baselines 的增强从 Humanoid_benchmark bai `b4b94d29` 起对所有模型按种子固定（第 3 节 1b），之前的运行保留，标为 not seeded |
 | ODE-MLP B6 v6（`b6v6_b512_s8000`，11-24） | 登记前训的：种子 0、lr 4e-4（按 √batch 放大）、增强未固定种子、没有训练中 MSE | 11-25 用户：不作为正式结果，按 4.7 重训 |
+| ODE-MLP B6 v6 正式版（`humanoid-benchmark/ode` `b6-pedal-bin/b512-v6`） | 按 11-24 的旧步数训了 8000 步。11-26 规定步数改为 5000 后，正式 checkpoint 取这次运行的 `step-005000`；它在第 5000 步时学习率还没降到 0，和从头训 5000 步的运行不是同一个训练 | 11-26 用户：不重训，登记为例外 |
 | Delta Flow A17 cr2（`a17cr2lg`） | 沿用 legacy a18 e40 配方（旧增强 `b6-visual-aug-v2`，无本体增强） | 11-22 用户：Delta Flow 先不管 |
 | Delta Flow B6 v6 | 从 v5 `step_010200` 只加载权重续训，不是从 base 训 | 11-15 计划 |
 | FastWAM B5 standing start | 不训 | 用户 |
