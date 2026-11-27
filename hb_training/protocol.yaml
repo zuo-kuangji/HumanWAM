@@ -54,6 +54,7 @@ models:
     upstream: {repo: third_party/Isaac-GR00T, commit: 7aa0bca}
     env: {name: groot-py312, python: 3.12.12, torch: 2.9.0+cu128}
     launchers: {g1: hb_groot/groot_pair2x32.sh, h2: hb_groot/groot_pair2x32_h2.sh, h2p: hb_groot/groot_quad16_h2p.sh}
+    launchers_new: {g1: hb_groot/groot_pair2x32_r80.sh, h2: hb_groot/groot_pair2x32_h2_r80.sh, h2p: hb_groot/groot_quad16_h2p_r80.sh, relay_item: hb_groot/gp_r80_mix.sh}   # save_steps_new: save_steps 3200, save_total_limit 2; HF Trainer 4.57 always saves the last step
   psi0:
     seed: 292285                 # upstream Psi0 finetune scripts (scripts/train/psi0/*.sh --seed=292285)
     seed_source: "upstream Psi0 official finetune scripts"
@@ -79,6 +80,7 @@ models:
     upstream: {repo: third_party/Psi0, commit: cda3fdf}
     env: {name: psi0, python: 3.11.18, torch: 2.7.0+cu126}
     launchers: {all: hb_b512/psi0_multi.sh}
+    launchers_new: {all: hb_b512/psi0_multi.sh, env: {HB_CKPT_SAVE: 3200}}   # save_steps_new: hb_psi0/hb_args.py checkpointing_steps 3200; psi should_save_training_checkpoint always saves the last step
   fastwam:
     seed: 42                     # upstream FastWAM configs/train.yaml
     seed_source: "upstream FastWAM default"
@@ -102,6 +104,7 @@ models:
     upstream: {repo: "github.com/yuantianyuan01/FastWAM", commit: 7faa71108368fbb3b6885649f112af607427a2d4}
     env: {name: fastwam, python: 3.11.18, torch: 2.7.1+cu128}
     launchers: {train: hb_fastwam/fastwam_task.sh, cont: hb_fastwam/fastwam_cont.sh, cont_c6: hb_fastwam/fastwam_cont4k.sh}
+    launchers_new: {train: hb_fastwam/fastwam_task_r80.sh, cont: hb_fastwam/fastwam_cont_r80.sh}   # save_steps_new: save_every 3200 / 1600; the FastWAM trainer always saves max_steps
   pi05:
     seed: 42                     # openpi TrainConfig.seed; HB_AUG_SEED default 42
     global_batch: 256

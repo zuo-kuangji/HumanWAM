@@ -130,7 +130,7 @@
 - **布局**：2 节点 × 8 × 每卡 32 = 512，不累积。A14 是 4 节点 × 8 × 16。
 - **全量微调**：`--tune_llm --tune_visual`，投影层、扩散动作头、VLLN 都训练。
 - **学习率与步数**：lr 1e-4，`warmup_ratio` 0.05，之后 cosine 到 0，weight decay 1e-5；4000 步，C6 为 8000 步。
-- **存档**：`save_steps` 500、`save_total_limit` 5，即第 2000/2500/3000/3500/4000 步。只有最后一个 checkpoint 保留续训状态。2026-11-27 起新开的训练按第 1 节的大模型规则只存 3200 和 4000（C6 6400 和 8000）。
+- **存档**：`save_steps` 500、`save_total_limit` 5，即第 2000/2500/3000/3500/4000 步。只有最后一个 checkpoint 保留续训状态。2026-11-27 起新开的训练按第 1 节的大模型规则只存 3200 和 4000（C6 6400 和 8000），启动脚本 `hb_groot/groot_pair2x32_r80.sh`、`groot_pair2x32_h2_r80.sh`、`groot_quad16_h2p_r80.sh`（`save_steps` 3200、`save_total_limit` 2，HF Trainer 在最后一步必存）。
 - **数据加载**：`dataloader_num_workers` 8、`shard_size` 1024、`num_shards_per_epoch` 100000、`episode_sampling_rate` 0.1；`embodiment_tag` 为 `NEW_EMBODIMENT`；动作块 16。
 
 ### 4.2 Psi-Zero（全局 batch 512，4000 步）
@@ -143,7 +143,7 @@
 - **种子与精度**：`--seed=292285`，bf16，ddp。
 - **学习率**：动作头 1e-4、`lang-backbone` 1e-6、`vision-tower` 1e-5、`mm-projector` 1e-4，`--model.tune-vlm`，开 gradient checkpointing。
 - **优化**：cosine 调度，warmup 2.5%（4000 步时为 100 步），weight decay 1e-6，betas (0.95, 0.999)，`max_grad_norm` 1.0。
-- **步数与存档**：4000 步，每 2000 步存一次，只保留 2 个。C6 是例外，也是 4000 步，见第 7 节。2026-11-27 起新开的训练按第 1 节的大模型规则存 3200 和 4000。
+- **步数与存档**：4000 步，每 2000 步存一次，只保留 2 个。C6 是例外，也是 4000 步，见第 7 节。2026-11-27 起新开的训练按第 1 节的大模型规则存 3200 和 4000：设环境变量 `HB_CKPT_SAVE=3200`（`hb_psi0/hb_args.py`，`checkpointing_steps` 3200，训练器在最后一步必存）。
 - **动作与图像**：动作块 30（Psi0 原生），`observation-horizon` 1，flow 噪声调度，1000 个扩散训练步；图像 resize 并中心裁剪到 270×480。
 - **增强与归一化**：原生 `img-aug`、`view-aug` 关闭，开 `--data.transform.model.hb-aug`；`state-noise-std` 0；动作归一化 `bounds`，state 做归一化。
 - **本体延迟**：`hb-delay-prob` 必须为 0。启动前要 `unset HB_DELAY_PROB`，H2 的 0.15 例外已于 11-22 取消。
@@ -157,8 +157,8 @@
   - 环境：`envs/fastwam`，Python 3.11.18、torch 2.7.1+cu128
 - **启动器**：主训练 `hb_fastwam/fastwam_task.sh`；续训 `fastwam_cont.sh`，C6 用 `fastwam_cont4k.sh`。
 - **布局**：4 节点 × 8 × 每卡 16 = 512，每卡 16 是 A800 80 GB 放得下的最大值（`chosen.json`）；accelerate + DeepSpeed ZeRO-1，bf16，不累积。
-- **主训练**：lr 1e-4 cosine，weight decay 0.01，`max_grad_norm` 1.0，seed 42，`num_workers` 8；第 2000、4000 步存档（2026-11-27 起新开的训练按第 1 节存 3200 和 4000）。
-- **续训**：只加载权重（DiT 和本体编码器，经 `hb_fastwam_cont.py`），AdamW 重新开始；峰值 lr 3e-5（原峰值 × 0.3），warmup 5%，cosine 降到 1%；2000 步，在第 5000、6000 步存档（2026-11-27 起新开的续训存 5600 和 6000）。C6 续训 4000 步，到第 12000 步。
+- **主训练**：lr 1e-4 cosine，weight decay 0.01，`max_grad_norm` 1.0，seed 42，`num_workers` 8；第 2000、4000 步存档（2026-11-27 起新开的训练按第 1 节存 3200 和 4000：`hb_fastwam/fastwam_task_r80.sh`，`save_every` 3200，训练器在最后一步必存）。
+- **续训**：只加载权重（DiT 和本体编码器，经 `hb_fastwam_cont.py`），AdamW 重新开始；峰值 lr 3e-5（原峰值 × 0.3），warmup 5%，cosine 降到 1%；2000 步，在第 5000、6000 步存档（2026-11-27 起新开的续训存 5600 和 6000：`hb_fastwam/fastwam_cont_r80.sh`，`save_every` 1600）。C6 续训 4000 步，到第 12000 步。
 - **hb_baselines 的续训**（2026-11-27，同一规则）：`train.py --init-from <run>/checkpoints/step-N`（Humanoid_benchmark bai `c926770a` 起）只加载权重（原 run 的 `train_state.pt` 写于该步时取原始权重和 EMA，否则两者都取存档的 EMA），AdamW 和调度重新开始，峰值默认原峰值 × 0.3、warmup 默认续训步数的 5%，按模型自己的 cosine 降到 0；续训 2000 步（长任务 4000）；其他值要 `--continuation-exception` 登记用户的决定，峰值不低于原峰值时拒绝。checkpoint、日志、训练中 MSE、EMA 衰减都按总步数计，结束写 `complete.json`（`continued_from`、`continued_from_step`、`total_steps_after`）。
 - **视频与动作**：17 帧片段，两路相机并排成 224×448；动作块 16；T5 文本嵌入预先算好。
 
