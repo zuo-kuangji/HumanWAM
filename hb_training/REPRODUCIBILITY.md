@@ -55,9 +55,11 @@
 
 ## 2. 随机种子（2026-11-23 逐个 checkpoint 实测）
 
-**规则**
-- 每个模型使用**其上游官方训练脚本的种子**，在所有任务、续训、补训、重训中一律不变。
-- 新接入的模型同样用上游官方种子；上游没有规定时用 **42**。
+**规则**（2026-11-27 用户定：「42，并且记入项目记忆，规定好以后全都用统一的42，其他模型的每次训练也都要在模型内部保持统一，如果已经没对齐的那些也不必强求，只要记录好用的都是什么种子就可以了，核心目标是确保整个benchmark上所有的训练和评估都严格的可复现。」）
+- **每个模型只有一个训练种子**，在所有任务、续训、补训、重训中一律不变（模型内部统一）。
+- **FM-DiT（v1 和 v2）以后所有训练都用 42**（v1 从 2026-11-27 起；v1 已发布的种子 0 目录和之前的运行保留，只记录）。
+- 新接入的模型用 **42**；上游官方脚本固定了别的种子时用上游值，之后同样不变。
+- 已经用别的种子训完的运行**不强求重训**，但必须记录它用的种子（本表、第 7 节、该运行的 `config.json` / `protocol.json`）。核心目标：整个 benchmark 上所有训练和评估都严格可复现。
 - 训练中 MSE 的评估种子全模型统一为 **1234**。
 - 多种子实验必须经用户批准，并在 protocol 里写明每个种子。
 
@@ -67,7 +69,7 @@
 | FastWAM | **42** | 上游 `FastWAM/configs/train.yaml: seed: 42`；`fastwam/runs/*/out/config.yaml` 都是 42，续训也是 42。 | 推理适配器 `ad_fastwam.py`：10 步去噪，seed 42。增强随机流：11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定（第 3 节）。 |
 | Psi-Zero | **292285** | 上游 Psi0 官方 finetune 脚本（`scripts/train/psi0/*.sh` 都写 `--seed=292285`）→ `hb_psi0/hb_args.py`。 | 本体常偏：`hb-bias-seed=292285`，用 `default_rng([seed, epoch, episode])`，是确定的。视觉增强随机流：11-23 21:05 起由 `HB_AUG_SEED`（= 训练种子）决定，之前启动的训练不确定。上游 `set_seed` 启用了 `use_deterministic_algorithms(True, warn_only=True)` 和 `cudnn.benchmark=False`。 |
 | ACT（Psi0 版，**2026-11-24 已退役**：Psi0 仓库内的 LeRobot ACT，只对应 HF 旧目录 `act/<task>/epoch-NNN`） | **292285** | `hb_act/hb_act_args.py`，复用 Psi0 仓库的 LeRobot ACT 和同一套参数。 | 同 Psi-Zero。 |
-| ACT（hb_baselines 版，**现行且唯一**，HF `act/<task>/b512*`）、FM-DiT、DP | **0** | 合作者的 hb_baselines 代码；种子记在每个 HF 目录 `config.json` 的 `training.seed`。2026-11-24 逐个核对：act 的 12 个、fm-dit 全部 68 个、dp 1 个目录都是 0。 | 增强按规范 v2（`config.json` 的 `training.augmentation`，实现 `evaluation/augmentation/hb_aug_v2.py`）；增强随机流：Humanoid_benchmark bai `b4b94d29`（2026-11-25 用户）起，所有 hb_baselines 模型都按 FLASH 的做法，每个 DataLoader worker 用 `default_rng([HB_AUG_SEED = 训练种子, torch.initial_seed(), worker id])`，日志打印 `HB_AUG_SEED=<seed>`，`config.json` 记 `training.aug_seed`；之前的运行用 pid + urandom，不可逐位复现。代码版本记在 `config.json` 的 `code_commit`（部分目录缺）。 |
+| ACT（hb_baselines 版，**现行且唯一**，HF `act/<task>/b512*`）、DP；FM-DiT v1 已发布的目录 | **0**（FM-DiT v1 自 2026-11-27 起为 **42**，与 v2 相同；hb_baselines `train.py` 的默认值） | 合作者的 hb_baselines 代码；种子记在每个 HF 目录 `config.json` 的 `training.seed`。2026-11-24 逐个核对：act 的 12 个、fm-dit 全部 68 个、dp 1 个目录都是 0。 | 增强按规范 v2（`config.json` 的 `training.augmentation`，实现 `evaluation/augmentation/hb_aug_v2.py`）；增强随机流：Humanoid_benchmark bai `b4b94d29`（2026-11-25 用户）起，所有 hb_baselines 模型都按 FLASH 的做法，每个 DataLoader worker 用 `default_rng([HB_AUG_SEED = 训练种子, torch.initial_seed(), worker id])`，日志打印 `HB_AUG_SEED=<seed>`，`config.json` 记 `training.aug_seed`；之前的运行用 pid + urandom，不可逐位复现。代码版本记在 `config.json` 的 `code_commit`（部分目录缺）。 |
 | π0.5 | **42** | openpi `TrainConfig.seed = 42`；`hb_pi05/hb_g1_data.py` 的 `HB_AUG_SEED` 默认 42。 | 常偏：`default_rng([seed, epoch, episode])`，确定。增强流：`torch.initial_seed()` 加全局 rank，在世界规模和 worker 数相同时是确定的。 |
 | DiT4DiT | **42** | `hb_dit4dit/hb_d4d_config.py: "seed": 42`；`HB_AUG_SEED` 默认 42。 | 数据顺序：`default_rng([seed, pass])` 打乱，可以精确续训。常偏确定。 |
 | Delta Flow | **42** | `deltaflow-runs/<task>/run/production.yaml: seed: 42`。 | 增强种子：image_policy `20261110`、proprio_policy `20261106`；`split-manifest.json` 种子 42。 |
@@ -76,7 +78,7 @@
 | 训练中 MSE | **1234** | `hb_groot/hb_inloop_eval.py` 和 `eval-action-mse/hb_inloop_core.py`：`SEED + 1000*rank + batch_idx`。 | 评估完恢复训练的 RNG 状态，不影响训练随机流。 |
 
 > 各模型种子不同，是因为它们各自沿用上游官方值，这和「模型内部按官方配方」的原则一致。种子不改变 benchmark 接口，不影响公平性。
-> **是否把所有模型统一成同一个种子由用户决定**。决定之前不得改动任何模型的种子：一改，同一模型已发布的 checkpoint 之间就不一致了。
+> 2026-11-27 用户已定：**不跨模型统一**，每个模型内部统一一个种子；FM-DiT 用 42；新模型用 42。各模型现行种子见上表，以后不得改动：一改，同一模型的 checkpoint 之间就不一致了。
 
 ---
 
@@ -313,7 +315,7 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 | Delta Flow B6 v6 | 从 v5 `step_010200` 只加载权重续训，不是从 base 训 | 11-15 计划 |
 | FastWAM B5 standing start | 不训 | 用户 |
 | 多个早期运行 | **没有训练中 MSE**：2026-11-15 训练中评估机制上线前训的（如 GR00T C6、Psi-Zero C6），以及任务键当时没登记、评估自动关闭的（GR00T A14 cr3、FastWAM B7 绿衣服 4000 步及续训、FastWAM A14 cr3 4000 步，Psi-Zero A14 cr3 只有 1 个点） | 只有事后补测的开环 MSE；11-22 起不再允许，新训练必须伴随训练测 |
-| 种子 | Psi-Zero 和 Psi0 版 ACT 是 292285；合作者 hb_baselines 的 ACT（b512 目录）、FM-DiT、DP 是 0；其余模型是 42（各用上游或所用代码的默认值） | 待用户决定是否统一；决定前各自不改 |
+| 种子 | Psi-Zero 和 Psi0 版 ACT 是 292285；合作者 hb_baselines 的 ACT（b512 目录）、FM-DiT、DP 是 0；其余模型是 42（各用上游或所用代码的默认值） | 2026-11-27 用户：每个模型内部统一一个种子，不跨模型统一；FM-DiT v1/v2 以后都用 42，新模型用 42；已用别的种子训完的不重训，记录种子即可 |
 | 增强随机流 | 2026-11-23 21:05 之前启动的 GR00T、Psi-Zero、FastWAM 训练：由 pid、urandom、时间产生，不可逐位复现（第 3 节） | 11-23 已修，之后启动的训练由种子决定；旧结果保留，附录注明 |
 
 | FM-DiT v1 / v2 对比（hb_baselines `--policy fm_dit` 与 `fm_dit_v2`）：B6 v6 全部 542 条（`fmdit-runs/b6v6p-*-b512-s12000`）、A20 basket v2 全部 100 条（`fmdit-runs/basketv2-*-b512-s12000`） | 两版都用种子 42、batch 512、12000 步、每 4000 步存。v1 规定的 hb_baselines 种子是 0；v2 是 FLASH-Policy 自带的 FM-DiT，42 是它的上游默认值，不算例外。增强 v2，随机流已固定（`HB_AUG_SEED=42`），训练中 MSE 每 250 步 | 11-26 用户：v1 用 42，和 B6 对比一致；登记为例外 |

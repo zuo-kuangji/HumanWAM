@@ -19,10 +19,11 @@ Non-negotiable rules. Each one exists so that other researchers can reproduce ou
 - **Align with the protocol in every respect it covers.** Same seed per model, global batch, gradient accumulation = 1, steps, learning-rate curve, augmentation spec v2, proprioception interface (G1 44 / H2 78, no joint velocity), cameras and data version.
   - Only an explicit user decision may change anything.
   - Record every deviation in REPRODUCIBILITY.md section 7, in `protocol.yaml` `exceptions`, in the run directory and in the uploaded `protocol.json`.
-- **Never change a model's training seed.**
-  - GR00T 42, FastWAM 42, π0.5 42, DiT4DiT 42, Delta Flow 42, FLASH 42, ODE-MLP / ODE-DiT 42, Psi-Zero 292285 (each is its upstream's official value); ACT, FM-DiT and DP (the collaborator's hb_baselines code) 0.
+- **One training seed per model, never changed** (user 2026-11-27: the seed is uniform inside each model, kept on every task, rerun, resume and continuation; the goal is that every training and every evaluation of the benchmark is strictly reproducible).
+  - GR00T 42, FastWAM 42, π0.5 42, DiT4DiT 42, Delta Flow 42, FLASH 42, ODE-MLP / ODE-DiT 42, **FM-DiT v1 and v2 42** (FM-DiT v1 from 2026-11-27; its older seed-0 folders stay as recorded), Psi-Zero 292285 (its upstream's official value); ACT and DP (the collaborator's hb_baselines code) 0.
+  - Runs already trained on another seed are not retrained: they stay, with their seed recorded (REPRODUCIBILITY.md section 2 and 7).
   - The augmentation random stream is seeded from the training seed (`HB_AUG_SEED`) in every training entry; hb_baselines does it for every model from Humanoid_benchmark bai `b4b94d29` (REPRODUCIBILITY.md section 3).
-  - A new model uses its upstream's official seed, or 42 when upstream has none.
+  - A new model uses 42 (or its upstream's official seed when upstream fixes one) and keeps it on every training.
 - **ACT trains only with the hb_baselines code** of `github.com/zuo-kuangji/Humanoid_benchmark` (`evaluation/baselines/train.py --policy act`; REPRODUCIBILITY.md section 4.5). `hb_training/hb_act/` in this repository is retired (user, 2026-11-24): its entry exits unless `HB_ALLOW_RETIRED_ACT=1` is set to reproduce the old `epoch-NNN` releases.
 - **Register in-training MSE before the run starts**: `eval-action-mse/hb_eval_common.py` `TASKS` plus the `train10` cache. Do not substitute post-hoc MSE runs.
 - **Upload to a new HF sub-directory.** Never overwrite a published directory, never upload resume state, and include the full config, normalization stats, logs, in-loop MSE and the code snapshot.

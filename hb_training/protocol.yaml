@@ -3,6 +3,7 @@
 # out/config.yaml / published protocol.json). check_protocol.py reads this file. Change a value only together with
 # REPRODUCIBILITY.md and only on an explicit user decision; record deviations under `exceptions`.
 version: 2026-11-27
+seed_rule: "one training seed per model, kept on every training (user 2026-11-27); 42 for new models and FM-DiT v1/v2; runs on another seed are kept and recorded, not retrained"
 
 interface:                       # identical for every model
   proprio:
@@ -139,7 +140,7 @@ models:
     enforced_by: "Humanoid_benchmark bai e4809ea9 evaluation/baselines/train.py PROTOCOL_RECIPES: batch / steps (long tasks x2) / warm-up / workers / seed default to the recipes below; another value, --save-every or a non-30-Hz dataset is refused unless --protocol-exception; the in-training MSE is required for every model; a dirty evaluation/ tree is refused unless --allow-dirty-tree"
     recipes:                     # moved here from models.flash.act (2026-11-27); flash, fm_dit_v2, ode_mlp: their own entries
       act: {global_batch: 512, layout: {nodes: 1, gpus_per_node: 1, per_gpu_batch: 512}, max_steps: 4000, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6, warmup_steps: 200, lr_schedule: cosine, backbone_lr_scale: 0.1, ema: 0.9999, amp: true, num_workers: 32, prefetch_factor: 2, seed: 0}
-      fm_dit: {global_batch: 512, note: "v1 (DextraVerse port); superseded by fm_dit_v2 where v2 scores higher; only the batch is enforced"}
+      fm_dit: {global_batch: 512, seed: 42, note: "v1 (DextraVerse port); seed 42 for every training from 2026-11-27 (user: one seed per model; published seed-0 folders stay as recorded); only batch and seed are enforced"}
       dp: {global_batch: 512, note: "only the batch is enforced"}
     save_rule: interface.save_rule.small_models
     record: "config.json: task, dataset_id (--dataset-id REPO@COMMIT or inferred from <name>-<commit>/data), save_steps, environment (python, torch, torchvision, numpy, pillow, cuda, cudnn, gpu, driver), augmentation_sha256, inloop code sha256, protocol_deviations / protocol_exceptions, continuation; each checkpoint's protocol.json carries the same summary; complete.json at the end"
@@ -267,7 +268,7 @@ exceptions:                       # every item must also appear in the paper app
   - {model: fastwam, task: b5ss, what: "not trained", decision: user}
   - {model: act, task: "b7 black trimmed (collaborator baseline)", what: "256 x 8000 steps", decision: "collaborator run"}
   - {model: "psi0, act", task: all, what: "seed 292285 (upstream Psi0) while the other models use 42", decision: "pending user decision on a single global seed"}
-  - {model: "hb_baselines (act b512*, fm_dit, dp)", task: all, what: "seed 0 (collaborator stack, config.json training.seed)", decision: "recorded 2026-11-24; pending the same user decision"}
+  - {model: "hb_baselines (act b512*, fm_dit, dp)", task: all, what: "seed 0 (collaborator stack, config.json training.seed)", decision: "user 2026-11-27: seeds stay uniform inside each model, not across models; act and dp keep 0; fm_dit v1 uses 42 from 2026-11-27 (as fm_dit_v2); the published seed-0 fm_dit folders are kept, recorded"}
   - {model: "fm_dit (hb_baselines v1)", task: "b6v6 (fmdit-runs/b6v6p-fm_dit-b512-s12000), basketv2 (fmdit-runs/basketv2-fm_dit-b512-s12000)", what: "seed 42 instead of the hb_baselines seed 0, to match fm_dit_v2 (upstream FLASH-Policy default 42) in the v1/v2 comparison; batch 512, 12000 steps, save every 4000, seeded augmentation, in-training MSE", decision: "user 2026-11-26"}
   - {model: "groot, psi0, fastwam", task: all, what: "runs started before 2026-11-23 13:05 UTC: visual-augmentation RNG drawn from pid/urandom/time, not from the seed -> not bit-reproducible", decision: "user 2026-11-23: fixed for later runs; old results kept, appendix"}
   - {model: "groot, psi0, fastwam", task: "runs before 2026-11-15 (e.g. groot c6, psi0 c6) and unregistered task keys (groot a14cr3, fastwam b7gt + b7gt-cont2k, fastwam a14cr3; psi0 a14cr3 has 1 point)", what: "no in-training MSE curve", decision: "post-hoc open-loop MSE only; not allowed for new runs (user 2026-11-22)"}
