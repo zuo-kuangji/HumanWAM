@@ -46,6 +46,7 @@
 | 本体增强 | `hb_aug_v2.perturb_joints`：29 个身体关节逐关节常偏 U(±2°)，再加 N(0, 0.25°) 噪声，裁剪在 ±3σ。**不做本体延迟，不做历史丢帧**（2026-11-12 起，所有模型对齐 GR00T A20 配方）。监督动作和实测手部标签保留原值。 |
 | 评估 / rollout | 关闭所有随机扰动，保留相同的输入排列和归一化。 |
 | 梯度累积 | 永远为 1。显存不够时加节点、降每卡 batch。 |
+| 存档（2026-11-27 用户） | **小模型**（ACT、FLASH、FM-DiT、DP、ODE 等 hb_baselines 模型）：每次训练在最大步数上均匀存 6 个 checkpoint（第 k × 步数 / 6 步，k = 1..6；hb_baselines 取整到训练中 MSE 的 250 步网格，最后一个就是训练结束），例如 30000 步每 5000 步一个、4000 步为 750/1250/2000/2750/3250/4000。**大模型**（GR00T、Psi-Zero、FastWAM、Delta Flow，以及 π0.5、DiT4DiT 这类更大的）：除训练结束的 checkpoint 外最多再存一个中间点，选在总步数约 80% 处（4000 步存 3200 和 4000；C6 8000 步存 6400 和 8000；FastWAM 续训 2000 步存总步数 5600 和 6000）。只对之后开训的运行生效，正在跑和已训完的保留原存档。 |
 | 条数 | 按数据集实际条数全用。B6 v6 用全部 542 条（2026-11-24 用户，取代 11-18 的「只取前 500 条」）。例外见第 5 节：B6 v5t7 用前 100 条；B7 黑衣服剪裁版用前 100/107 条；11-24 以前用 B6 v6 前 500 条训完的 FastWAM、Delta Flow、FLASH 见第 7 节。 |
 | 训练中 MSE | 每个模型的每次训练都必须伴随训练测，每 250 步一次（第 6 节）。开训前必须在 `eval-action-mse/hb_eval_common.py` 的 `TASKS` 登记数据源，并建好 `build_cache.py <task> train10` 缓存。 |
 | 上传 | 每次训练写进 HF 的新子目录，绝不覆盖。目录内容见第 8 节。 |
@@ -92,6 +93,10 @@
    - 修复前：`evaluation/baselines/data.py` 的 `ChunkDataset` 不传随机数生成器，增强用 `evaluation/augmentation` 的 `worker_rng()`（pid + urandom）；只有 FLASH 的 `FlashChunkDataset` 按种子派生。
    - 已修（用户 11-25）：Humanoid_benchmark bai `b4b94d29` 起，FLASH 的派生方式原样移到基类 `ChunkDataset`，`train.py` 对所有模型设 `aug_seed` = 训练种子，日志打印 `HB_AUG_SEED=<seed>`，`config.json` 记 `training.aug_seed`。CPU 测试：同种子、同 worker 数两次运行逐位一致，换种子则不同，动作标签不变（`tests/framework/test_baselines.py::test_augmentation_stream_is_seeded_and_reproducible`）。
    - 只对之后启动的训练生效，分布不变。之前训的 ACT `b512*`、FM-DiT、DP 保留，`protocol.json` 里标为 not seeded（`hb_repro.py` 按 `config.json` 有没有 `training.aug_seed` 自动判断）。
+1c. **hb_baselines 的采样顺序、增强流和中断续跑（2026-11-27 已修，Humanoid_benchmark bai `e4809ea9`）**
+   - 修复前：增强流按 `(aug_seed, worker 的 torch.initial_seed(), worker id)` 派生，结果依赖 `num_workers`；`--resume` 不存随机状态，中断后续跑时采样顺序、增强和模型噪声都从头重放。
+   - 已修（用户 11-27「全部修」）：采样顺序由 `EpochSampler` 决定（第 e 轮是 `default_rng([seed, 1, e])` 的排列，整 batch）；每个样本用 `default_rng([aug_seed, draw])` 增强，draw 是它在整个运行样本流里的序号；DataLoader 有自己的生成器；`train_state.pt` 保存 torch / CUDA / numpy / python 的随机状态。CPU 实测：1 个和 2 个 worker 的 loss 逐步相同；第 10 步后中断再 `--resume`，每步 loss 与不中断的相同，最终 EMA 权重最大差 0.0。
+   - 只对之后开训的运行生效。之前的运行（已固定种子的那批）分布相同、逐位不同，保留。
 2. **GPU 计算不是逐位确定的**
    - 除 Psi0 的 `warn_only` 外，没有开 `cudnn.deterministic` / `use_deterministic_algorithms`。
    - bf16、NCCL 归约顺序、原子操作都会引入逐位差异。
@@ -123,7 +128,7 @@
 - **布局**：2 节点 × 8 × 每卡 32 = 512，不累积。A14 是 4 节点 × 8 × 16。
 - **全量微调**：`--tune_llm --tune_visual`，投影层、扩散动作头、VLLN 都训练。
 - **学习率与步数**：lr 1e-4，`warmup_ratio` 0.05，之后 cosine 到 0，weight decay 1e-5；4000 步，C6 为 8000 步。
-- **存档**：`save_steps` 500、`save_total_limit` 5，即第 2000/2500/3000/3500/4000 步。只有最后一个 checkpoint 保留续训状态。
+- **存档**：`save_steps` 500、`save_total_limit` 5，即第 2000/2500/3000/3500/4000 步。只有最后一个 checkpoint 保留续训状态。2026-11-27 起新开的训练按第 1 节的大模型规则只存 3200 和 4000（C6 6400 和 8000）。
 - **数据加载**：`dataloader_num_workers` 8、`shard_size` 1024、`num_shards_per_epoch` 100000、`episode_sampling_rate` 0.1；`embodiment_tag` 为 `NEW_EMBODIMENT`；动作块 16。
 
 ### 4.2 Psi-Zero（全局 batch 512，4000 步）
@@ -136,7 +141,7 @@
 - **种子与精度**：`--seed=292285`，bf16，ddp。
 - **学习率**：动作头 1e-4、`lang-backbone` 1e-6、`vision-tower` 1e-5、`mm-projector` 1e-4，`--model.tune-vlm`，开 gradient checkpointing。
 - **优化**：cosine 调度，warmup 2.5%（4000 步时为 100 步），weight decay 1e-6，betas (0.95, 0.999)，`max_grad_norm` 1.0。
-- **步数与存档**：4000 步，每 2000 步存一次，只保留 2 个。C6 是例外，也是 4000 步，见第 7 节。
+- **步数与存档**：4000 步，每 2000 步存一次，只保留 2 个。C6 是例外，也是 4000 步，见第 7 节。2026-11-27 起新开的训练按第 1 节的大模型规则存 3200 和 4000。
 - **动作与图像**：动作块 30（Psi0 原生），`observation-horizon` 1，flow 噪声调度，1000 个扩散训练步；图像 resize 并中心裁剪到 270×480。
 - **增强与归一化**：原生 `img-aug`、`view-aug` 关闭，开 `--data.transform.model.hb-aug`；`state-noise-std` 0；动作归一化 `bounds`，state 做归一化。
 - **本体延迟**：`hb-delay-prob` 必须为 0。启动前要 `unset HB_DELAY_PROB`，H2 的 0.15 例外已于 11-22 取消。
@@ -150,8 +155,9 @@
   - 环境：`envs/fastwam`，Python 3.11.18、torch 2.7.1+cu128
 - **启动器**：主训练 `hb_fastwam/fastwam_task.sh`；续训 `fastwam_cont.sh`，C6 用 `fastwam_cont4k.sh`。
 - **布局**：4 节点 × 8 × 每卡 16 = 512，每卡 16 是 A800 80 GB 放得下的最大值（`chosen.json`）；accelerate + DeepSpeed ZeRO-1，bf16，不累积。
-- **主训练**：lr 1e-4 cosine，weight decay 0.01，`max_grad_norm` 1.0，seed 42，`num_workers` 8；第 2000、4000 步存档。
-- **续训**：只加载权重（DiT 和本体编码器，经 `hb_fastwam_cont.py`），AdamW 重新开始；峰值 lr 3e-5（原峰值 × 0.3），warmup 5%，cosine 降到 1%；2000 步，在第 5000、6000 步存档。C6 续训 4000 步，到第 12000 步。
+- **主训练**：lr 1e-4 cosine，weight decay 0.01，`max_grad_norm` 1.0，seed 42，`num_workers` 8；第 2000、4000 步存档（2026-11-27 起新开的训练按第 1 节存 3200 和 4000）。
+- **续训**：只加载权重（DiT 和本体编码器，经 `hb_fastwam_cont.py`），AdamW 重新开始；峰值 lr 3e-5（原峰值 × 0.3），warmup 5%，cosine 降到 1%；2000 步，在第 5000、6000 步存档（2026-11-27 起新开的续训存 5600 和 6000）。C6 续训 4000 步，到第 12000 步。
+- **hb_baselines 的续训**（2026-11-27，同一规则）：`train.py --init-from <run>/checkpoints/step-N`（Humanoid_benchmark bai `c926770a` 起）只加载权重（原 run 的 `train_state.pt` 写于该步时取原始权重和 EMA，否则两者都取存档的 EMA），AdamW 和调度重新开始，峰值默认原峰值 × 0.3、warmup 默认续训步数的 5%，按模型自己的 cosine 降到 0；续训 2000 步（长任务 4000）；其他值要 `--continuation-exception` 登记用户的决定，峰值不低于原峰值时拒绝。checkpoint、日志、训练中 MSE、EMA 衰减都按总步数计，结束写 `complete.json`（`continued_from`、`continued_from_step`、`total_steps_after`）。
 - **视频与动作**：17 帧片段，两路相机并排成 224×448；动作块 16；T5 文本嵌入预先算好。
 
 ### 4.4 其他模型（当前状态，开训前需按本规范补齐）
@@ -164,11 +170,15 @@
 | ACT（hb_baselines 版，现行且唯一，见 4.5） | 512（A10 v3 为 256） | 4000（A10 v3 为 8000） | 按目录 | 合作者的 hb_baselines：种子 0，lr 1e-4，AdamW (0.95, 0.999)，wd 1e-6，warmup 200 步 + cosine，backbone lr × 0.1，EMA 0.9999，AMP；完整配置在每个 HF 目录的 `config.json` | 无（`config.json` 里有训练后的 `offline_eval`） |
 | ACT（Psi0 版，早期 `epoch-010/020`，**2026-11-24 退役**） | 256 | 20 轮 | 第 10 / 20 轮 | Psi0 自带的 LeRobot ACT（`hb_training/hb_act/`），复用 Psi-Zero 的数据视图和增强 v2；种子 292285。不再用于任何训练 | 无 |
 | FM-DiT、DP | 512（FM-DiT 续训目录为 64） | 4000 | 按目录 | 合作者的 hb_baselines，种子 0，配置在每个 HF 目录的 `config.json`；HF 仓库 `fm-dit`、`dp` 归合作者，没有补写 `protocol.json` 的复现字段 | 由合作者负责 |
+| FM-DiT v2（`--policy fm_dit_v2`，见 4.8） | 512 | 12000 | 6 个均匀存档点 | FLASH-Policy 自带的 FM-DiT，种子 42，lr 1e-4，500 步预热后 diffusers cosine，EMAModel | 必须（train.py 强制） |
+
+**hb_baselines 按本规范强制（2026-11-27，Humanoid_benchmark bai `e4809ea9` 起）**：`train.py` 的 batch、步数（长任务 × 2）、warmup、`num_workers`、种子默认就是 `protocol.yaml` 的配方（`PROTOCOL_RECIPES`：act 512/4000/200/32、flash 512/12000/500/40、fm_dit_v2 512/12000/500/32、ode 512/5000/500/32；FM-DiT v1、DP 只核对 batch 512）；其他值、`--save-every`、非 30 Hz 数据都会被拒绝，除非 `--protocol-exception` 登记用户的决定。所有模型（含 ACT、FM-DiT v1、DP）都必须带训练中 MSE；`evaluation/` 下有未提交改动时拒绝开训（`--allow-dirty-tree` 例外）。`config.json` 和每个 checkpoint 的 `protocol.json` 记录任务键、数据集 repo@commit（`--dataset-id`，或从 `<name>-<commit>/data` 目录名推出）、存档点、环境版本（Python、torch、torchvision、numpy、Pillow、CUDA、cuDNN、GPU、驱动）、`hb_aug_v2.py` 和训练中 MSE 代码的 sha256、偏离项。
 
 ### 4.5 ACT 只用 hb_baselines（2026-11-24 用户）
 
 - 本项目以后所有 ACT 训练（新任务、补训、重训、续训）一律用合作者的 hb_baselines 代码：GitHub `zuo-kuangji/Humanoid_benchmark` 的 `evaluation/baselines/train.py --policy act --contract <contract>`，增强 `evaluation/augmentation/hb_aug_v2.py`，环境 `evaluation/baselines/requirements.txt`（Python 3.12、torch 2.9.0+cu128）。已发布的 ACT 用过的 commit 是 `4385573e`（B6）和 `028df1bb`（A10 v3、A20 basket v2）。
 - 配置以 HF `humanoid-benchmark/act` 现有 `b512*` 目录的 `config.json` 为准：种子 0，全局 batch 512，4000 步，lr 1e-4，AdamW (0.95, 0.999)，wd 1e-6，warmup 200 步 + cosine，backbone lr × 0.1，EMA 0.9999，AMP，增强 v2，图像 168 × 224。上传沿用 `hb_baselines/1` 格式和仓库里的 `code/hb_baselines_v1/` 加载器。
+- **2026-11-27 起按本规范强制**（Humanoid_benchmark bai `e4809ea9`，见 4.4 末段）：`--policy act` 不写参数就是 512 / 4000 步 / warmup 200 / `num_workers` 32 / 种子 0，必须带训练中 MSE，存 6 个均匀存档点（4000 步：750、1250、2000、2750、3250、4000），上传仍只传最后两个。
 - 训练中 MSE：已发布的 ACT 只有训练后的 `offline_eval`。Humanoid_benchmark bai `9cca6255` 起 hb_baselines 有训练中 MSE 接口 `evaluation/baselines/inloop.py`（加 `--inloop-task`，FLASH 已在用，FM-DiT、DP、ACT 都能用）。下次训 ACT 用它按第 6 节接上。
 - 11-24 晚第一次按本节训 ACT：B6 v6 全部 542 条（任务键 b6v6p，训练中 MSE 用 b6v6 train10），Humanoid_benchmark bai `8c3b88d2`，阿里云 DSW 2 号卡，4000 步，存 2000、4000；训练中 MSE 从 0.2572（250 步）降到 0.0673（4000 步）。上传 `act/b6-pedal-bin/b512-v6-pure/`。
 - 11-25 起 ACT 用种子固定的增强流（Humanoid_benchmark bai `b4b94d29` 起，第 3 节 1b），日志里有 `HB_AUG_SEED=0`，`config.json` 里有 `training.aug_seed = 0`。下面两个是按本节训的合规样板。都在 Humanoid_benchmark bai `2c91a514` 的工作树上训，阿里云 DSW 1 × RTX 4090 46 GB，num_workers 32，prefetch 2，nice 19（同机在跑闭环评估），存 2000、4000 步，`protocol.json` 的 protocol_commit 是 `6814d6c`：
@@ -186,7 +196,7 @@
 - **环境**：hb-baselines，Python 3.12.1、torch 2.9.0+cu128、torchvision 0.24.0。
 - **种子**：训练 42（上游 `default_train.yaml` 的 `training_params.seed`）；增强随机流由 `HB_AUG_SEED=42` 决定（第 2 节）；训练中 MSE 1234。
 - **布局**：1 节点 × 1 卡 × 每卡 512 = 全局 512，不累积；`num_workers` 40，prefetch 2。B6 那次正式训练的硬件是阿里云 PAI DSW 的 1 × RTX 4090 46 GB（5 号卡、64–79 号核），不是 A800；火山 team_10（RTX 4090D）上的同配置训练停在第 4000 步，只作备份。以后 FLASH 所有任务沿用此布局。
-- **步数与存档**（用户 11-25 改）：12000 步，每 4000 步存一次（4000、8000、12000），只上传 8000 和 12000 两个。11-24 原定 16000 步、每 2000 步存一次；11-25 以前按 16000 步训完的 B6（`b512-v6-500`）、B7（`b512-leaddrop`）结果保留。
+- **步数与存档**（用户 11-25 改）：12000 步，每 4000 步存一次（4000、8000、12000），只上传 8000 和 12000 两个。2026-11-27 起新开的训练按第 1 节存 6 个（2000、4000……12000），上传仍只传 8000 和 12000；评测只评 s12000（用户 11-26）。11-24 原定 16000 步、每 2000 步存一次；11-25 以前按 16000 步训完的 B6（`b512-v6-500`）、B7（`b512-leaddrop`）结果保留。
 - **优化**（按上游）：AdamW，lr 1e-4，betas (0.95, 0.999)，wd 1e-6；500 步线性预热后 diffusers cosine，到最后一步（12000）降到 0；EMA 用上游 Diffusion Policy 的 EMAModel（power 0.75，max 0.9999），保存 EMA 权重；bf16 autocast，多项式拟合用 fp32。
 - **模型**（按上游 `flash.yaml`）：DiT 512 × 4 层 × 8 头，dropout 0，time embed 256；每路相机一个 ResNet18，从头训，GroupNorm，与其余部分同一学习率；Legendre 6 阶，fit_pad 1、poly_prefix 1、poly_suffix 1，C1 边界约束；history_noise_std 0.5、history_reg_lambda 0.1、consistency_weight 1.0；推理 1 步 Euler。
 - **接口适配**（用户 11-24 定，属模型内部，不算例外）：
@@ -214,7 +224,7 @@
   - 不加起点扰动、不加多样性头（G1 移植都没有）。
 - **优化**（上游 `default_train.yaml`）：AdamW，lr 1e-4，betas (0.95, 0.999)，wd 1e-6，**学习率不按 batch 缩放**（与本规范所有模型一致：全局 512，用官方学习率原值；上游的 1e-4 对应 batch 32，FLASH 同样如此）；500 步线性预热后 diffusers cosine 降到 0；EMA 用 Diffusion Policy 的 EMAModel（power 0.75，max 0.9999），按上游方式计数，保存 EMA 权重。编码器 bf16 autocast，ODE 头（条件、积分、手）FP32。
 - **布局**：1 节点 × 1 卡 × 每卡 512 = 全局 512，不累积；`num_workers` 32，prefetch 2。B6 这次的硬件是工作站 b1ue-jay，1 × RTX 5090 32 GB，AMD Ryzen 9 9950X（32 线程）。以后 ODE 所有任务沿用此布局。其余 18 个任务（2026-11-27 起）在阿里云 PAI DLC 的 A800 集群上训：每个任务 1 张 A800 80 GB，同一节点并行 4–5 个任务，各分同样多的 CPU 核（节点 92 核），代码同为 `b4b94d29`，运行目录 `ode-runs/<task>-b512-s<steps>/`；H2 任务的 contract 是 `h2_sharpa`（A17、A18）和 `h2_sharpa_planner`（A14）。
-- **步数与存档**：5000 步，C6 为 10000 步（长任务翻倍，与其他模型一致；用户 11-26，依据 B6 普通 50 局：step-005000 28/50、step-006000 28/50、step-008000 23/50；取代 11-24 的 8000 步），每 1000 步存一次。cosine 在最后一步降到 0，所以必须按这个步数从头训，不能从更长的运行里截取中间的 checkpoint。
+- **步数与存档**（2026-11-27 起新开的训练按第 1 节存 6 个：5000 步为 750、1750、2500、3250、4250、5000，命令不再写 `--save-every`）：5000 步，C6 为 10000 步（长任务翻倍，与其他模型一致；用户 11-26，依据 B6 普通 50 局：step-005000 28/50、step-006000 28/50、step-008000 23/50；取代 11-24 的 8000 步），每 1000 步存一次。cosine 在最后一步降到 0，所以必须按这个步数从头训，不能从更长的运行里截取中间的 checkpoint。
   - **评测和上传只用最后一个 checkpoint**：普通任务 `step-005000`，C6 `step-010000`。选 checkpoint 只在一个模型第一次评测时做（规则见 `evaluation/README.md`，bai `0f9a5309`），ODE 已在 B6 上选定第 5000 步。中间每 1000 步的存档照存。
   - **例外**：B6 这次是 8000 步的运行，评测和上传用其中的 `step-005000`，见第 7 节。
 - **数据**：b6v6，HF `b6-pedal-bin` @`ad2f5bf0` 全部 542 条，331,577 帧。其余任务用 `protocol.yaml` `tasks` 下各任务的最新数据，全部条数。
@@ -225,13 +235,20 @@
 ```bash
 G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baselines/train.py \
     --policy ode_mlp --contract g1_sonic_dfx6 --dataset <data>/b6-pedal-bin --out <run> \
-    --steps 5000 --batch-size 512 --workers 32 --save-every 1000 --cache-dir <frame cache> \
+    --steps 5000 --batch-size 512 --workers 32 --cache-dir <frame cache> \
     --inloop-task b6v6 --inloop-code <HumanWAM>/hb_training/eval-action-mse
 ```
 
   种子、学习率、调度、EMA、horizon、编码器设置都是 `--policy ode_mlp` 的默认值，命令里不再另写。C6 用 `--steps 10000`；`--inloop-task` 填该任务的任务键。
 - **已作废的一次**：2026-11-24 的 `b6v6_b512_s8000` 是登记前训的（种子 0、lr 4e-4、增强未固定种子、没有训练中 MSE），不作为正式结果，见第 7 节。
 - **上传**：公开仓库 `humanoid-benchmark/ode`，`<task-dir>/b512-<ver>/step-XXXXXX/`，`hb_baselines/1` 格式；B6 在 `b6-pedal-bin/b512-v6/`。每个任务只传最后一个 checkpoint（见「步数与存档」）。
+
+### 4.8 FM-DiT v2（2026-11-25 用户接入，FLASH-Policy 自带的 FM-DiT）
+
+- **代码**：hb_baselines `evaluation/baselines/fm_dit_v2.py`（Humanoid_benchmark bai `3eb27c92` 起），上游 NTUMARS/FLASH-Policy @ `f47e490` 的 `roboverse_learn/il/policies/fm/fm_dit_image_policy.py` + `fm_dit.yaml`；网络复用 flash.py 移植的 FlowTransformer（torchtune RoPE）和 MultiImageObsEncoder。入口 `train.py --policy fm_dit_v2 --contract g1_sonic_dfx6`。
+- **配方**：种子 42（上游 `default_train.yaml`），全局 512（1 × 1 × 512），12000 步，AdamW lr 1e-4、betas (0.95, 0.999)、wd 1e-6，500 步线性预热后 diffusers cosine 到 0，EMAModel（power 0.75、max 0.9999）；DiT 512 × 4 × 8 头、dropout 0.1、time embed 256；每路相机一个从头训的 GroupNorm ResNet18；10 步 midpoint 采样；`num_workers` 32；存 6 个均匀存档点。
+- **B6 v6**（全部 542 条）：`fmdit-runs/b6v6p-fm_dit_v2-b512-s12000`，训练中 nMSE 12000 步 0.1599（v1 同配置 0.2545），0.5.1 普通 50 局 0/50。
+- **B6 续训 30000 步**：用户 11-27 先定续训 30000 步，同日取消（B6、B7、C6 的训练全部暂停，等按 `debug/newton/a29_trim_stationary.py`（Humanoid_benchmark `be2caba1`）的 3 帧剪裁方式重新剪裁数据）。
 
 ---
 
@@ -300,6 +317,7 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 | 增强随机流 | 2026-11-23 21:05 之前启动的 GR00T、Psi-Zero、FastWAM 训练：由 pid、urandom、时间产生，不可逐位复现（第 3 节） | 11-23 已修，之后启动的训练由种子决定；旧结果保留，附录注明 |
 
 | FM-DiT v1 / v2 对比（hb_baselines `--policy fm_dit` 与 `fm_dit_v2`）：B6 v6 全部 542 条（`fmdit-runs/b6v6p-*-b512-s12000`）、A20 basket v2 全部 100 条（`fmdit-runs/basketv2-*-b512-s12000`） | 两版都用种子 42、batch 512、12000 步、每 4000 步存。v1 规定的 hb_baselines 种子是 0；v2 是 FLASH-Policy 自带的 FM-DiT，42 是它的上游默认值，不算例外。增强 v2，随机流已固定（`HB_AUG_SEED=42`），训练中 MSE 每 250 步 | 11-26 用户：v1 用 42，和 B6 对比一致；登记为例外 |
+| hb_baselines 训练环境 | 11-24 到 11-26 在阿里云 DSW 上训的 hb_baselines 运行（FM-DiT v1/v2 B6 与 A20、ACT B6 v6 / B1 v2 / B4 / B7、FLASH B6 / B7 等）用 `/root/.venvs/hb-baselines`（Python 3.12.1、Pillow 12.3.0）；A800 上的运行用 NAS 的 `policies-20261109/envs/hb-baselines`（Python 3.12.12、Pillow 13.0.0）。增强 v2 的 JPEG 效果依赖 Pillow，两者逐位不同、分布相同 | 11-27 起钉为 Pillow 13.0.0（`envs/hb-baselines.txt`，hb_baselines `requirements.txt`），每个运行记录环境版本 |
 新例外追加到本表，同时写进该运行的 `protocol.json` 的 `exceptions` 字段。
 
 ---
@@ -334,13 +352,14 @@ G=<root of eval-action-mse> <hb-baselines env>/bin/python -I evaluation/baseline
 python3 hb_training/check_protocol.py groot  $G/groot-runs-2x32/<task>
 python3 hb_training/check_protocol.py psi0   $G/psi0-runs/<task>/b512
 python3 hb_training/check_protocol.py fastwam $G/fastwam/runs/<task>[-cont2k]
+python3 hb_training/check_protocol.py hb_baselines <run>   # ACT / FLASH / FM-DiT / DP / ODE: run.json + complete.json
 ```
 
 ---
 
 ## 10. 环境
 
-- 各训练环境的完整包版本快照在 `hb_training/envs/<env>.txt`（2026-11-23 导出）。重建环境时按快照装，不要装最新版。
+- 各训练环境的完整包版本快照在 `hb_training/envs/<env>.txt`（2026-11-23 导出；hb-baselines 2026-11-27 导出，同 Humanoid_benchmark `evaluation/baselines/requirements.lock.txt`）。重建环境时按快照装，不要装最新版。
 - 硬件：阿里云 PAI DLC，4 节点 × 8 张 A800 80 GB，NAS 共享 `$G`。
 - 上游代码版本以本仓库 `.gitmodules` 和子模块 commit 为准：
 

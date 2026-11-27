@@ -2,7 +2,7 @@
 # Verified 2026-11-23 against the artifacts of the runs actually trained (training_args.bin / train_args.txt /
 # out/config.yaml / published protocol.json). check_protocol.py reads this file. Change a value only together with
 # REPRODUCIBILITY.md and only on an explicit user decision; record deviations under `exceptions`.
-version: 2026-11-23
+version: 2026-11-27
 
 interface:                       # identical for every model
   proprio:
@@ -25,7 +25,11 @@ interface:                       # identical for every model
     rng_since: "2026-11-23 13:05 UTC for GR00T, Psi-Zero, FastWAM (training log prints HB_AUG_SEED=<seed>); pi0.5, DiT4DiT, Delta Flow were always seeded"
   gradient_accumulation_steps: 1
   inloop_mse: {every: 250, batch: 8, seed: 1234, split: "heldout if the task has never-trained episodes else train10"}
-  continuation: {init: weights_only, peak_lr_factor: 0.3, warmup_ratio: 0.05, schedule: cosine, steps: 2000, steps_long_task: 4000}
+  continuation: {init: weights_only, peak_lr_factor: 0.3, warmup_ratio: 0.05, schedule: cosine, steps: 2000, steps_long_task: 4000,
+                 impl: {fastwam: fastwam_tools/hb_fastwam_cont.py, hb_baselines: "evaluation/baselines/train.py --init-from <run>/checkpoints/step-N (Humanoid_benchmark bai c926770a; other lr / warm-up / steps need --continuation-exception)"}}
+  save_rule:                     # user 2026-11-27; applies to trainings started from then on (running and finished ones keep theirs)
+    small_models: {models: [act, flash, fm_dit, fm_dit_v2, dp, ode_mlp, ode_dit], rule: "6 checkpoints spread evenly over the run's max steps: k x steps / 6, k = 1..6 (hb_baselines rounds to the 250-step in-loop grid; the last is the end)", examples: {30000: [5000, 10000, 15000, 20000, 25000, 30000], 12000: [2000, 4000, 6000, 8000, 10000, 12000], 4000: [750, 1250, 2000, 2750, 3250, 4000]}}
+    large_models: {models: [groot, psi0, fastwam, deltaflow, pi05, dit4dit], rule: "the final checkpoint + at most one intermediate at ~80 % of the total steps", examples: {4000: [3200, 4000], 8000: [6400, 8000], fastwam_cont2k: [5600, 6000]}}
   long_task_step_factor: {c6: 2}          # A14 is NOT doubled
 
 models:
@@ -41,7 +45,8 @@ models:
     warmup_ratio: 0.05
     lr_schedule: cosine
     weight_decay: 1.0e-5
-    save_steps: [2000, 2500, 3000, 3500, 4000]
+    save_steps: [2000, 2500, 3000, 3500, 4000]   # runs started before 2026-11-27
+    save_steps_new: {g1: [3200, 4000], c6: [6400, 8000]}   # interface.save_rule.large_models (user 2026-11-27)
     trainable: "full fine-tune: tune_llm, tune_visual, projector, diffusion action head, VLLN"
     action_horizon: 16
     dataloader_num_workers: 8
@@ -65,7 +70,8 @@ models:
     betas: [0.95, 0.999]
     max_grad_norm: 1.0
     mixed_precision: bf16
-    save_every: 2000
+    save_every: 2000             # runs started before 2026-11-27
+    save_steps_new: [3200, 4000]   # interface.save_rule.large_models (user 2026-11-27)
     hb_delay_prob: 0.0
     action_horizon: 30
     num_workers: 8
@@ -86,8 +92,9 @@ models:
     weight_decay: 0.01
     max_grad_norm: 1.0
     mixed_precision: bf16
-    save_every: 2000
+    save_every: 2000             # runs started before 2026-11-27
     continuation_save_every: 1000
+    save_steps_new: {main: [3200, 4000], continuation: [5600, 6000]}   # interface.save_rule.large_models (user 2026-11-27)
     action_horizon: 16
     video: "17-frame clips, two cameras side by side 224x448"
     num_workers: 8
@@ -129,6 +136,15 @@ models:
     max_steps: 4000
   hb_baselines:                  # collaborator's stack: HF act/<task>/b512*, fm-dit, dp (protocol format hb_baselines/1)
     models: [act, fm_dit, dp]
+    enforced_by: "Humanoid_benchmark bai e4809ea9 evaluation/baselines/train.py PROTOCOL_RECIPES: batch / steps (long tasks x2) / warm-up / workers / seed default to the recipes below; another value, --save-every or a non-30-Hz dataset is refused unless --protocol-exception; the in-training MSE is required for every model; a dirty evaluation/ tree is refused unless --allow-dirty-tree"
+    recipes:                     # moved here from models.flash.act (2026-11-27); flash, fm_dit_v2, ode_mlp: their own entries
+      act: {global_batch: 512, layout: {nodes: 1, gpus_per_node: 1, per_gpu_batch: 512}, max_steps: 4000, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6, warmup_steps: 200, lr_schedule: cosine, backbone_lr_scale: 0.1, ema: 0.9999, amp: true, num_workers: 32, prefetch_factor: 2, seed: 0}
+      fm_dit: {global_batch: 512, note: "v1 (DextraVerse port); superseded by fm_dit_v2 where v2 scores higher; only the batch is enforced"}
+      dp: {global_batch: 512, note: "only the batch is enforced"}
+    save_rule: interface.save_rule.small_models
+    record: "config.json: task, dataset_id (--dataset-id REPO@COMMIT or inferred from <name>-<commit>/data), save_steps, environment (python, torch, torchvision, numpy, pillow, cuda, cudnn, gpu, driver), augmentation_sha256, inloop code sha256, protocol_deviations / protocol_exceptions, continuation; each checkpoint's protocol.json carries the same summary; complete.json at the end"
+    order_and_resume: "from e4809ea9: EpochSampler order default_rng([seed, 1, epoch]); each item augmented with default_rng([aug_seed, draw]) (its position in the run's stream: independent of num_workers); train_state.pt keeps torch / cuda / numpy / python random states, --resume is bit-exact (CPU test)"
+    env_snapshot: "envs/hb-baselines.txt (A800 / NAS env, python 3.12.12, pillow 13.0.0; = Humanoid_benchmark evaluation/baselines/requirements.lock.txt)"
     seed: 0                      # config.json training.seed of every published folder (verified 2026-11-24)
     seed_source: "hb_baselines config.json training.seed"
     recipe_record: "config.json in each HF folder (training, augmentation, dataset episodes, code_commit)"
@@ -156,6 +172,7 @@ models:
     prefetch_factor: 2
     max_steps: 12000             # user 2026-11-25 (was 16000 from 2026-11-24; runs finished at 16000 before 11-25: B6 b512-v6-500, B7 b512-leaddrop)
     save_steps: [4000, 8000, 12000]   # user 2026-11-25: keep and upload only 8000 and 12000 (the 16000-step runs saved every 2000)
+    save_steps_new: [2000, 4000, 6000, 8000, 10000, 12000]   # interface.save_rule.small_models (user 2026-11-27); upload still 8000 + 12000; evaluate only s12000 (user 2026-11-26)
     published_steps: [8000, 12000]
     optimizer: {name: AdamW, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6}
     lr_schedule: {warmup_steps: 500, warmup: linear, schedule: "diffusers cosine", final_lr: 0.0, decays_to_zero_at: max_steps}
@@ -167,7 +184,6 @@ models:
     inloop_mse: "evaluation/baselines/inloop.py -> eval-action-mse hb_inloop_core (copy of HumanWAM bai ff5bf95): every 250 steps, train10, batch 8, seed 1234, EMA weights; <run>/logs/inloop-mse.jsonl"
     run_dir: "NAS preflight-20261104T1648Z/flash-runs/b6v6-b512-s16000 (team_10 partial backup: flash-runs/team10-partial-20261124)"
     hf_upload: "public repo humanoid-benchmark/flash, <task dir>/<sub dir>/step-XXXXXX/ (hb_baselines/1 format); from 2026-11-25 only step-008000 and step-012000"
-    act: {global_batch: 512, max_steps: 4000, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6, warmup_steps: 200, lr_schedule: cosine, ema: 0.9999, amp: true}
 
   ode_mlp:                       # ODE policy (NTUMARS ODE-POLICY), joined 2026-11-25 (user), B6 first; hb_baselines code
     variants: {ode_mlp: "FiLM residual MLP field", ode_dit: "DiT (adaLN) field, models.ode_dit"}
@@ -185,6 +201,7 @@ models:
     prefetch_factor: 2
     max_steps: 5000              # user 2026-11-26 (was 8000, 2026-11-24); long task c6: 10000; train from scratch, never cut a longer run
     save_steps: "every 1000 (1000 .. 5000; c6 .. 10000); evaluation and HF upload use only the last one (step-005000, c6 step-010000)"
+    save_steps_new: {g1: [750, 1750, 2500, 3250, 4250, 5000], c6: [1750, 3250, 5000, 6750, 8250, 10000]}   # interface.save_rule.small_models (user 2026-11-27)
     optimizer: {name: AdamW, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6, lr_batch_scaling: none}
     lr_schedule: {warmup_steps: 500, warmup: linear, schedule: "diffusers cosine", final_lr: 0.0, decays_to_zero_at: max_steps}
     ema: {impl: "Diffusion Policy EMAModel", power: 0.75, max_decay: 0.9999, saved_weights: ema}
@@ -194,6 +211,20 @@ models:
     inloop_mse: "evaluation/baselines/inloop.py -> eval-action-mse hb_inloop_core: every 250 steps, train10 (b6v6), batch 8, seed 1234, EMA weights; the ODE starts from the cached past_action's last row; <run>/logs/inloop-mse.jsonl"
     run_dir: "b1ue-jay ~/hb_models/baselines/runs/b6-pedal-bin-v6/ode_mlp-protocol"
     hf_upload: "public repo humanoid-benchmark/ode, <task-dir>/b512-<ver>/step-XXXXXX, hb_baselines/1 format (b6: b6-pedal-bin/b512-v6); last checkpoint only"
+  fm_dit_v2:                     # FLASH-Policy's own FM-DiT (user 2026-11-25); hb_baselines evaluation/baselines/fm_dit_v2.py (Humanoid_benchmark bai 3eb27c92)
+    seed: 42                     # upstream FLASH-Policy default_train.yaml training_params.seed
+    upstream: {repo: "github.com/NTUMARS/FLASH-Policy", commit: f47e490, files: "roboverse_learn/il/policies/fm/fm_dit_image_policy.py, configs/policy_config/fm_dit.yaml"}
+    global_batch: 512
+    layout: {nodes: 1, gpus_per_node: 1, per_gpu_batch: 512}
+    gradient_accumulation_steps: 1
+    num_workers: 32
+    max_steps: 12000
+    save_steps_new: [2000, 4000, 6000, 8000, 10000, 12000]
+    optimizer: {name: AdamW, lr: 1.0e-4, betas: [0.95, 0.999], weight_decay: 1.0e-6}
+    lr_schedule: {warmup_steps: 500, warmup: linear, schedule: "diffusers cosine", final_lr: 0.0}
+    ema: {impl: "Diffusion Policy EMAModel", power: 0.75, max_decay: 0.9999, saved_weights: ema}
+    model: {dit: {width: 512, layers: 4, heads: 8, dropout: 0.1, time_embed: 256}, vision: "ResNet18 per camera, from scratch, GroupNorm", sampling: "10 midpoint steps from noise"}
+    runs: {b6v6p: "fmdit-runs/b6v6p-fm_dit_v2-b512-s12000, in-loop nMSE 0.1599 at 12000; plain 50 0/50 (OVRTX 0.5.1); a 30000-step continuation was decided and cancelled the same day (user 2026-11-27: B6 / B7 / C6 trainings paused until re-trimmed)"}
   ode_dit:                       # the same as ode_mlp except the field (ODE-POLICY ode_dit.yaml: 512 wide, 4 adaLN blocks, 8 heads, 4 tokens); not trained yet
     seed: 42
     same_as: ode_mlp
@@ -220,6 +251,7 @@ tasks:                            # newest data per task (HF org humanoid-benchm
   a18cr2:   {robot: h2, hf: a18-pour-water, data_commit: 44cdd571, episodes: 100}
 
 exceptions:                       # every item must also appear in the paper appendix
+  - {model: "act, fm_dit, fm_dit_v2, flash", task: "runs on the Aliyun DSW 2026-11-24..26", what: "trained in /root/.venvs/hb-baselines (python 3.12.1, pillow 12.3.0); the A800 runs use the NAS env (python 3.12.12, pillow 13.0.0); the augmentation's JPEG effect depends on Pillow (same distribution, not bit-identical)", decision: "2026-11-27: pinned to pillow 13.0.0 (envs/hb-baselines.txt); every run records its environment"}
   - {model: groot, task: c6, what: "layout 4 nodes x 8 GPUs x 8 per GPU with grad-accum 2 (2026-11-13 recipe; standard 2 x 8 x 32, no accumulation), 8000 steps", decision: "user 2026-11-14: not retrained; user 2026-11-24: layout also registered as an exception"}
   - {model: groot, task: "basket v1, b7 v1, b7green v1", what: "4 x 8 x grad-accum 2 (groot-runs-ft512)", decision: "superseded by newer data versions"}
   - {model: "groot, psi0", task: basketv2, what: "published versions are 2000-step continuations from v1", decision: "user 2026-11-23: pure v2 retrain basketv2p -> b512-trimv2-pure"}
