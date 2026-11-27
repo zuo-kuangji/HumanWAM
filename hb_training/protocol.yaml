@@ -161,6 +161,7 @@ models:
       - {task: b4, code: 2c91a514, hf: act/b4-cushion/b512, hf_commit: cff510cf, inloop_nmse: {2000: 0.0564, 4000: 0.0497}}
       - {task: a29, code: 2c91a514, hf: act/a29-drawer-close/b512, hf_commit: 7d7a302b, inloop_nmse: {2000: 0.1396, 4000: 0.1296}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
       - {task: a21, code: 2c91a514, hf: act/a21-floor-basket-transfer/b512, hf_commit: 415cfc57, inloop_nmse: {2000: 0.0353, 4000: 0.0288}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
+      - {task: b5ss, code: d2096858, hf: act/b5-chair-push-standing-start/b512, hf_commit: 42e17a53, saves: [750, 1250, 2000, 2750, 3250, 4000], published: [3250, 4000], inloop_nmse: {2000: 0.0534, 3250: 0.0452, 4000: 0.0444}, hardware: "Aliyun PAI DLC, 1 x A800 80 GB"}
   flash:                         # user's own method (NeurIPS 2026), joined 2026-11-24, B6 first; registered from the FLASH session's measurements
     seed: 42                     # upstream FLASH-Policy roboverse_learn/il/configs/train_config/default_train.yaml training_params.seed
     seed_source: "upstream NTUMARS/FLASH-Policy default_train.yaml training_params.seed"
@@ -270,7 +271,7 @@ exceptions:                       # every item must also appear in the paper app
   - {model: deltaflow, task: b6v6, what: "weights-only continuation from v5 step_010200, lr 3e-5", decision: "2026-11-15 plan"}
   - {model: fastwam, task: b5ss, what: "not trained", decision: user}
   - {model: act, task: "b7 black trimmed (collaborator baseline)", what: "256 x 8000 steps", decision: "collaborator run"}
-  - {model: "psi0, act", task: all, what: "seed 292285 (upstream Psi0) while the other models use 42", decision: "pending user decision on a single global seed"}
+  - {model: "psi0, act", task: all, what: "seed 292285 (upstream Psi0) while the other models use 42", decision: "user 2026-11-27: seeds are not unified across models; each model keeps its one seed"}
   - {model: "hb_baselines (act b512*, fm_dit, dp)", task: all, what: "seed 0 (collaborator stack, config.json training.seed)", decision: "user 2026-11-27: seeds stay uniform inside each model, not across models; act and dp keep 0; fm_dit v1 uses 42 from 2026-11-27 (as fm_dit_v2); the published seed-0 fm_dit folders are kept, recorded"}
   - {model: "fm_dit (hb_baselines v1)", task: "b6v6 (fmdit-runs/b6v6p-fm_dit-b512-s12000), basketv2 (fmdit-runs/basketv2-fm_dit-b512-s12000)", what: "seed 42 instead of the hb_baselines seed 0, to match fm_dit_v2 (upstream FLASH-Policy default 42) in the v1/v2 comparison; batch 512, 12000 steps, save every 4000, seeded augmentation, in-training MSE", decision: "user 2026-11-26"}
   - {model: "groot, psi0, fastwam", task: all, what: "runs started before 2026-11-23 13:05 UTC: visual-augmentation RNG drawn from pid/urandom/time, not from the seed -> not bit-reproducible", decision: "user 2026-11-23: fixed for later runs; old results kept, appendix"}

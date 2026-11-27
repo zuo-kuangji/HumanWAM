@@ -188,6 +188,7 @@
   - B4（任务键 b4）：`b4-cushion` 根目录 v2 @`194e7cde`，全部 302 条，30 Hz。训练中 MSE（b4 train10）2000 步 0.0564，4000 步 0.0497。HF `act/b4-cushion/b512/`，act @`cff510cf`。
   - A29（任务键 a29）：`a29-drawer-close-black-marble-30hz-v1` @`d03c19e6`，全部 100 条，30 Hz，模型输入只用 ego_view + chest（数据里的 kitchen、drawer 两路不用）。同一配方和代码，但硬件是阿里云 PAI DLC A800 集群的 1 × A800 80 GB。训练中 MSE（a29 train10）2000 步 0.1396，4000 步 0.1296。HF `act/a29-drawer-close/b512/`，act @`7d7a302b`。
   - A21（任务键 a21）：`a21-floor-transfer-basket-trim-raw-head-expert-v1` @`682f2bfc`，全部 100 条，30 Hz，ego_view + chest 两路。同一配方和代码，硬件是阿里云 PAI DLC A800 集群的 1 × A800 80 GB。训练中 MSE（a21 train10）2000 步 0.0353，4000 步 0.0288。HF `act/a21-floor-basket-transfer/b512/`，act @`415cfc57`。
+  - B5 站立起步（任务键 b5ss，现名 A22）：`A22-chair-push-standing-start-expert-v1-formerly-b5` @`913f5a1`，全部 100 条（30,908 帧），30 Hz，ego_view + chest 两路。同一配方，代码 Humanoid_benchmark bai `d2096858`（对齐规范后的 `train.py`）；按 2026-11-27 存档规则存 750/1250/2000/2750/3250/4000 六个，HF 只传最后两个（3250、4000）。硬件是阿里云 PAI DLC A800 集群的 1 × A800 80 GB。训练中 MSE（b5ss train10）2000 步 0.0534，3250 步 0.0452，4000 步 0.0444。HF `act/b5-chair-push-standing-start/b512/`，act @`42e17a53`。
 - 本仓库的 `hb_training/hb_act/`（Psi0 仓库内的 LeRobot ACT）**已退役**：入口 `hb_act_train.py` 默认直接退出，只有复现旧的 `act/<task>/epoch-NNN` 发布时才可设 `HB_ALLOW_RETIRED_ACT=1` 运行。说明见 `hb_training/hb_act/RETIRED.md`。
 
 ### 4.6 FLASH（2026-11-24 用户接入，用户自己的方法，NeurIPS 2026；先做 B6）
