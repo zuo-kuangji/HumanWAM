@@ -91,6 +91,8 @@ TASKS = {  # task -> (source dataset, episode limit, robot layout)
     "b1v2p": (P / "b1-riceball-microwave-v2-30hz-p-276ceb9/data", None, "g1"),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF b1-riceball-microwave-expert-v2-30hz @276ceb91
     "a14cr5": (P / "a14-screw-bulb-cropped-v5-33beae7/data", None, "h2p"),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a14-screw-bulb @33beae7c, head + chest, + planner
     "a17cr4": (P / "a17-unscrew-bottle-cropped-v4-f710531/data", None, "h2"),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a17-unscrew-bottle @f7105314, head + chest
+    "a15": (P / "a15-hitting-nail-cr-24893c3/data", None, "h2"),  # 2026-11-28 user: new task a15 (HF a15-hitting-nail @24893c37, A29 three-frame trim, all episodes)
+    "a19": (P / "a19-screw-bottle-cr-d5278b4/data", None, "h2"),  # 2026-11-28 user: new task a19 (HF a19-screw-bottle @d5278b46, A29 three-frame trim, all episodes)
     "a18cr4": (P / "a18-pour-water-cropped-v4-73fd522/data", None, "h2"),  # 2026-11-27 user: newest pause-trim (a29_trim_stationary 3 frames) data, all 7 baselines retrain: HF a18-pour-water @73fd5225, head + chest
     "a18cr2": (P / "a18-pour-water-cropped-v2-44cdd57/data", None, "h2"),  # HF a18-pour-water-expert-cropped-v2 @44cdd57, head + chest (user 2026-11-22)
     "a17cr2": (P / "a17-unscrew-bottle-cropped-v2-3520b70/data", None, "h2"),  # HF a17-unscrew-bottle-expert-cropped-v2 @3520b70, head + chest (user 2026-11-22)  # HF a14-screw-bulb-expert-cropped-v3 @79fe08a (trimmed v2, + planner; user 2026-11-20)

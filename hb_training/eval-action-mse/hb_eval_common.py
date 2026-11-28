@@ -89,6 +89,8 @@ TASKS = {
     "b1v2p": (P / "b1-riceball-microwave-v2-30hz-p-276ceb9/data", None, "g1"),  # HF b1-riceball-microwave-expert-v2-30hz @276ceb91
     "a14cr5": (P / "a14-screw-bulb-cropped-v5-33beae7/data", None, "h2p"),  # HF a14-screw-bulb @33beae7c
     "a17cr4": (P / "a17-unscrew-bottle-cropped-v4-f710531/data", None, "h2"),  # HF a17-unscrew-bottle @f7105314
+    "a15": (P / "a15-hitting-nail-cr-24893c3/data", None, "h2"),  # 2026-11-28 user: new task a15 (HF a15-hitting-nail @24893c37, A29 three-frame trim, all episodes)
+    "a19": (P / "a19-screw-bottle-cr-d5278b4/data", None, "h2"),  # 2026-11-28 user: new task a19 (HF a19-screw-bottle @d5278b46, A29 three-frame trim, all episodes)
     "a18cr4": (P / "a18-pour-water-cropped-v4-73fd522/data", None, "h2"),  # HF a18-pour-water @73fd5225
 }
 
