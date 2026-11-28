@@ -37,7 +37,7 @@ interface:                       # identical for every model
     base_steps: {groot: 4000, psi0: 4000, fastwam: 6000, fm_dit: 58000, flash: 12000, ode_mlp: 5000, act: 4000}
     fm_dit_base_history: "30000 until 2026-11-28; user 2026-11-28: 58000, from the collaborator's A17 FM-DiT v1 run that converged at 80000 steps on 751.84 frames per episode (80000 x 544.33 / 751.84 = 57919)"
     fm_dit_v1_targets_20261128: {a3v4p: 30000, a7v4p: 26000, a10v3: 91000, basketv2: 58000, b8: 66000, b5c: 46000, b6v7: 64000, b7gv3: 81000, b7bv2: 80000, a17cr4: 54000, a18cr4: 52000, c6v2: 221000}
-    fm_dit_v1_plan_20261128: "user 2026-11-28: finished FM-DiT v1 runs are continued to the target (--init-from, peak lr 1e-4 = the from-scratch peak, warm-up 500; exception below); runs still training are first evaluated on 20 plain runs and continued only with no success; runs not started train from scratch at the target; a3v4p / a7v4p already reach it (no top-up); a10v3 is also trained"
+    fm_dit_v1_plan_20261128: "user 2026-11-28: finished FM-DiT v1 runs are continued to the target (--init-from, peak lr 1e-4 = the from-scratch peak, warm-up 500; exception below); runs still training are first evaluated on 20 plain runs and continued only with no success; tasks of the plan not trained yet are also continued from their existing checkpoints (user 2026-11-28 correction; sources pending), only a task with no checkpoint at all (b7gv3) trains from scratch; a3v4p / a7v4p already reach it (no top-up); a10v3 is also trained"
 
 models:
   groot:
