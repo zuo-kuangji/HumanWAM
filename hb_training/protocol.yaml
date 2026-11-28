@@ -2,7 +2,7 @@
 # Verified 2026-11-23 against the artifacts of the runs actually trained (training_args.bin / train_args.txt /
 # out/config.yaml / published protocol.json). check_protocol.py reads this file. Change a value only together with
 # REPRODUCIBILITY.md and only on an explicit user decision; record deviations under `exceptions`.
-version: 2026-11-27
+version: 2026-11-28
 seed_rule: "one training seed per model, kept on every training (user 2026-11-27); 42 for new models and FM-DiT v1/v2; runs on another seed are kept and recorded, not retrained"
 
 interface:                       # identical for every model
@@ -32,6 +32,12 @@ interface:                       # identical for every model
     small_models: {models: [act, flash, fm_dit, fm_dit_v2, dp, ode_mlp, ode_dit], rule: "6 checkpoints spread evenly over the run's max steps: k x steps / 6, k = 1..6 (hb_baselines rounds to the 250-step in-loop grid; the last is the end)", examples: {30000: [5000, 10000, 15000, 20000, 25000, 30000], 12000: [2000, 4000, 6000, 8000, 10000, 12000], 4000: [750, 1250, 2000, 2750, 3250, 4000]}}
     large_models: {models: [groot, psi0, fastwam, deltaflow, pi05, dit4dit], rule: "the final checkpoint + at most one intermediate at ~80 % of the total steps", examples: {4000: [3200, 4000], 8000: [6400, 8000], fastwam_cont2k: [5600, 6000]}}
   long_task_step_factor: {c6: 2}          # A14 is NOT doubled
+  step_rule:                     # user 2026-11-28; replaces "large models 4000 / FastWAM 4000 + 2000" and the C6 doubling for trainings not yet started
+    rule: "steps = ceil to 1000 of (model base steps x mean frames per episode of the training data / 544.33); 544.33 = A20 basket v2 (@c4df4d40) frames per episode"
+    base_steps: {groot: 4000, psi0: 4000, fastwam: 6000, fm_dit: 58000, flash: 12000, ode_mlp: 5000, act: 4000}
+    fm_dit_base_history: "30000 until 2026-11-28; user 2026-11-28: 58000, from the collaborator's A17 FM-DiT v1 run that converged at 80000 steps on 751.84 frames per episode (80000 x 544.33 / 751.84 = 57919)"
+    fm_dit_v1_targets_20261128: {a3v4p: 30000, a7v4p: 26000, a10v3: 91000, basketv2: 58000, b8: 66000, b5c: 46000, b6v7: 64000, b7gv3: 81000, b7bv2: 80000, a17cr4: 54000, a18cr4: 52000, c6v2: 221000}
+    fm_dit_v1_plan_20261128: "user 2026-11-28: finished FM-DiT v1 runs are continued to the target (--init-from, peak lr 1e-4 = the from-scratch peak, warm-up 500; exception below); runs still training are first evaluated on 20 plain runs and continued only with no success; runs not started train from scratch at the target; a3v4p / a7v4p already reach it (no top-up); a10v3 is also trained"
 
 models:
   groot:
@@ -298,6 +304,7 @@ tasks:                            # newest data per task (HF org humanoid-benchm
   a18cr4:   {robot: h2, hf: a18-pour-water, data_commit: 73fd5225, episodes: 100, note: "cropped v4, pause trim (A29 stationary frames, Humanoid_benchmark be2caba1 debug/newton/a29_trim_stationary.py), user 2026-11-27"}
 
 exceptions:                       # every item must also appear in the paper appendix
+  - {model: "fm_dit (hb_baselines v1)", task: "the 2026-11-28 top-up continuations to interface.step_rule.fm_dit_v1_targets_20261128 (a17cr4 30000 -> 54000, a18cr4 30000 -> 52000, ...)", what: "continuation peak lr 1e-4 = the original peak (interface.continuation: 0.3 x), warm-up 500 = the from-scratch recipe (protocol: 5 %), fresh AdamW, cosine to 0 over the continuation steps, 20000+ more steps (protocol: 2000 / 4000); Humanoid_benchmark bai 8ec413cf --continuation-exception", decision: "user 2026-11-28: 续训的步数比较多的就不需要去降低学习率的峰值，学习率峰值可以跟从头训一样去安排"}
   - {model: "act, fm_dit, fm_dit_v2, flash", task: "runs on the Aliyun DSW 2026-11-24..26", what: "trained in /root/.venvs/hb-baselines (python 3.12.1, pillow 12.3.0); the A800 runs use the NAS env (python 3.12.12, pillow 13.0.0); the augmentation's JPEG effect depends on Pillow (same distribution, not bit-identical)", decision: "2026-11-27: pinned to pillow 13.0.0 (envs/hb-baselines.txt); every run records its environment"}
   - {model: groot, task: c6, what: "layout 4 nodes x 8 GPUs x 8 per GPU with grad-accum 2 (2026-11-13 recipe; standard 2 x 8 x 32, no accumulation), 8000 steps", decision: "user 2026-11-14: not retrained; user 2026-11-24: layout also registered as an exception"}
   - {model: groot, task: "basket v1, b7 v1, b7green v1", what: "4 x 8 x grad-accum 2 (groot-runs-ft512)", decision: "superseded by newer data versions"}
